@@ -162,9 +162,11 @@ type TuiScenario =
 
 /** Every scenario id the launcher knows; anything else is treated as a fixture id. */
 function isScenario(selection: string | undefined): selection is TuiScenario {
-    return selection === BASH_SELECTION_SCENARIO ||
+    return (
+        selection === BASH_SELECTION_SCENARIO ||
         selection === SHELLDOCK_SUMMARY_SCENARIO ||
-        selection === SUBAGENT_SCENARIO;
+        selection === SUBAGENT_SCENARIO
+    );
 }
 
 /**
@@ -216,7 +218,9 @@ function resolveSubagentExtension(): string {
         throw new Error(
             `the subagent scenario needs pi-subagents, but none of these exists:\n${candidates
                 .map((candidate) => `  - ${candidate}`)
-                .join("\n")}\nInstall it with "pi install npm:pi-subagents" or set PI_SUBAGENTS_EXTENSION to its index.js.`,
+                .join(
+                    "\n",
+                )}\nInstall it with "pi install npm:pi-subagents" or set PI_SUBAGENTS_EXTENSION to its index.js.`,
         );
     }
     return found;
@@ -240,7 +244,11 @@ function scenarioExtensions(scenario: TuiScenario | undefined): string[] {
         case BASH_SELECTION_SCENARIO:
             return [repoFile("bash-selection-scenario.ts"), repoFile("../../src/index.ts")];
         case SUBAGENT_SCENARIO:
-            return [repoFile("subagent-scenario.ts"), resolveSubagentExtension(), repoFile("../../src/index.ts")];
+            return [
+                repoFile("subagent-scenario.ts"),
+                resolveSubagentExtension(),
+                repoFile("../../src/index.ts"),
+            ];
         case SHELLDOCK_SUMMARY_SCENARIO:
             return [repoFile("shelldock-summary-scenario.ts"), repoFile("../../src/index.ts")];
         default:
@@ -273,16 +281,19 @@ function main(): void {
         scenario === SUBAGENT_SCENARIO
             ? "run the pi-shell-inspector subagent fixture"
             : scenario === SHELLDOCK_SUMMARY_SCENARIO
-                ? "run the pi-shell-inspector dock summary fixture"
-                : scenario === BASH_SELECTION_SCENARIO
-                    ? "run the pi-shell-inspector bash selection fixture"
-                    : "run the pi-shell-inspector fixture",
+              ? "run the pi-shell-inspector dock summary fixture"
+              : scenario === BASH_SELECTION_SCENARIO
+                ? "run the pi-shell-inspector bash selection fixture"
+                : "run the pi-shell-inspector fixture",
     ];
 
     const child = spawn("pi", args, {
         stdio: "inherit",
         // Only the fixture scenario reads the fixture id; a scenario ignores it.
-        env: scenario === undefined ? { ...childEnv(), LUNE_SHELL_INSPECTOR_FIXTURE: fixtureId(argv) } : childEnv(),
+        env:
+            scenario === undefined
+                ? { ...childEnv(), LUNE_SHELL_INSPECTOR_FIXTURE: fixtureId(argv) }
+                : childEnv(),
     });
 
     child.on("error", (error) => {

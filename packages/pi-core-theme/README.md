@@ -41,31 +41,31 @@ Choose automatic, split or unified diffs in the Theme tab. Tune indicators, wrap
 
 ## Palettes
 
-| Dark | Light | Aurora |
-| --- | --- | --- |
+| Dark                                                                      | Light                                                                        | Aurora                                                                          |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | [![Dark](docs/palettes/pi-core-dark.png)](docs/palettes/pi-core-dark.png) | [![Light](docs/palettes/pi-core-light.png)](docs/palettes/pi-core-light.png) | [![Aurora](docs/palettes/pi-core-aurora.png)](docs/palettes/pi-core-aurora.png) |
 
-| Eclipse | Nebula | Dawn |
-| --- | --- | --- |
+| Eclipse                                                                            | Nebula                                                                          | Dawn                                                                      |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | [![Eclipse](docs/palettes/pi-core-eclipse.png)](docs/palettes/pi-core-eclipse.png) | [![Nebula](docs/palettes/pi-core-nebula.png)](docs/palettes/pi-core-nebula.png) | [![Dawn](docs/palettes/pi-core-dawn.png)](docs/palettes/pi-core-dawn.png) |
 
-| Mist |
-| --- |
+| Mist                                                                      |
+| ------------------------------------------------------------------------- |
 | [![Mist](docs/palettes/pi-core-mist.png)](docs/palettes/pi-core-mist.png) |
 
 These screenshots show actual Pi sessions in Ghostty, with each palette enabled from startup.
 
 Choose a palette in the Theme tab, or **Inherit Pi theme** to keep your current one:
 
-| Palette | Mood |
-| --- | --- |
-| **Lune Core Dark** | Moonlight blues on midnight navy |
-| **Lune Core Light** | Moonlight blues on pale paper |
-| **Lune Core Aurora** | Teal aurora over polar night |
-| **Lune Core Eclipse** | Golden corona on black |
-| **Lune Core Nebula** | Violet and magenta clouds |
-| **Lune Core Dawn** | Terracotta sunrise on parchment |
-| **Lune Core Mist** | Pine teal on sage mist |
+| Palette               | Mood                             |
+| --------------------- | -------------------------------- |
+| **Lune Core Dark**    | Moonlight blues on midnight navy |
+| **Lune Core Light**   | Moonlight blues on pale paper    |
+| **Lune Core Aurora**  | Teal aurora over polar night     |
+| **Lune Core Eclipse** | Golden corona on black           |
+| **Lune Core Nebula**  | Violet and magenta clouds        |
+| **Lune Core Dawn**    | Terracotta sunrise on parchment  |
+| **Lune Core Mist**    | Pine teal on sage mist           |
 
 Each palette tints the crescent and thinking levels along its own gradient and keeps distinct success, error and warning tones. It also paints the terminal background and default text in its own colors, so a light palette stays light on a dark terminal profile and the other way around. Turn **Palette background** off to keep your terminal's colors.
 

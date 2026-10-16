@@ -16,7 +16,6 @@ Install from npm:
 pi install npm:@lune_99/pi-shell-inspector
 ```
 
-
 Then start Pi normally:
 
 ```bash
@@ -81,15 +80,15 @@ The job list stays on the left, showing a job's label when it has one and its co
 
 Keyboard controls:
 
-| Action | Keys |
-| --- | --- |
-| Select shell | `↑` / `↓` or `k` / `j` |
-| Scroll output | `Shift+↑` / `Shift+↓` or `Shift+k` / `Shift+j` |
-| Jump to oldest output | `Home` |
-| Follow newest output | `End` |
-| Kill selected shell | `x` |
-| Clear selected shell | `c` |
-| Close inspector | `Esc` |
+| Action                | Keys                                           |
+| --------------------- | ---------------------------------------------- |
+| Select shell          | `↑` / `↓` or `k` / `j`                         |
+| Scroll output         | `Shift+↑` / `Shift+↓` or `Shift+k` / `Shift+j` |
+| Jump to oldest output | `Home`                                         |
+| Follow newest output  | `End`                                          |
+| Kill selected shell   | `x`                                            |
+| Clear selected shell  | `c`                                            |
+| Close inspector       | `Esc`                                          |
 
 Killing a running shell stops its process tree but keeps it in the list, with its output still readable. Clearing a completed, failed, or killed shell removes it from the list once you are done with it.
 

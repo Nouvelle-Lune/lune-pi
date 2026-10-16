@@ -68,7 +68,12 @@ export class QuestionPreviewRenderer {
         return this.hasPreview;
     }
 
-    render(optionIndex: number, width: number, maxBlockRows: number, scrollOffset = 0): PreviewBlock {
+    render(
+        optionIndex: number,
+        width: number,
+        maxBlockRows: number,
+        scrollOffset = 0,
+    ): PreviewBlock {
         const maxInnerWidth = Math.max(
             1,
             width - BORDER_HORIZONTAL_OVERHEAD - 2 * BORDER_INNER_PADDING_HORIZONTAL,

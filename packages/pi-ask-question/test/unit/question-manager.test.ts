@@ -49,7 +49,9 @@ describe("question manager", () => {
 
         it("copies the questions so later mutation cannot change the request", () => {
             const manager = newManager();
-            const questions: AskQuestion[] = [{ question: "First", options: [{ label: "A" }, { label: "B" }] }];
+            const questions: AskQuestion[] = [
+                { question: "First", options: [{ label: "A" }, { label: "B" }] },
+            ];
             const request = manager.create(questions);
 
             questions[0]!.question = "changed";
@@ -88,7 +90,13 @@ describe("question manager", () => {
             const manager = newManager();
             const request = manager.create(QUESTIONS);
 
-            assert.equal(manager.submit(request.id, [{ selectedIndexes: [1] }, { selectedIndexes: [], customText: "yes" }]), true);
+            assert.equal(
+                manager.submit(request.id, [
+                    { selectedIndexes: [1] },
+                    { selectedIndexes: [], customText: "yes" },
+                ]),
+                true,
+            );
             assert.equal(manager.get(request.id)?.status, "answered");
             assert.deepEqual(manager.get(request.id)?.answers, [
                 { selectedIndexes: [1] },
@@ -96,7 +104,10 @@ describe("question manager", () => {
             ]);
 
             // A second settle is a no-op: the answers were already delivered.
-            assert.equal(manager.submit(request.id, [{ selectedIndexes: [0] }, { selectedIndexes: [0] }]), false);
+            assert.equal(
+                manager.submit(request.id, [{ selectedIndexes: [0] }, { selectedIndexes: [0] }]),
+                false,
+            );
             assert.deepEqual(manager.get(request.id)?.answers?.[0], { selectedIndexes: [1] });
             assert.equal(manager.getPendingRequests().length, 0);
         });
@@ -217,7 +228,11 @@ describe("question manager", () => {
             const resumed = newManager();
             resumed.restore(createFakeContext({ branch: branchWith(manager.snapshot()) }));
 
-            assert.equal(resumed.nextPendingRequest()?.id, first.id, "the least recently shown one comes first");
+            assert.equal(
+                resumed.nextPendingRequest()?.id,
+                first.id,
+                "the least recently shown one comes first",
+            );
 
             // A request that arrives after the restart still outranks the restored ones.
             const third = resumed.create(QUESTIONS);
@@ -298,7 +313,10 @@ describe("question manager", () => {
             restarted.restore(createFakeContext({ branch: host.branch }));
 
             // The preview pane has to survive a restart with the rest of the question.
-            assert.deepEqual(restarted.getPendingRequests()[0]!.questions[0], original.questions[0]);
+            assert.deepEqual(
+                restarted.getPendingRequests()[0]!.questions[0],
+                original.questions[0],
+            );
         });
 
         it("normalizes a stored draft that does not line up with the questions", () => {
@@ -306,10 +324,17 @@ describe("question manager", () => {
             const request = manager.create(QUESTIONS);
 
             const branch = branchWith({
-                requests: [{
-                    ...request,
-                    draft: { currentIndex: 99, optionIndex: -3, answers: "broken", customDrafts: null },
-                }],
+                requests: [
+                    {
+                        ...request,
+                        draft: {
+                            currentIndex: 99,
+                            optionIndex: -3,
+                            answers: "broken",
+                            customDrafts: null,
+                        },
+                    },
+                ],
                 outbox: [],
             });
 
@@ -330,8 +355,16 @@ describe("question manager", () => {
             const latest = manager.create([{ question: "Latest" }]);
 
             const branch: FakeBranchEntry[] = [
-                { type: "custom", customType: QUESTION_STATE_ENTRY, data: { requests: [stale], outbox: [] } },
-                { type: "custom", customType: QUESTION_STATE_ENTRY, data: { requests: [latest], outbox: [] } },
+                {
+                    type: "custom",
+                    customType: QUESTION_STATE_ENTRY,
+                    data: { requests: [stale], outbox: [] },
+                },
+                {
+                    type: "custom",
+                    customType: QUESTION_STATE_ENTRY,
+                    data: { requests: [latest], outbox: [] },
+                },
             ];
 
             const restarted = newManager();
@@ -346,12 +379,22 @@ describe("question manager", () => {
         it("ignores unrelated custom entries and malformed snapshots", () => {
             const manager = newManager();
 
-            manager.restore(createFakeContext({
-                branch: [
-                    { type: "custom", customType: "something-else", data: { requests: [{ id: "x", questions: [] }], outbox: [] } },
-                    { type: "custom", customType: QUESTION_STATE_ENTRY, data: { requests: "broken", outbox: [] } },
-                ],
-            }));
+            manager.restore(
+                createFakeContext({
+                    branch: [
+                        {
+                            type: "custom",
+                            customType: "something-else",
+                            data: { requests: [{ id: "x", questions: [] }], outbox: [] },
+                        },
+                        {
+                            type: "custom",
+                            customType: QUESTION_STATE_ENTRY,
+                            data: { requests: "broken", outbox: [] },
+                        },
+                    ],
+                }),
+            );
 
             assert.deepEqual(manager.getPendingRequests(), []);
         });
@@ -368,9 +411,11 @@ describe("question manager", () => {
             for (const data of malformed) {
                 const restarted = newManager();
 
-                restarted.restore(createFakeContext({
-                    branch: [{ type: "custom", customType: QUESTION_STATE_ENTRY, data }],
-                }));
+                restarted.restore(
+                    createFakeContext({
+                        branch: [{ type: "custom", customType: QUESTION_STATE_ENTRY, data }],
+                    }),
+                );
 
                 assert.deepEqual(
                     restarted.getPendingRequests(),
@@ -386,7 +431,9 @@ describe("question manager", () => {
             request.draft.answers[0] = { selectedIndexes: [0] };
 
             const branch = branchWith({
-                requests: [{ ...request, draft: { ...request.draft, answers: [undefined, undefined] } }],
+                requests: [
+                    { ...request, draft: { ...request.draft, answers: [undefined, undefined] } },
+                ],
                 outbox: [],
             });
 
@@ -403,7 +450,11 @@ describe("question manager", () => {
             manager.persist(host.api);
             manager.persist(host.api);
 
-            assert.equal(host.appendEntryCalls.length, 1, "an unchanged state is not written twice");
+            assert.equal(
+                host.appendEntryCalls.length,
+                1,
+                "an unchanged state is not written twice",
+            );
 
             // Drafts change in place without an event; the comparison still has to see them.
             request.draft.customDrafts[1] = "half typed";
@@ -440,7 +491,11 @@ describe("question manager", () => {
             host.api.appendEntry = appendEntry;
             manager.persist(host.api);
 
-            assert.equal(host.appendEntryCalls.length, 1, "the failed snapshot is written once the session accepts it");
+            assert.equal(
+                host.appendEntryCalls.length,
+                1,
+                "the failed snapshot is written once the session accepts it",
+            );
         });
 
         it("keeps only the delivery fields of a settled request", () => {
@@ -450,7 +505,10 @@ describe("question manager", () => {
                 question: "Which database?",
                 displayText: "DISPLAY_SENTINEL",
                 multiSelect: true,
-                options: [{ label: "Postgres", description: "server", preview: "PREVIEW_SENTINEL" }, { label: "SQLite" }],
+                options: [
+                    { label: "Postgres", description: "server", preview: "PREVIEW_SENTINEL" },
+                    { label: "SQLite" },
+                ],
             };
             const answered = manager.create([question]);
             const skipped = manager.create([question]);
@@ -458,7 +516,13 @@ describe("question manager", () => {
             manager.submit(answered.id, [{ selectedIndexes: [0] }]);
             manager.skip(skipped.id);
 
-            const expected = [{ header: "Storage", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }];
+            const expected = [
+                {
+                    header: "Storage",
+                    question: "Which database?",
+                    options: [{ label: "Postgres" }, { label: "SQLite" }],
+                },
+            ];
             const actual = manager.snapshot().outbox.map((request) => request.questions);
 
             assert.deepEqual(actual, [expected, expected]);
@@ -467,26 +531,44 @@ describe("question manager", () => {
         it("restores a settled request from an older snapshot with only its delivery fields", () => {
             const branch = branchWith({
                 requests: [],
-                outbox: [{
-                    id: "settled-1",
-                    createdAt: 1,
-                    settledAt: 2,
-                    status: "answered",
-                    questions: [{
-                        header: "Storage",
-                        question: "Which database?",
-                        displayText: "DISPLAY_SENTINEL",
-                        options: [{ label: "Postgres", preview: "PREVIEW_SENTINEL" }, { label: "SQLite" }],
-                    }],
-                    draft: { currentIndex: 0, optionIndex: 0, answers: [undefined], customDrafts: [undefined] },
-                    answers: [{ selectedIndexes: [0] }],
-                }],
+                outbox: [
+                    {
+                        id: "settled-1",
+                        createdAt: 1,
+                        settledAt: 2,
+                        status: "answered",
+                        questions: [
+                            {
+                                header: "Storage",
+                                question: "Which database?",
+                                displayText: "DISPLAY_SENTINEL",
+                                options: [
+                                    { label: "Postgres", preview: "PREVIEW_SENTINEL" },
+                                    { label: "SQLite" },
+                                ],
+                            },
+                        ],
+                        draft: {
+                            currentIndex: 0,
+                            optionIndex: 0,
+                            answers: [undefined],
+                            customDrafts: [undefined],
+                        },
+                        answers: [{ selectedIndexes: [0] }],
+                    },
+                ],
             });
             const manager = newManager();
 
             manager.restore(createFakeContext({ branch }));
 
-            const expected = [{ header: "Storage", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }];
+            const expected = [
+                {
+                    header: "Storage",
+                    question: "Which database?",
+                    options: [{ label: "Postgres" }, { label: "SQLite" }],
+                },
+            ];
             const actual = manager.get("settled-1")?.questions;
 
             assert.deepEqual(actual, expected);
@@ -523,7 +605,11 @@ describe("question manager", () => {
             assert.equal(reported.length, 1, "the failure is not silent");
             assert.equal((reported[0]!.error as Error).message, "snapshot failed");
             assert.deepEqual(reported[0]!.event, { type: "request-created", id: request.id });
-            assert.deepEqual(seen, [{ type: "request-created", id: request.id }], "a later listener still runs");
+            assert.deepEqual(
+                seen,
+                [{ type: "request-created", id: request.id }],
+                "a later listener still runs",
+            );
         });
 
         it("keeps going when the reporter itself throws", () => {

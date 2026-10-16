@@ -21,9 +21,11 @@ export function renderQuestionAnswerMessage(
     const skipped = details?.status === "skipped";
 
     const lines: string[] = [
-        theme.bold(skipped
-            ? theme.fg("warning", "Questions skipped")
-            : theme.fg("success", "Questions answered")),
+        theme.bold(
+            skipped
+                ? theme.fg("warning", "Questions skipped")
+                : theme.fg("success", "Questions answered"),
+        ),
     ];
 
     for (const [index, question] of questions.entries()) {

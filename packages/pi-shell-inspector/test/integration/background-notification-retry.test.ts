@@ -18,7 +18,10 @@ function setup(t: TestContext, send: (call: SendMessageCall) => void | Promise<v
             return send(call);
         },
     } as unknown as ExtensionAPI;
-    const unsubscribe = registerBackgroundShellNotifications(pi, createFakeContext("/work", { ui }));
+    const unsubscribe = registerBackgroundShellNotifications(
+        pi,
+        createFakeContext("/work", { ui }),
+    );
     t.after(() => {
         unsubscribe();
         shellManager.clearAllJobs();
@@ -27,13 +30,20 @@ function setup(t: TestContext, send: (call: SendMessageCall) => void | Promise<v
 }
 
 function complete(id: string): void {
-    shellManager.startJob({ id, command: `echo ${id}`, cwd: "/work", controller: new AbortController() });
+    shellManager.startJob({
+        id,
+        command: `echo ${id}`,
+        cwd: "/work",
+        controller: new AbortController(),
+    });
     shellManager.appendOutput(id, `${id}-output\n`);
     assert.equal(shellManager.settleJob(id, { type: "completed", exitCode: 0 }), true);
 }
 
 function ids(call: SendMessageCall): string[] {
-    return (call.message.details as { jobs: Array<{ shellJobId: string }> }).jobs.map((job) => job.shellJobId);
+    return (call.message.details as { jobs: Array<{ shellJobId: string }> }).jobs.map(
+        (job) => job.shellJobId,
+    );
 }
 
 async function tick(t: TestContext, ms: number): Promise<void> {
@@ -56,12 +66,20 @@ describe("background notification batching and finite retry", () => {
             complete("failed");
             for (let attempt = 1; attempt <= 3; attempt++) {
                 await tick(t, 300);
-                assert.equal(calls.length, attempt, "one attempt per scheduling window, not recursive retry");
+                assert.equal(
+                    calls.length,
+                    attempt,
+                    "one attempt per scheduling window, not recursive retry",
+                );
                 assert.deepEqual(ids(calls.at(-1)!), ["failed"]);
                 assert.equal(shellManager.getJob("failed")?.status, "completed");
             }
             assert.equal(ui.notifyCalls.length, 3);
-            assert.ok(ui.notifyCalls.every((call) => call.type === "error" && call.message.includes("send failed")));
+            assert.ok(
+                ui.notifyCalls.every(
+                    (call) => call.type === "error" && call.message.includes("send failed"),
+                ),
+            );
             assert.match(ui.notifyCalls[0]!.message, /Requeued/);
             assert.match(ui.notifyCalls[2]!.message, /Permanently failed.*failed.*Dropped/);
             await tick(t, 10_000);
@@ -78,8 +96,12 @@ describe("background notification batching and finite retry", () => {
 
     it("requeues the failed batch with new arrivals, preserving per-item retry budgets", async (t) => {
         let reject!: (reason: Error) => void;
-        const pending = new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise; });
-        const { calls, ui } = setup(t, () => calls.length === 1 ? pending : Promise.reject(new Error("unavailable")));
+        const pending = new Promise<void>((_resolve, rejectPromise) => {
+            reject = rejectPromise;
+        });
+        const { calls, ui } = setup(t, () =>
+            calls.length === 1 ? pending : Promise.reject(new Error("unavailable")),
+        );
         complete("older");
         await tick(t, 300);
         complete("newer");
@@ -90,7 +112,9 @@ describe("background notification batching and finite retry", () => {
         assert.deepEqual(ids(calls[1]!), ["older", "newer"]);
         await tick(t, 300);
         assert.deepEqual(ids(calls[2]!), ["older", "newer"]);
-        assert.ok(ui.notifyCalls.some((call) => /Permanently failed.*\[older\]/.test(call.message)));
+        assert.ok(
+            ui.notifyCalls.some((call) => /Permanently failed.*\[older\]/.test(call.message)),
+        );
         await tick(t, 300);
         assert.deepEqual(ids(calls[3]!), ["newer"], "a fresh item retains its own two retries");
         await tick(t, 10_000);
@@ -114,8 +138,10 @@ describe("background notification batching and finite retry", () => {
 
     it("keeps arrivals during a successful flush in the next batch", async (t) => {
         let release!: () => void;
-        const pending = new Promise<void>((resolve) => { release = resolve; });
-        const { calls } = setup(t, () => calls.length === 1 ? pending : undefined);
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const { calls } = setup(t, () => (calls.length === 1 ? pending : undefined));
         complete("first");
         await tick(t, 300);
         complete("second");
@@ -159,11 +185,17 @@ describe("background notification batching and finite retry", () => {
     });
 
     it("flushes at MAX_BUFFER_SIZE and contains errors from that fire-and-forget path", async (t) => {
-        const { calls } = setup(t, () => { throw new Error("size-trigger failure"); });
+        const { calls } = setup(t, () => {
+            throw new Error("size-trigger failure");
+        });
         for (let n = 0; n < 10; n++) complete(`size-${n}`);
         assert.equal(calls.length, 1, "size threshold bypasses debounce");
         await setImmediate();
-        assert.equal(calls.length, 1, "failed size-triggered batches wait for the normal scheduler");
+        assert.equal(
+            calls.length,
+            1,
+            "failed size-triggered batches wait for the normal scheduler",
+        );
         await tick(t, 300);
         await tick(t, 300);
         await tick(t, 10_000);
@@ -188,7 +220,9 @@ describe("background notification batching and finite retry", () => {
     });
 
     it("dispose cancels retries and ignores new messages", async (t) => {
-        const { calls, unsubscribe } = setup(t, () => { throw new Error("failed before dispose"); });
+        const { calls, unsubscribe } = setup(t, () => {
+            throw new Error("failed before dispose");
+        });
         complete("cancel");
         await tick(t, 300);
         unsubscribe();
@@ -199,7 +233,9 @@ describe("background notification batching and finite retry", () => {
 
     it("does not resurrect an in-flight failed batch after disposal", async (t) => {
         let reject!: (reason: Error) => void;
-        const pending = new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise; });
+        const pending = new Promise<void>((_resolve, rejectPromise) => {
+            reject = rejectPromise;
+        });
         const { calls, ui, unsubscribe } = setup(t, () => pending);
         complete("in-flight");
         await tick(t, 300);
@@ -214,15 +250,25 @@ describe("background notification batching and finite retry", () => {
     it("records failures on stderr when no UI is available", async (t) => {
         t.mock.timers.enable({ apis: ["setTimeout"] });
         const fallback = t.mock.method(console, "error", () => {});
-        const pi = { sendMessage() { return Promise.reject(new Error("headless failure")); } } as unknown as ExtensionAPI;
+        const pi = {
+            sendMessage() {
+                return Promise.reject(new Error("headless failure"));
+            },
+        } as unknown as ExtensionAPI;
         const unsubscribe = registerBackgroundShellNotifications(pi);
-        t.after(() => { unsubscribe(); shellManager.clearAllJobs(); });
+        t.after(() => {
+            unsubscribe();
+            shellManager.clearAllJobs();
+        });
         complete("headless");
         await tick(t, 300);
         await tick(t, 300);
         await tick(t, 300);
         assert.equal(fallback.mock.callCount(), 3);
-        assert.match(String(fallback.mock.calls[2]!.arguments[0]), /Permanently failed.*headless.*Dropped/);
+        assert.match(
+            String(fallback.mock.calls[2]!.arguments[0]),
+            /Permanently failed.*headless.*Dropped/,
+        );
     });
 
     it("contains a broken diagnostic fallback as well as the transport failure", async (t) => {
@@ -230,8 +276,12 @@ describe("background notification batching and finite retry", () => {
         const { calls, ui } = setup(t, () => {
             if (failing) throw new Error("send failed");
         });
-        t.mock.method(ui, "notify", () => { throw new Error("stale UI"); });
-        t.mock.method(console, "error", () => { throw new Error("broken fallback"); });
+        t.mock.method(ui, "notify", () => {
+            throw new Error("stale UI");
+        });
+        t.mock.method(console, "error", () => {
+            throw new Error("broken fallback");
+        });
         complete("broken-diagnostics");
         await tick(t, 300);
         await tick(t, 300);
@@ -245,8 +295,12 @@ describe("background notification batching and finite retry", () => {
     });
 
     it("falls back only when the UI diagnostic sink is unusable, without leaking its exception", async (t) => {
-        const { calls, ui } = setup(t, () => { throw new Error("send failed"); });
-        t.mock.method(ui, "notify", () => { throw new Error("stale UI"); });
+        const { calls, ui } = setup(t, () => {
+            throw new Error("send failed");
+        });
+        t.mock.method(ui, "notify", () => {
+            throw new Error("stale UI");
+        });
         const fallback = t.mock.method(console, "error", () => {});
         complete("broken-ui");
         await tick(t, 300);

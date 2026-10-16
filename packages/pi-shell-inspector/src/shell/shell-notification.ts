@@ -80,7 +80,10 @@ export function buildBackgroundShellNotification(batch: readonly BackgroundShell
             error: item.jobError,
             durationMs: item.jobDurationMs,
             // The output is the section's tail, so its slice starts one output length back from the end.
-            output: { start: offset + section.length - item.jobOutput.length, end: offset + section.length },
+            output: {
+                start: offset + section.length - item.jobOutput.length,
+                end: offset + section.length,
+            },
             fullOutputPath: item.jobFullOutputPath,
         });
         offset += section.length + SECTION_SEPARATOR.length;
@@ -185,11 +188,11 @@ class MessageSendBuffer<T> {
         try {
             await this.onFlush(batch.map(({ item }) => item));
         } catch (error) {
-            const retrying = batch.filter(({ retryCount }) =>
-                !this.disposed && retryCount < this.MAX_RETRIES,
+            const retrying = batch.filter(
+                ({ retryCount }) => !this.disposed && retryCount < this.MAX_RETRIES,
             );
-            const dropped = batch.filter(({ retryCount }) =>
-                this.disposed || retryCount >= this.MAX_RETRIES,
+            const dropped = batch.filter(
+                ({ retryCount }) => this.disposed || retryCount >= this.MAX_RETRIES,
             );
             for (const entry of retrying) {
                 entry.retryCount += 1;
@@ -197,7 +200,11 @@ class MessageSendBuffer<T> {
             // Keep older failures ahead of arrivals during this flush, without immediate retries.
             this.buffer = retrying.concat(this.buffer);
             try {
-                this.onFailure(error, retrying.map(({ item }) => item), dropped.map(({ item }) => item));
+                this.onFailure(
+                    error,
+                    retrying.map(({ item }) => item),
+                    dropped.map(({ item }) => item),
+                );
             } catch {
                 // A broken diagnostic sink must not turn a contained delivery error into a rejection.
             }
@@ -232,10 +239,14 @@ export function registerBackgroundShellNotifications(
         const reason = error instanceof Error ? error.message : String(error);
         const messages: string[] = [];
         if (retrying.length > 0) {
-            messages.push(`Failed to send background shell notification(s) [${retrying.map((item) => item.jobId).join(", ")}]: ${reason}. Requeued; at most 2 retries per notification.`);
+            messages.push(
+                `Failed to send background shell notification(s) [${retrying.map((item) => item.jobId).join(", ")}]: ${reason}. Requeued; at most 2 retries per notification.`,
+            );
         }
         if (dropped.length > 0) {
-            messages.push(`Permanently failed background shell notification(s) [${dropped.map((item) => item.jobId).join(", ")}]: ${reason}. Dropped; retry limit reached or buffer disposed.`);
+            messages.push(
+                `Permanently failed background shell notification(s) [${dropped.map((item) => item.jobId).join(", ")}]: ${reason}. Dropped; retry limit reached or buffer disposed.`,
+            );
         }
         for (const message of messages) {
             if (ui) {
@@ -249,27 +260,31 @@ export function registerBackgroundShellNotifications(
             console.error(message);
         }
     };
-    const messageBuffer = new MessageSendBuffer<BackgroundShellNotification>(300, (batch) => {
-        const { content, details } = buildBackgroundShellNotification(batch);
+    const messageBuffer = new MessageSendBuffer<BackgroundShellNotification>(
+        300,
+        (batch) => {
+            const { content, details } = buildBackgroundShellNotification(batch);
 
-        return pi.sendMessage(
-            {
-                customType: BACKGROUND_SHELL_NOTIFICATION_TYPE,
+            return pi.sendMessage(
+                {
+                    customType: BACKGROUND_SHELL_NOTIFICATION_TYPE,
 
-                content,
+                    content,
 
-                // The box is the only way a settled shell reaches the transcript; the model reads the
-                // same message either way, because display never affects what is sent to it.
-                display: true,
+                    // The box is the only way a settled shell reaches the transcript; the model reads the
+                    // same message either way, because display never affects what is sent to it.
+                    display: true,
 
-                details,
-            },
-            {
-                triggerTurn: true,
-                deliverAs: "steer",
-            },
-        );
-    }, reportFailure);
+                    details,
+                },
+                {
+                    triggerTurn: true,
+                    deliverAs: "steer",
+                },
+            );
+        },
+        reportFailure,
+    );
 
     const unsubscribe = shellManager.subscribe((event) => {
         if (
@@ -296,7 +311,8 @@ export function registerBackgroundShellNotifications(
             jobError: job.error,
             jobOutput: output,
             jobFullOutputPath: job.output.fullOutputPath,
-            jobDurationMs: job.finishedAt === undefined ? undefined : job.finishedAt - job.startedAt,
+            jobDurationMs:
+                job.finishedAt === undefined ? undefined : job.finishedAt - job.startedAt,
         });
     });
 

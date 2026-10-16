@@ -59,7 +59,7 @@ keys.
 
 ### Schema evolution
 
-The current version is `migrations.length + 1`. Stored data at version *n* is passed through
+The current version is `migrations.length + 1`. Stored data at version _n_ is passed through
 `migrations[n - 1]`, then onward, when the file is loaded; the upgraded file is written back
 with its new `$version`. A migration receives an isolated copy of one scope's overrides
 (no defaults, no `$` metadata) and returns the next version's overrides; keep it

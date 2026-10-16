@@ -10,11 +10,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { ShellManager } from "../../src/shell/shell-manager.ts";
-import {
-    FakeSessionLog,
-    type AppendEntryCall,
-    type FakeSessionLogOptions,
-} from "../harness.ts";
+import { FakeSessionLog, type AppendEntryCall, type FakeSessionLogOptions } from "../harness.ts";
 
 /** Custom entry type of one persisted shell view snapshot. */
 export const SHELL_STATUS_ENTRY = "pi-shell-inspector-view-status";

@@ -9,13 +9,7 @@ import {
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CompactionOptions } from "../../src/options.ts";
-import {
-    assistantText,
-    assistantToolCall,
-    policy,
-    toolResult,
-    user,
-} from "../harness/fixtures.ts";
+import { assistantText, assistantToolCall, policy, toolResult, user } from "../harness/fixtures.ts";
 import { startLifecycleHost } from "../harness/lifecycle-host.ts";
 
 function config(overrides: Partial<CompactionOptions> = {}): CompactionOptions {

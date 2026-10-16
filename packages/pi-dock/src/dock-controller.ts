@@ -13,7 +13,12 @@ import {
 } from "@earendil-works/pi-tui";
 import { getDockRegistry, type DockRegistry } from "@lune_99/pi-lune-extensions-core/dock/host";
 import type { LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock";
-import { DockFooter, replacesFooter, type DockFooterInput, type DockLayout } from "./dock-footer.ts";
+import {
+    DockFooter,
+    replacesFooter,
+    type DockFooterInput,
+    type DockLayout,
+} from "./dock-footer.ts";
 import type { VisibleDockItem } from "./dock-renderer.ts";
 import { DockStatusSource, type DockStatus } from "./dock-status.ts";
 

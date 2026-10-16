@@ -14,7 +14,10 @@ const MAX_CACHED_COMMANDS = 64;
  * kilobytes; the same few commands are previewed again on every frame, so they are done once.
  */
 export class CommandPreviews {
-    private readonly byCommand = new Map<string, { collapsed: string; fitted: Map<number, string> }>();
+    private readonly byCommand = new Map<
+        string,
+        { collapsed: string; fitted: Map<number, string> }
+    >();
 
     fit(command: string, maxWidth: number): string {
         let entry = this.byCommand.get(command);

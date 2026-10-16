@@ -73,7 +73,9 @@ async function openSession(workDir: string) {
     const ui = createFakeUi();
     const ctx = createFakeContext(workDir, { ui });
     await host.emit("session_start", ctx);
-    const tool = host.registeredTools.find((entry) => entry.name === "bash") as BashToolDefinition | undefined;
+    const tool = host.registeredTools.find((entry) => entry.name === "bash") as
+        | BashToolDefinition
+        | undefined;
     assert.ok(tool, "the extension must register the bash tool");
     return { host, ctx, tool };
 }
@@ -97,7 +99,9 @@ describe("pi-shell-inspector teardown races", () => {
             const settleEvents: string[] = [];
             const unsubscribe = shellManager.subscribe((event) => {
                 if (
-                    (event.type === "job-completed" || event.type === "job-failed" || event.type === "job-killed") &&
+                    (event.type === "job-completed" ||
+                        event.type === "job-failed" ||
+                        event.type === "job-killed") &&
                     event.id === jobId
                 ) {
                     settleEvents.push(event.type);
@@ -115,10 +119,19 @@ describe("pi-shell-inspector teardown races", () => {
             unsubscribe();
             await new Promise((resolve) => setTimeout(resolve, 50));
 
-            assert.equal(settleEvents.length, 1, `the job must settle once, saw ${settleEvents.join(", ")}`);
-            assert.deepEqual(shellManager.getAllJobsList(), [], "shutdown must leave no job behind");
+            assert.equal(
+                settleEvents.length,
+                1,
+                `the job must settle once, saw ${settleEvents.join(", ")}`,
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsList(),
+                [],
+                "shutdown must leave no job behind",
+            );
             const stats = shellManager.getAllJobsStatusStat();
-            const settled = stats.completedCount + stats.failedCount + stats.killedCount + stats.runningCount;
+            const settled =
+                stats.completedCount + stats.failedCount + stats.killedCount + stats.runningCount;
             assert.equal(settled, 0, "a cleared manager must count nothing");
         });
     });
@@ -131,20 +144,36 @@ describe("pi-shell-inspector teardown races", () => {
                 ctx: session.ctx,
                 toolCallId: "race-reject",
             });
-            assert.equal(shellManager.getJob(jobId)!.status, "running", "the shell must be running before teardown");
+            assert.equal(
+                shellManager.getJob(jobId)!.status,
+                "running",
+                "the shell must be running before teardown",
+            );
 
             await session.host.emit("session_shutdown", session.ctx);
 
             // The runner's abort rejection lands after the shutdown already killed and dropped the job.
             await new Promise((resolve) => setTimeout(resolve, 100));
-            assert.equal(shellManager.settleJob(jobId, { type: "killed", error: "aborted" }), false, "a settle after teardown must be refused");
-            assert.equal(shellManager.settleJob(jobId, { type: "completed", exitCode: 0 }), false, "a later settle must be refused too");
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 0,
-                failedCount: 0,
-                killedCount: 0,
-            }, "refused settles must not move any counter");
+            assert.equal(
+                shellManager.settleJob(jobId, { type: "killed", error: "aborted" }),
+                false,
+                "a settle after teardown must be refused",
+            );
+            assert.equal(
+                shellManager.settleJob(jobId, { type: "completed", exitCode: 0 }),
+                false,
+                "a later settle must be refused too",
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 0,
+                    failedCount: 0,
+                    killedCount: 0,
+                },
+                "refused settles must not move any counter",
+            );
         });
     });
 
@@ -177,8 +206,14 @@ describe("pi-shell-inspector teardown races", () => {
 
                 // Any chunk that was still buffered must be refused, not crash the process.
                 await failures.settle();
-                failures.assertEmpty("a chunk arriving after teardown must not escape as a process error");
-                assert.deepEqual(shellManager.getAllJobsList(), [], "the cleared flood job must stay gone");
+                failures.assertEmpty(
+                    "a chunk arriving after teardown must not escape as a process error",
+                );
+                assert.deepEqual(
+                    shellManager.getAllJobsList(),
+                    [],
+                    "the cleared flood job must stay gone",
+                );
             } finally {
                 failures.stop();
             }
@@ -193,25 +228,36 @@ describe("pi-shell-inspector teardown races", () => {
                 ctx: session.ctx,
                 toolCallId: "race-abort-path",
             });
-            await waitFor(
-                "the command's first chunk",
-                () => (shellManager.getJob(jobId)?.output.content ?? "").includes("start"),
+            await waitFor("the command's first chunk", () =>
+                (shellManager.getJob(jobId)?.output.content ?? "").includes("start"),
             );
 
             await session.host.emit("session_shutdown", session.ctx);
             // The runner observes the abort and calls settleJob(killed); the job is gone by then.
             await new Promise((resolve) => setTimeout(resolve, 150));
 
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 0,
-                failedCount: 0,
-                killedCount: 0,
-            }, "a teardown kill leaves no counter behind once the job is dropped");
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 0,
+                    failedCount: 0,
+                    killedCount: 0,
+                },
+                "a teardown kill leaves no counter behind once the job is dropped",
+            );
             const snapshot = session.host.appendEntryCalls.at(-1);
-            assert.equal(snapshot?.customType, "pi-shell-inspector-view-status", "shutdown must persist the final shell snapshot");
+            assert.equal(
+                snapshot?.customType,
+                "pi-shell-inspector-view-status",
+                "shutdown must persist the final shell snapshot",
+            );
             const jobs = (snapshot?.data as { jobs: Array<{ id: string; status: string }> }).jobs;
-            assert.deepEqual(jobs.map((job) => [job.id, job.status]), [["race-abort-path", "killed"]], "the snapshot must record the shell as killed");
+            assert.deepEqual(
+                jobs.map((job) => [job.id, job.status]),
+                [["race-abort-path", "killed"]],
+                "the snapshot must record the shell as killed",
+            );
         });
     });
 
@@ -226,7 +272,9 @@ describe("pi-shell-inspector teardown races", () => {
             const terminalEvents: string[] = [];
             const unsubscribe = shellManager.subscribe((event) => {
                 if (
-                    (event.type === "job-completed" || event.type === "job-failed" || event.type === "job-killed") &&
+                    (event.type === "job-completed" ||
+                        event.type === "job-failed" ||
+                        event.type === "job-killed") &&
                     event.id === jobId
                 ) {
                     terminalEvents.push(event.type);
@@ -236,21 +284,45 @@ describe("pi-shell-inspector teardown races", () => {
             try {
                 await session.host.emit("session_shutdown", session.ctx);
 
-                assert.deepEqual(terminalEvents, ["job-killed"], "teardown must publish exactly one kill event");
-                assert.deepEqual(session.host.sendMessageCalls, [], "teardown must not notify the agent");
+                assert.deepEqual(
+                    terminalEvents,
+                    ["job-killed"],
+                    "teardown must publish exactly one kill event",
+                );
+                assert.deepEqual(
+                    session.host.sendMessageCalls,
+                    [],
+                    "teardown must not notify the agent",
+                );
 
                 // The runner's abort rejection arrives after the job was killed and dropped.
                 await new Promise((resolve) => setTimeout(resolve, 500));
 
-                assert.deepEqual(terminalEvents, ["job-killed"], "a late rejection must not emit again");
-                assert.deepEqual(session.host.sendMessageCalls, [], "a late rejection must not notify either");
-                assert.equal(shellManager.getJob(jobId), undefined, "a late rejection must not resurrect the job");
-                assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                    runningCount: 0,
-                    completedCount: 0,
-                    failedCount: 0,
-                    killedCount: 0,
-                }, "a late rejection must not move any counter");
+                assert.deepEqual(
+                    terminalEvents,
+                    ["job-killed"],
+                    "a late rejection must not emit again",
+                );
+                assert.deepEqual(
+                    session.host.sendMessageCalls,
+                    [],
+                    "a late rejection must not notify either",
+                );
+                assert.equal(
+                    shellManager.getJob(jobId),
+                    undefined,
+                    "a late rejection must not resurrect the job",
+                );
+                assert.deepEqual(
+                    shellManager.getAllJobsStatusStat(),
+                    {
+                        runningCount: 0,
+                        completedCount: 0,
+                        failedCount: 0,
+                        killedCount: 0,
+                    },
+                    "a late rejection must not move any counter",
+                );
             } finally {
                 unsubscribe();
             }
@@ -292,28 +364,52 @@ describe("pi-shell-inspector teardown races", () => {
                     await session.host.emit("session_shutdown", session.ctx);
                     const sizeAtTeardown = statSync(path).size;
 
-                    assert.equal(shellManager.getJob(jobId), undefined, "teardown must drop the job");
-                    assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                        runningCount: 0,
-                        completedCount: 0,
-                        failedCount: 0,
-                        killedCount: 0,
-                    }, "the dropped job must leave no counter behind");
+                    assert.equal(
+                        shellManager.getJob(jobId),
+                        undefined,
+                        "teardown must drop the job",
+                    );
+                    assert.deepEqual(
+                        shellManager.getAllJobsStatusStat(),
+                        {
+                            runningCount: 0,
+                            completedCount: 0,
+                            failedCount: 0,
+                            killedCount: 0,
+                        },
+                        "the dropped job must leave no counter behind",
+                    );
 
                     // Buffered chunks keep arriving from the killed process; the runner's onData guard
                     // has to refuse them without throwing, appending, or creating new state.
                     await failures.settle();
 
                     failures.assertEmpty("a late chunk must not escape as a process error");
-                    assert.deepEqual(lateOutputEvents, [], "no output-updated event may follow teardown");
-                    assert.equal(shellManager.getJob(jobId), undefined, "no late chunk may resurrect the job");
-                    assert.equal(statSync(path).size, sizeAtTeardown, "a late chunk must not grow the spill file");
-                    assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                        runningCount: 0,
-                        completedCount: 0,
-                        failedCount: 0,
-                        killedCount: 0,
-                    }, "a late chunk must not revive a counter");
+                    assert.deepEqual(
+                        lateOutputEvents,
+                        [],
+                        "no output-updated event may follow teardown",
+                    );
+                    assert.equal(
+                        shellManager.getJob(jobId),
+                        undefined,
+                        "no late chunk may resurrect the job",
+                    );
+                    assert.equal(
+                        statSync(path).size,
+                        sizeAtTeardown,
+                        "a late chunk must not grow the spill file",
+                    );
+                    assert.deepEqual(
+                        shellManager.getAllJobsStatusStat(),
+                        {
+                            runningCount: 0,
+                            completedCount: 0,
+                            failedCount: 0,
+                            killedCount: 0,
+                        },
+                        "a late chunk must not revive a counter",
+                    );
                 } finally {
                     unsubscribe();
                 }

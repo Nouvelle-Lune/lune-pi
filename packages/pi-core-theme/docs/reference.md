@@ -105,15 +105,15 @@ longer exist.
 Choose a palette under **Style · Color palette**, or select its theme name through Pi's
 native theme selector:
 
-| Label | Theme name | Appearance |
-| --- | --- | --- |
-| Lune Core Dark | `pi-core-dark` | dark |
-| Lune Core Light | `pi-core-light` | light |
-| Lune Core Aurora | `pi-core-aurora` | dark |
-| Lune Core Eclipse | `pi-core-eclipse` | dark |
-| Lune Core Nebula | `pi-core-nebula` | dark |
-| Lune Core Dawn | `pi-core-dawn` | light |
-| Lune Core Mist | `pi-core-mist` | light |
+| Label             | Theme name        | Appearance |
+| ----------------- | ----------------- | ---------- |
+| Lune Core Dark    | `pi-core-dark`    | dark       |
+| Lune Core Light   | `pi-core-light`   | light      |
+| Lune Core Aurora  | `pi-core-aurora`  | dark       |
+| Lune Core Eclipse | `pi-core-eclipse` | dark       |
+| Lune Core Nebula  | `pi-core-nebula`  | dark       |
+| Lune Core Dawn    | `pi-core-dawn`    | light      |
+| Lune Core Mist    | `pi-core-mist`    | light      |
 
 Each palette is built around its own five-step crescent gradient, which also tints the
 header moon and thinking levels, and keeps separate success, error and warning tones.

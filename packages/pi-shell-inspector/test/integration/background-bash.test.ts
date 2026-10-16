@@ -62,7 +62,11 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-immediate",
         });
 
-        assert.equal(run.failed, false, `expected the call to succeed: ${run.error?.message ?? ""}`);
+        assert.equal(
+            run.failed,
+            false,
+            `expected the call to succeed: ${run.error?.message ?? ""}`,
+        );
         assert.equal(jobId, "call-immediate", "the job id must be the tool call id");
         assert.equal(
             resultText(requireResult(run)),
@@ -82,11 +86,18 @@ describe("pi-shell-inspector background bash", () => {
             "the call must answer with the structured job start",
         );
         assert.deepEqual(run.updates, [], "a background call must not stream to its caller");
-        assert.ok(run.durationMs < 1000, `the call must return while the 2s sleep runs, took ${run.durationMs}ms`);
+        assert.ok(
+            run.durationMs < 1000,
+            `the call must return while the 2s sleep runs, took ${run.durationMs}ms`,
+        );
 
         const running = shellManager.getJob("call-immediate");
         assert.ok(running, "expected the call to be recorded as a job");
-        assert.equal(running.status, "running", "the command must still be running after the call returned");
+        assert.equal(
+            running.status,
+            "running",
+            "the command must still be running after the call returned",
+        );
         assert.equal(running.output.content, "", "no output has been produced yet");
 
         const settled = await waitForJobSettled("call-immediate");
@@ -109,11 +120,19 @@ describe("pi-shell-inspector background bash", () => {
         assert.ok(job, "expected the started job");
 
         assert.equal(job.id, "call-fields", "the job id must be the tool call id");
-        assert.equal(job.command, "echo job-fields", "the job must keep the command it was started with");
+        assert.equal(
+            job.command,
+            "echo job-fields",
+            "the job must keep the command it was started with",
+        );
         assert.equal(job.label, "job fields", "the requested label must reach the job");
         assert.equal(job.cwd, session.ctx.cwd, "the job cwd must be the call context's cwd");
         assert.equal(job.status, "running", "a freshly started job must be running");
-        assert.equal(job.controller.signal.aborted, false, "a running job's controller is not aborted");
+        assert.equal(
+            job.controller.signal.aborted,
+            false,
+            "a running job's controller is not aborted",
+        );
 
         await waitForJobSettled("call-fields");
     });
@@ -128,7 +147,11 @@ describe("pi-shell-inspector background bash", () => {
             label: "  training run  ",
         });
 
-        assert.equal(shellManager.getJob(labelled.jobId)?.label, "training run", "the label must be stored trimmed");
+        assert.equal(
+            shellManager.getJob(labelled.jobId)?.label,
+            "training run",
+            "the label must be stored trimmed",
+        );
 
         await waitForJobSettled(labelled.jobId);
 
@@ -139,7 +162,11 @@ describe("pi-shell-inspector background bash", () => {
             label: "   ",
         });
 
-        assert.equal(shellManager.getJob(blank.jobId)?.label, undefined, "a blank label must be dropped instead of stored");
+        assert.equal(
+            shellManager.getJob(blank.jobId)?.label,
+            undefined,
+            "a blank label must be dropped instead of stored",
+        );
 
         await waitForJobSettled(blank.jobId);
     });
@@ -148,22 +175,36 @@ describe("pi-shell-inspector background bash", () => {
         // Contract: data events stream into the job through appendOutput, so the dock and the
         // inspector see the same text growing while the tool call has long returned.
         const { jobId } = await startBackgroundBashCommand(session.tool, {
-            command: "printf 'first\\n'; sleep 0.5; printf 'second\\n'; sleep 0.5; printf 'third\\n'",
+            command:
+                "printf 'first\\n'; sleep 0.5; printf 'second\\n'; sleep 0.5; printf 'third\\n'",
             ctx: session.ctx,
             toolCallId: "call-streaming",
         });
 
-        await waitFor("the first chunk to reach the job", () => (shellManager.getJob(jobId)?.output.content ?? "").includes("first"));
+        await waitFor("the first chunk to reach the job", () =>
+            (shellManager.getJob(jobId)?.output.content ?? "").includes("first"),
+        );
 
         const streaming = shellManager.getJob(jobId);
         assert.ok(streaming, "expected the streaming job to be stored");
-        assert.equal(streaming.status, "running", "the job must still be running after its first chunk");
+        assert.equal(
+            streaming.status,
+            "running",
+            "the job must still be running after its first chunk",
+        );
         assert.equal(streaming.output.content, "first\n", "no later chunk may have arrived yet");
 
         const settled = await waitForJobSettled(jobId);
         assert.equal(settled.status, "completed", "the streaming command must settle as completed");
-        assert.equal(settled.output.content, "first\nsecond\nthird\n", "the job must keep every streamed chunk in order");
-        assert.ok(settled.lastActivityAt >= settled.startedAt, "the last activity must not predate the start");
+        assert.equal(
+            settled.output.content,
+            "first\nsecond\nthird\n",
+            "the job must keep every streamed chunk in order",
+        );
+        assert.ok(
+            settled.lastActivityAt >= settled.startedAt,
+            "the last activity must not predate the start",
+        );
     });
 
     it("keeps the streamed bytes as they arrive: carriage returns and ANSI escapes included", async () => {
@@ -171,15 +212,24 @@ describe("pi-shell-inspector background bash", () => {
         // unlike the built-in foreground result (which sanitizes the display text) the job output
         // contains the original carriage returns and escape sequences.
         const { jobId } = await startBackgroundBashCommand(session.tool, {
-            command: "printf 'plain\\n'; printf 'cr\\rback\\n'; printf 'colored: \\033[31mred\\033[0m\\n'",
+            command:
+                "printf 'plain\\n'; printf 'cr\\rback\\n'; printf 'colored: \\033[31mred\\033[0m\\n'",
             ctx: session.ctx,
             toolCallId: "call-raw",
         });
 
         const settled = await waitForJobSettled(jobId);
 
-        assert.equal(settled.status, "completed", "the raw-stream command must settle as completed");
-        assert.equal(settled.output.content, "plain\ncr\rback\ncolored: \u001b[31mred\u001b[0m\n", "the job must keep the raw bytes, escapes included");
+        assert.equal(
+            settled.status,
+            "completed",
+            "the raw-stream command must settle as completed",
+        );
+        assert.equal(
+            settled.output.content,
+            "plain\ncr\rback\ncolored: \u001b[31mred\u001b[0m\n",
+            "the job must keep the raw bytes, escapes included",
+        );
     });
 
     it("shows the progress fixture's screen instead of its redraws", async () => {
@@ -195,8 +245,15 @@ describe("pi-shell-inspector background bash", () => {
         const settled = await waitForJobSettled(jobId);
         const screen = await readJobScreen(jobId);
 
-        assert.ok(settled.output.content.includes("\r"), `the raw output must still carry every redraw, got ${JSON.stringify(settled.output.content.slice(0, 200))}`);
-        assert.deepEqual(screen, ["progress: 100%", "progress: done"], "the screen must show the final redraw only");
+        assert.ok(
+            settled.output.content.includes("\r"),
+            `the raw output must still carry every redraw, got ${JSON.stringify(settled.output.content.slice(0, 200))}`,
+        );
+        assert.deepEqual(
+            screen,
+            ["progress: 100%", "progress: done"],
+            "the screen must show the final redraw only",
+        );
     });
 
     it("shows the spinner fixture's erased line as its final screen line", async () => {
@@ -212,8 +269,15 @@ describe("pi-shell-inspector background bash", () => {
         const settled = await waitForJobSettled(jobId);
         const screen = await readJobScreen(jobId);
 
-        assert.ok(settled.output.content.includes("\u001b[2K"), `the raw output must still carry the erase-line sequence, got ${JSON.stringify(settled.output.content.slice(0, 200))}`);
-        assert.deepEqual(screen, ["spinner: done"], "the erased spinner frames must not reach the screen");
+        assert.ok(
+            settled.output.content.includes("\u001b[2K"),
+            `the raw output must still carry the erase-line sequence, got ${JSON.stringify(settled.output.content.slice(0, 200))}`,
+        );
+        assert.deepEqual(
+            screen,
+            ["spinner: done"],
+            "the erased spinner frames must not reach the screen",
+        );
     });
 
     it("shows the vt-shapes fixture exactly as the terminal executed it", async () => {
@@ -232,19 +296,23 @@ describe("pi-shell-inspector background bash", () => {
         await waitForJobSettled(jobId, 30_000);
         const screen = await readJobScreen(jobId);
 
-        assert.deepEqual(screen, [
-            "progress 3%",
-            "bar",
-            "cursor-left : abcXYf",
-            "cursor-right: AB   XY",
-            "cursor-up   : hit!",
-            "red and bold",
-            "chunked red",
-            "progress 2%",
-            "日本語の進捗テスト: 五割 🚀",
-            `wide: ${"漢".repeat(70)}`,
-            "vt-shapes: done",
-        ], "the screen must match the executed stream line for line");
+        assert.deepEqual(
+            screen,
+            [
+                "progress 3%",
+                "bar",
+                "cursor-left : abcXYf",
+                "cursor-right: AB   XY",
+                "cursor-up   : hit!",
+                "red and bold",
+                "chunked red",
+                "progress 2%",
+                "日本語の進捗テスト: 五割 🚀",
+                `wide: ${"漢".repeat(70)}`,
+                "vt-shapes: done",
+            ],
+            "the screen must match the executed stream line for line",
+        );
     });
 
     it("spills the complete output of a flood while the screen and the reported tail stay bounded", async () => {
@@ -266,29 +334,58 @@ describe("pi-shell-inspector background bash", () => {
             settled.output.totalBytes > 200 * 1024,
             `expected the complete ~200KB flood, got ${settled.output.totalBytes} bytes`,
         );
-        assert.ok(settled.output.content.includes("flood line 05000"), `the last flood line must stay in the tail, got ${JSON.stringify(settled.output.content.slice(-200))}`);
+        assert.ok(
+            settled.output.content.includes("flood line 05000"),
+            `the last flood line must stay in the tail, got ${JSON.stringify(settled.output.content.slice(-200))}`,
+        );
 
         const fullOutputPath = settled.output.fullOutputPath;
-        assert.ok(fullOutputPath, `a spilled job must expose the file with the complete output, got ${String(fullOutputPath)}`);
+        assert.ok(
+            fullOutputPath,
+            `a spilled job must expose the file with the complete output, got ${String(fullOutputPath)}`,
+        );
         const persisted = readFileSync(fullOutputPath, "utf8");
-        assert.ok(persisted.includes("flood line 00001"), `the spill file must keep the first line, got ${JSON.stringify(persisted.slice(0, 200))}`);
-        assert.ok(persisted.includes("flood line 05000"), `the spill file must keep the last line, got ${JSON.stringify(persisted.slice(-200))}`);
+        assert.ok(
+            persisted.includes("flood line 00001"),
+            `the spill file must keep the first line, got ${JSON.stringify(persisted.slice(0, 200))}`,
+        );
+        assert.ok(
+            persisted.includes("flood line 05000"),
+            `the spill file must keep the last line, got ${JSON.stringify(persisted.slice(-200))}`,
+        );
 
         const reported = shellManager.getJobOutput(jobId);
-        assert.equal(reported.split("\n").at(0), `[Output truncated. Full output: ${fullOutputPath}]`, "the reported text must open with the spill footer");
-        assert.ok(reported.includes("flood line 05000"), `the reported tail must keep the newest line, got ${JSON.stringify(reported.slice(-200))}`);
-        assert.ok(reported.length < persisted.length, `the reported text must stay bounded, reported ${reported.length} vs persisted ${persisted.length} characters`);
+        assert.equal(
+            reported.split("\n").at(0),
+            `[Output truncated. Full output: ${fullOutputPath}]`,
+            "the reported text must open with the spill footer",
+        );
+        assert.ok(
+            reported.includes("flood line 05000"),
+            `the reported tail must keep the newest line, got ${JSON.stringify(reported.slice(-200))}`,
+        );
+        assert.ok(
+            reported.length < persisted.length,
+            `the reported text must stay bounded, reported ${reported.length} vs persisted ${persisted.length} characters`,
+        );
 
         // The screen converts the same run in arrival order (fifty streamed batches of a hundred
         // lines), so the newest line is last and nothing was reordered or lost on the way - while its
         // own history is bounded by the emulator's scrollback, like the retained tail.
         const screen = await readJobScreen(jobId);
-        assert.equal(screen.at(-1), `flood line 05000 ${"x".repeat(24)}`, "the newest flood line must be last on the screen");
+        assert.equal(
+            screen.at(-1),
+            `flood line 05000 ${"x".repeat(24)}`,
+            "the newest flood line must be last on the screen",
+        );
         assert.ok(
             screen.length <= DEFAULT_MAX_LINES + 50,
             `the screen history must stay bounded, kept ${screen.length}`,
         );
-        assert.ok(!screen.includes(`flood line 00001 ${"x".repeat(24)}`), `the oldest lines must have scrolled off, got ${screen.length} screen lines starting with ${JSON.stringify(screen.slice(0, 2))}`);
+        assert.ok(
+            !screen.includes(`flood line 00001 ${"x".repeat(24)}`),
+            `the oldest lines must have scrolled off, got ${screen.length} screen lines starting with ${JSON.stringify(screen.slice(0, 2))}`,
+        );
 
         rmSync(fullOutputPath, { force: true });
     });
@@ -308,9 +405,21 @@ describe("pi-shell-inspector background bash", () => {
 
         assert.equal(settled.status, "failed", "a non-zero exit must settle as failed");
         assert.equal(settled.exitCode, 3, "the failing job must keep its exit code");
-        assert.equal(settled.error, "Background shell exited with code 3", "the failing job must name the exit code in its reason");
-        assert.equal(settled.output.content, "before failure\n", "output produced before the failure must be kept");
-        assert.equal(settled.controller.signal.aborted, false, "a non-zero exit is not a caller kill");
+        assert.equal(
+            settled.error,
+            "Background shell exited with code 3",
+            "the failing job must name the exit code in its reason",
+        );
+        assert.equal(
+            settled.output.content,
+            "before failure\n",
+            "output produced before the failure must be kept",
+        );
+        assert.equal(
+            settled.controller.signal.aborted,
+            false,
+            "a non-zero exit is not a caller kill",
+        );
     });
 
     it("classifies every non-zero exit as a failure, however the process ended", async () => {
@@ -333,7 +442,11 @@ describe("pi-shell-inspector background bash", () => {
 
             assert.equal(settled.status, "failed", `exit ${code} must fail the job`);
             assert.equal(settled.exitCode, code, `the ${code} exit code must be recorded`);
-            assert.equal(settled.error, `Background shell exited with code ${code}`, "the reason must name the exit code");
+            assert.equal(
+                settled.error,
+                `Background shell exited with code ${code}`,
+                "the reason must name the exit code",
+            );
             assert.equal(
                 shellManager.getJob(jobId)?.controller.signal.aborted,
                 false,
@@ -360,7 +473,10 @@ describe("pi-shell-inspector background bash", () => {
         assert.equal(settled.error, "timeout:1", "the job must record the runner's timeout reason");
         assert.equal(settled.exitCode, undefined, "a failed execution has no process exit code");
         assert.equal(settled.controller.signal.aborted, false, "a timeout is not a caller kill");
-        assert.ok(Date.now() - startedAt < 4000, `the timeout must cut the 5s sleep short, took ${Date.now() - startedAt}ms`);
+        assert.ok(
+            Date.now() - startedAt < 4000,
+            `the timeout must cut the 5s sleep short, took ${Date.now() - startedAt}ms`,
+        );
     });
 
     it("fails a job whose working directory does not exist", async () => {
@@ -375,8 +491,16 @@ describe("pi-shell-inspector background bash", () => {
 
         const settled = await waitForJobSettled(jobId);
 
-        assert.equal(settled.cwd, missingDir, "the job must keep the requested cwd even on failure");
-        assert.equal(settled.status, "failed", "a bad cwd must fail the job instead of completing silently");
+        assert.equal(
+            settled.cwd,
+            missingDir,
+            "the job must keep the requested cwd even on failure",
+        );
+        assert.equal(
+            settled.status,
+            "failed",
+            "a bad cwd must fail the job instead of completing silently",
+        );
         assert.equal(settled.controller.signal.aborted, false, "a bad cwd is not a caller kill");
         assert.ok(
             settled.error?.includes(`Working directory does not exist: ${missingDir}`),
@@ -402,7 +526,11 @@ describe("pi-shell-inspector background bash", () => {
         const slowSettled = await waitForJobSettled(slow.jobId);
 
         assert.equal(fastSettled.status, "failed", "a non-zero exit must fail the job");
-        assert.equal(fastSettled.error, "Background shell exited with code 2", "the fast job's failure must name its exit code");
+        assert.equal(
+            fastSettled.error,
+            "Background shell exited with code 2",
+            "the fast job's failure must name its exit code",
+        );
         assert.equal(fastSettled.output.content, "fast\n", "the fast job must keep its own output");
         assert.equal(fastSettled.exitCode, 2, "the fast job must keep its own exit code");
         assert.equal(slowSettled.status, "completed", "the slow job must complete independently");
@@ -427,12 +555,24 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-duplicate",
         });
 
-        assert.match(requireError(duplicate).message, /Shell job already exists: call-duplicate/, "the duplicate start must be refused by name");
-        assert.equal(shellManager.getJob("call-duplicate")?.status, "running", "the original job must survive");
+        assert.match(
+            requireError(duplicate).message,
+            /Shell job already exists: call-duplicate/,
+            "the duplicate start must be refused by name",
+        );
+        assert.equal(
+            shellManager.getJob("call-duplicate")?.status,
+            "running",
+            "the original job must survive",
+        );
 
         const settled = await waitForJobSettled(first.jobId);
         assert.equal(settled.status, "completed", "the original job must finish normally");
-        assert.equal(settled.output.content, "", "the rejected duplicate must not have written to the job");
+        assert.equal(
+            settled.output.content,
+            "",
+            "the rejected duplicate must not have written to the job",
+        );
     });
 
     it("ignores a settle that races the execution's own rejection", async () => {
@@ -445,14 +585,22 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-kill-race",
         });
 
-        assert.equal(shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }), true, "the first settle must be accepted");
+        assert.equal(
+            shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+            true,
+            "the first settle must be accepted",
+        );
 
         // Give the aborted execution time to reject and reach its settle call.
         await new Promise((resolve) => setTimeout(resolve, 500));
 
         const job = shellManager.getJob(jobId);
         assert.equal(job?.status, "killed", "the explicit kill must stay the outcome");
-        assert.equal(job?.error, "manual kill", "the racing rejection must not rewrite the kill reason");
+        assert.equal(
+            job?.error,
+            "manual kill",
+            "the racing rejection must not rewrite the kill reason",
+        );
     });
 
     it("ignores the execution's settle after the session dropped the job", async () => {
@@ -472,7 +620,11 @@ describe("pi-shell-inspector background bash", () => {
         await new Promise((resolve) => setTimeout(resolve, 500));
 
         assert.equal(shellManager.getJob(jobId), undefined, "the cleared job must stay gone");
-        assert.deepEqual(shellManager.getAllJobsList(), [], "the late settle must not resurrect the job");
+        assert.deepEqual(
+            shellManager.getAllJobsList(),
+            [],
+            "the late settle must not resurrect the job",
+        );
         assert.deepEqual(
             shellManager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 0 },
@@ -485,15 +637,27 @@ describe("pi-shell-inspector background bash", () => {
         );
         assert.equal(session.host.sendMessageCalls.length, 1, "the teardown kill notifies once");
         const notification = session.host.sendMessageCalls[0]!;
-        assert.equal(notification.message.customType, "background-shell-notification", "the teardown kill must notify as a shell notification");
+        assert.equal(
+            notification.message.customType,
+            "background-shell-notification",
+            "the teardown kill must notify as a shell notification",
+        );
         const jobs = (notification.message.details as BackgroundShellNotificationDetails).jobs;
         assert.deepEqual(
             jobs.map(({ shellJobId, status, exitCode }) => ({ shellJobId, status, exitCode })),
             [{ shellJobId: jobId, status: "killed", exitCode: undefined }],
             "the notification must identify the killed job",
         );
-        assert.equal(jobs[0]!.output.start, jobs[0]!.output.end, "a job without output must slice an empty tail");
-        assert.match(String(notification.message.content), /^Background shell call-clear-race killed\./, "the notification must open with the job id and status");
+        assert.equal(
+            jobs[0]!.output.start,
+            jobs[0]!.output.end,
+            "a job without output must slice an empty tail",
+        );
+        assert.match(
+            String(notification.message.content),
+            /^Background shell call-clear-race killed\./,
+            "the notification must open with the job id and status",
+        );
     });
 
     it("refuses a chunk that arrives after teardown instead of resurrecting the job", async () => {

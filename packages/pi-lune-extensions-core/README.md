@@ -56,7 +56,7 @@ What each piece does:
 - `defineSettings` and `defineSettingsPanel` only describe things. They read no files and
   can live at module level.
 - `bindSettings(pi, settings)` loads the values when a Pi session starts. The returned
-  *binding* hands you a *view* with `await binding.view(ctx)`; call it inside your Pi event
+  _binding_ hands you a _view_ with `await binding.view(ctx)`; call it inside your Pi event
   handlers. A view is the session's current values: `view.get(key)`, `view.set(key, value)`,
   `view.snapshot()` and `view.subscribe(listener)`.
 - `registerSettingsPanel(panel, binding)` adds the section to the settings screen. It works
@@ -75,10 +75,10 @@ More copy-pasteable examples (model picker, API keys, migrations, tests, Dock) a
 Each settings `id` gets its own small JSON file per level, holding only the values a user
 changed:
 
-| Level | File |
-| --- | --- |
-| Global | `<agentDir>/lune-settings/<id>.json` — `~/.pi/agent` by default, or `PI_CODING_AGENT_DIR` |
-| Project | `<project>/.pi/lune-settings/<id>.json` |
+| Level   | File                                                                                      |
+| ------- | ----------------------------------------------------------------------------------------- |
+| Global  | `<agentDir>/lune-settings/<id>.json` — `~/.pi/agent` by default, or `PI_CODING_AGENT_DIR` |
+| Project | `<project>/.pi/lune-settings/<id>.json`                                                   |
 
 Project values override global values, which override the defaults in your schema.
 A damaged file only affects its own `id`. Because settings may hold secrets such as API
@@ -164,12 +164,14 @@ import { defineSettingsPanel, modelChoices } from "@lune_99/pi-lune-extensions-c
 
 const panel = defineSettingsPanel(modelSettings, {
     label: "Model settings",
-    fields: [{
-        path: "model",
-        choiceSource: modelChoices({
-            specialChoices: [{ value: null, label: "Follow session model" }],
-        }),
-    }],
+    fields: [
+        {
+            path: "model",
+            choiceSource: modelChoices({
+                specialChoices: [{ value: null, label: "Follow session model" }],
+            }),
+        },
+    ],
 });
 ```
 
@@ -208,14 +210,14 @@ optional peers needed by the capabilities you use (supported ranges: pi-ai `^1.0
 pi-coding-agent `^1.0.4`, pi-tui `^1.0.0`, typebox `^1.3.27`). The default file backend loads
 Pi's path API when settings are first acquired.
 
-| Entry | Purpose |
-| --- | --- |
-| `/settings` | Definitions, bindings, `readGlobalSettings`, typed views, paths and notification errors |
-| `/panel` | Panel definitions, registrations, choice/preview types and `modelChoices` |
-| `/panel/tui` | `openSettingsPanel` and its terminal renderer |
-| `/dock` | `createDockContribution`, Dock snapshot types and `LUNE_DOCK_PROTOCOL_VERSION` |
-| `/resources` | `ResourceScope`, `scopedExtension` and the disposable contract |
-| `/testing` | `createSettingsSandbox` for tests; never import it from production code |
+| Entry        | Purpose                                                                                 |
+| ------------ | --------------------------------------------------------------------------------------- |
+| `/settings`  | Definitions, bindings, `readGlobalSettings`, typed views, paths and notification errors |
+| `/panel`     | Panel definitions, registrations, choice/preview types and `modelChoices`               |
+| `/panel/tui` | `openSettingsPanel` and its terminal renderer                                           |
+| `/dock`      | `createDockContribution`, Dock snapshot types and `LUNE_DOCK_PROTOCOL_VERSION`          |
+| `/resources` | `ResourceScope`, `scopedExtension` and the disposable contract                          |
+| `/testing`   | `createSettingsSandbox` for tests; never import it from production code                 |
 
 Guides:
 
@@ -248,19 +250,19 @@ required on `PATH` for `npm run dev` and the interactive demo.
 
 ### Find the right module
 
-| Path | Responsibility |
-| --- | --- |
-| `src/settings/` | Definitions, session binding, leased views, per-namespace file storage and migrations |
-| `src/panel/` | Panel declarations, binding projection, choices and terminal rendering |
-| `src/dock/` | Dock contributions, UI-scoped registry and protocol checks |
-| `src/resources/` | Instance-local reverse-order cleanup and `scopedExtension`, independent of other domains |
-| `src/testing/` | `createSettingsSandbox`, the public test helper exported as `/testing` |
-| `src/core/host.ts` | The single process-local discovery boundary for shared services |
-| `src/core/settings.ts`, `src/core/panel.ts` | Core's own configuration and placeholder panel declarations |
-| `extension.ts`, `src/extension.ts` | Native Pi entry, the shared settings command and Core's Settings/Panel ownership |
-| `test/harness/` | Isolated Settings fixtures and temporary storage |
-| `.github/workflows/ci.yml` | CI: `npm ci`, typecheck, tests and a package dry run |
-| `test/tui/` | The offline interactive demo and its mock provider |
+| Path                                        | Responsibility                                                                           |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/settings/`                             | Definitions, session binding, leased views, per-namespace file storage and migrations    |
+| `src/panel/`                                | Panel declarations, binding projection, choices and terminal rendering                   |
+| `src/dock/`                                 | Dock contributions, UI-scoped registry and protocol checks                               |
+| `src/resources/`                            | Instance-local reverse-order cleanup and `scopedExtension`, independent of other domains |
+| `src/testing/`                              | `createSettingsSandbox`, the public test helper exported as `/testing`                   |
+| `src/core/host.ts`                          | The single process-local discovery boundary for shared services                          |
+| `src/core/settings.ts`, `src/core/panel.ts` | Core's own configuration and placeholder panel declarations                              |
+| `extension.ts`, `src/extension.ts`          | Native Pi entry, the shared settings command and Core's Settings/Panel ownership         |
+| `test/harness/`                             | Isolated Settings fixtures and temporary storage                                         |
+| `.github/workflows/ci.yml`                  | CI: `npm ci`, typecheck, tests and a package dry run                                     |
+| `test/tui/`                                 | The offline interactive demo and its mock provider                                       |
 
 Keep business workflows in their own extensions. Use intentional package exports rather
 than private source imports; do not turn binding readiness into a general session framework.

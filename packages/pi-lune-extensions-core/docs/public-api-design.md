@@ -32,15 +32,15 @@ internal observer, without another lifecycle owner or public subscription API.
 
 ## Initialization and ownership
 
-| Resource | Owner | Retirement |
-| --- | --- | --- |
-| Static Settings/Panel definitions | Declaring plugin | No runtime resources |
-| Binding listeners and pending acquisition | SettingsBinding | Shutdown/explicit dispose |
-| View, subscriptions and backend token | Binding or explicit lease owner | Session retirement |
-| Shared namespaces and file queues | Core Host | Last reference/queue settlement |
-| Panel section and binding subscription | SettingsPanelRegistration | Dispose/binding retirement |
-| Editor, choices, preview and interaction subscriptions | Open Panel interaction | Close/section removal/view retirement |
-| Business timers, requests and local objects | Plugin | Its native lifecycle and business policy |
+| Resource                                               | Owner                           | Retirement                               |
+| ------------------------------------------------------ | ------------------------------- | ---------------------------------------- |
+| Static Settings/Panel definitions                      | Declaring plugin                | No runtime resources                     |
+| Binding listeners and pending acquisition              | SettingsBinding                 | Shutdown/explicit dispose                |
+| View, subscriptions and backend token                  | Binding or explicit lease owner | Session retirement                       |
+| Shared namespaces and file queues                      | Core Host                       | Last reference/queue settlement          |
+| Panel section and binding subscription                 | SettingsPanelRegistration       | Dispose/binding retirement               |
+| Editor, choices, preview and interaction subscriptions | Open Panel interaction          | Close/section removal/view retirement    |
+| Business timers, requests and local objects            | Plugin                          | Its native lifecycle and business policy |
 
 `scopedExtension((pi, resources) => ...)` is the preferred wrapper: it creates the
 ResourceScope, registers its `session_shutdown` disposer first, runs setup, and disposes

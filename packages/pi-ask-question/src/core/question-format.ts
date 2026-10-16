@@ -49,9 +49,7 @@ export function summarizeText(text: string, maxWidth: number): string {
     }
 
     // The budget is terminal columns: a CJK question is longer on screen than in code units.
-    return visibleWidth(line) <= maxWidth
-        ? line
-        : truncateToWidth(line, maxWidth, "…");
+    return visibleWidth(line) <= maxWidth ? line : truncateToWidth(line, maxWidth, "…");
 }
 
 /** Numbered label of one option as the panel shows it: `2. Name`. */
@@ -94,7 +92,11 @@ export function formatAnswerMessage(request: AskQuestionRequest): string {
     const lines: string[] = ["The user answered these questions.", ""];
 
     for (const [index, question] of request.questions.entries()) {
-        lines.push(question.question, `answer: ${formatAnswer(question, request.answers?.[index]) ?? "unanswered"}`, "");
+        lines.push(
+            question.question,
+            `answer: ${formatAnswer(question, request.answers?.[index]) ?? "unanswered"}`,
+            "",
+        );
     }
 
     return lines.join("\n").trimEnd();

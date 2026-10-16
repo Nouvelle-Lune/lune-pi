@@ -73,7 +73,12 @@ function job(overrides: Partial<BackgroundShellNotification> = {}): BackgroundSh
 function renderRows(
     batch: readonly BackgroundShellNotification[],
     options: { expanded?: boolean; outputPad?: number } = {},
-): { rows: string[]; lines: string[]; fgCalls: StubTheme["fgCalls"]; bgCalls: StubTheme["bgCalls"] } {
+): {
+    rows: string[];
+    lines: string[];
+    fgCalls: StubTheme["fgCalls"];
+    bgCalls: StubTheme["bgCalls"];
+} {
     const { content, details } = buildBackgroundShellNotification(batch);
     const stub = createStubTheme();
     const component = renderBackgroundShellNotificationBox(
@@ -96,7 +101,8 @@ function renderRows(
 
 describe("background shell notification box", () => {
     it("renders the header, the job row and the output tail with the expand hint", () => {
-        const output = Array.from({ length: 8 }, (_, index) => `out ${index + 1}`).join("\n") + "\n";
+        const output =
+            Array.from({ length: 8 }, (_, index) => `out ${index + 1}`).join("\n") + "\n";
         const { rows, lines, fgCalls, bgCalls } = renderRows([job({ jobOutput: output })]);
 
         assert.deepEqual(rows, [
@@ -115,10 +121,17 @@ describe("background shell notification box", () => {
         // The band is a full-width tool-result block: no row may be wider or narrower than pi's
         // transcript, or the background would end in the middle of a line.
         for (const line of lines) {
-            assert.equal(visibleWidth(line), WIDTH, `band row must fill the width: ${JSON.stringify(line)}`);
+            assert.equal(
+                visibleWidth(line),
+                WIDTH,
+                `band row must fill the width: ${JSON.stringify(line)}`,
+            );
         }
 
-        assert.deepEqual(bgCalls.map(({ color }) => color), new Array(lines.length).fill("toolSuccessBg"));
+        assert.deepEqual(
+            bgCalls.map(({ color }) => color),
+            new Array(lines.length).fill("toolSuccessBg"),
+        );
 
         // Call order is not part of the contract (the row measures its suffix before it colours the
         // prefix); which colours are asked for is.
@@ -151,7 +164,8 @@ describe("background shell notification box", () => {
     });
 
     it("shows every line and no hint once expanded", () => {
-        const output = Array.from({ length: 8 }, (_, index) => `out ${index + 1}`).join("\n") + "\n";
+        const output =
+            Array.from({ length: 8 }, (_, index) => `out ${index + 1}`).join("\n") + "\n";
         const { rows } = renderRows([job({ jobOutput: output })], { expanded: true });
 
         assert.deepEqual(rows.slice(3, -1), [
@@ -164,7 +178,10 @@ describe("background shell notification box", () => {
             "     out 7",
             "     out 8",
         ]);
-        assert.ok(!rows.some((row) => row.includes("earlier lines")), "an expanded job hides nothing");
+        assert.ok(
+            !rows.some((row) => row.includes("earlier lines")),
+            "an expanded job hides nothing",
+        );
     });
 
     it("marks the batch and each job by its own outcome", () => {
@@ -192,11 +209,23 @@ describe("background shell notification box", () => {
         ]);
 
         // One failed job turns the whole band red, but each status word keeps its own colour.
-        assert.ok(bgCalls.every(({ color }) => color === "toolErrorBg"), "a failure must tint the batch");
-        assert.ok(fgCalls.some(({ color, text }) => color === "error" && text === "2 background shells · 1 failed"));
+        assert.ok(
+            bgCalls.every(({ color }) => color === "toolErrorBg"),
+            "a failure must tint the batch",
+        );
+        assert.ok(
+            fgCalls.some(
+                ({ color, text }) => color === "error" && text === "2 background shells · 1 failed",
+            ),
+        );
         assert.ok(fgCalls.some(({ color, text }) => color === "success" && text === "completed"));
         assert.ok(fgCalls.some(({ color, text }) => color === "error" && text === "failed"));
-        assert.ok(fgCalls.some(({ color, text }) => color === "error" && text === "Error: Background shell exited with code 3"));
+        assert.ok(
+            fgCalls.some(
+                ({ color, text }) =>
+                    color === "error" && text === "Error: Background shell exited with code 3",
+            ),
+        );
     });
 
     it("reads each job's output from its own slice of the message text", () => {
@@ -208,12 +237,17 @@ describe("background shell notification box", () => {
 
         assert.deepEqual(rows.slice(3, 6), ["     a 1", "     a 2", "     a 3"]);
         assert.deepEqual(rows.slice(7, 10), ["     b 1", "     b 2", "     b 3"]);
-        assert.ok(!text.includes("a 1\n     b"), "one job's tail must not bleed into the next job's rows");
+        assert.ok(
+            !text.includes("a 1\n     b"),
+            "one job's tail must not bleed into the next job's rows",
+        );
     });
 
     it("collapses carriage-return repaints and drops terminal sequences", () => {
         const { rows } = renderRows([
-            job({ jobOutput: "\x1b[31mred\x1b[0m\nprogress 10%\rprogress 100%\ntrailing\twith tab\n" }),
+            job({
+                jobOutput: "\x1b[31mred\x1b[0m\nprogress 10%\rprogress 100%\ntrailing\twith tab\n",
+            }),
         ]);
 
         assert.deepEqual(rows.slice(3, -1), [
@@ -224,19 +258,35 @@ describe("background shell notification box", () => {
     });
 
     it("keeps the outcome in the row when the command is longer than the transcript", () => {
-        const { rows, lines } = renderRows([job({ jobCommand: "x".repeat(200) })], { outputPad: 1 });
+        const { rows, lines } = renderRows([job({ jobCommand: "x".repeat(200) })], {
+            outputPad: 1,
+        });
         const row = rows.find((entry) => entry.includes("completed"))!;
 
-        assert.ok(row.endsWith("completed · exit 0 · 4.2s"), `the outcome must survive the cut: ${row}`);
+        assert.ok(
+            row.endsWith("completed · exit 0 · 4.2s"),
+            `the outcome must survive the cut: ${row}`,
+        );
         assert.ok(row.includes("…"), `the cut command must be marked: ${row}`);
-        assert.equal(visibleWidth(row.trimStart()), WIDTH - 2, "the job row fills the band exactly, padding aside");
+        assert.equal(
+            visibleWidth(row.trimStart()),
+            WIDTH - 2,
+            "the job row fills the band exactly, padding aside",
+        );
 
         // Regression: the cut must not close itself with a full reset, which would drop the band's
         // background from everything after the ellipsis.
-        assert.ok(!row.includes("\x1b[0m"), `the row must not reset the band: ${JSON.stringify(row)}`);
+        assert.ok(
+            !row.includes("\x1b[0m"),
+            `the row must not reset the band: ${JSON.stringify(row)}`,
+        );
 
         for (const line of lines) {
-            assert.equal(visibleWidth(line), WIDTH, `band row must fill the width: ${JSON.stringify(line)}`);
+            assert.equal(
+                visibleWidth(line),
+                WIDTH,
+                `band row must fill the width: ${JSON.stringify(line)}`,
+            );
         }
     });
 
@@ -246,7 +296,10 @@ describe("background shell notification box", () => {
             job({ jobId: "job-b", jobOutput: "tail b\n" }),
         ]);
 
-        const actual = details.jobs.map((entry) => ({ id: entry.shellJobId, fullOutputPath: entry.fullOutputPath }));
+        const actual = details.jobs.map((entry) => ({
+            id: entry.shellJobId,
+            fullOutputPath: entry.fullOutputPath,
+        }));
 
         assert.deepEqual(actual, [
             { id: "job-a", fullOutputPath: "/tmp/pi-bash-a.log" },
@@ -260,12 +313,20 @@ describe("background shell notification box", () => {
         const empty: BackgroundShellNotificationDetails = { jobs: [] };
 
         assert.equal(
-            renderBackgroundShellNotificationBox({ content: "", details: undefined }, options, stub.theme),
+            renderBackgroundShellNotificationBox(
+                { content: "", details: undefined },
+                options,
+                stub.theme,
+            ),
             undefined,
             "a message without details must fall back to pi's own rendering",
         );
         assert.equal(
-            renderBackgroundShellNotificationBox({ content: "", details: empty }, options, stub.theme),
+            renderBackgroundShellNotificationBox(
+                { content: "", details: empty },
+                options,
+                stub.theme,
+            ),
             undefined,
             "an empty batch must fall back to pi's own rendering",
         );
@@ -291,7 +352,11 @@ interface ThemeActivity {
     }[];
 }
 
-type RenderActivityArgs = [activity: ThemeActivity, options: { expanded: boolean; key?: object }, theme: Theme];
+type RenderActivityArgs = [
+    activity: ThemeActivity,
+    options: { expanded: boolean; key?: object },
+    theme: Theme,
+];
 
 interface FakeThemedComponent extends Component {
     renderWidths: number[];
@@ -486,7 +551,9 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         box.render(WIDTH);
 
-        const actual = renderer.calls[0]![0].entries.map((entry: { fullOutputPath?: string }) => entry.fullOutputPath);
+        const actual = renderer.calls[0]![0].entries.map(
+            (entry: { fullOutputPath?: string }) => entry.fullOutputPath,
+        );
 
         assert.deepEqual(actual, ["/tmp/pi-bash-a.log", undefined]);
     });
@@ -494,13 +561,19 @@ describe("background shell notification box under Lune Core's theme", () => {
     it("renders details persisted before full output paths existed without a path", () => {
         const renderer = createFakeRenderer();
         publishRenderer(renderer);
-        const { content, details } = buildBackgroundShellNotification([job({ jobFullOutputPath: "/tmp/new.log" })]);
+        const { content, details } = buildBackgroundShellNotification([
+            job({ jobFullOutputPath: "/tmp/new.log" }),
+        ]);
         const legacyDetails: BackgroundShellNotificationDetails = {
             jobs: details.jobs.map(({ fullOutputPath: _omitted, ...rest }) => rest),
         };
         const { theme } = createStubTheme();
 
-        renderBackgroundShellNotificationBox({ content, details: legacyDetails }, { expanded: false, outputPad: 1 }, theme)?.render(WIDTH);
+        renderBackgroundShellNotificationBox(
+            { content, details: legacyDetails },
+            { expanded: false, outputPad: 1 },
+            theme,
+        )?.render(WIDTH);
 
         const entry = renderer.calls[0]![0].entries[0]!;
 
@@ -512,11 +585,15 @@ describe("background shell notification box under Lune Core's theme", () => {
         const renderer = createFakeRenderer();
         publishRenderer(renderer);
         const statuses = ["completed", "killed", "failed", "timeout"];
-        const { box } = createBox(statuses.map((jobStatus, index) => job({ jobId: `job-${index}`, jobStatus })));
+        const { box } = createBox(
+            statuses.map((jobStatus, index) => job({ jobId: `job-${index}`, jobStatus })),
+        );
 
         box.render(WIDTH);
 
-        const actual = renderer.calls[0]![0].entries.map((entry: { status: string }) => entry.status);
+        const actual = renderer.calls[0]![0].entries.map(
+            (entry: { status: string }) => entry.status,
+        );
 
         assert.deepEqual(actual, ["done", "cancelled", "failed", "failed"]);
     });
@@ -540,7 +617,10 @@ describe("background shell notification box under Lune Core's theme", () => {
         const renderer = createFakeRenderer();
         publishRenderer(renderer);
         const { box } = createBox([
-            job({ jobOutput: "\x1b[31mred\x1b[0m\nprogress 10%\rprogress 100%\ncrlf line\r\ntrailing\twith tab\n" }),
+            job({
+                jobOutput:
+                    "\x1b[31mred\x1b[0m\nprogress 10%\rprogress 100%\ncrlf line\r\ntrailing\twith tab\n",
+            }),
         ]);
 
         box.render(WIDTH);
@@ -579,7 +659,11 @@ describe("background shell notification box under Lune Core's theme", () => {
         assert.deepEqual(before, [`first#0@${WIDTH}`]);
         assert.deepEqual(after, [`second#0@${WIDTH}`]);
         assert.equal(first.calls.length, 1);
-        assert.equal(second.calls.length, 1, "the second renderer is also called once, not per frame");
+        assert.equal(
+            second.calls.length,
+            1,
+            "the second renderer is also called once, not per frame",
+        );
     });
 
     it("switches a box already on screen to the themed renderer and back", () => {
@@ -596,7 +680,11 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         assert.equal(plainBefore[1], " ● 1 background shell settled");
         assert.deepEqual(themed, [`themed#0@${WIDTH}`]);
-        assert.deepEqual(plainAfter, plainBefore, "turning the theme off restores the unchanged band");
+        assert.deepEqual(
+            plainAfter,
+            plainBefore,
+            "turning the theme off restores the unchanged band",
+        );
     });
 
     it("forwards the expanded option", () => {
@@ -619,8 +707,16 @@ describe("background shell notification box under Lune Core's theme", () => {
         const { theme } = createStubTheme();
 
         // Pi rebuilds the component on every invalidation, e.g. when a click toggles expansion.
-        const first = renderBackgroundShellNotificationBox({ content, details }, { expanded: false, outputPad: 1 }, theme);
-        const second = renderBackgroundShellNotificationBox({ content, details }, { expanded: true, outputPad: 1 }, theme);
+        const first = renderBackgroundShellNotificationBox(
+            { content, details },
+            { expanded: false, outputPad: 1 },
+            theme,
+        );
+        const second = renderBackgroundShellNotificationBox(
+            { content, details },
+            { expanded: true, outputPad: 1 },
+            theme,
+        );
         first?.render(WIDTH);
         second?.render(WIDTH);
 
@@ -652,7 +748,9 @@ describe("background shell notification box under Lune Core's theme", () => {
             received.push(event);
             return result;
         }) as unknown as Component["handleMouse"];
-        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<NonNullable<Component["handleMouse"]>>[0];
+        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<
+            NonNullable<Component["handleMouse"]>
+        >[0];
 
         const actual = box.handleMouse?.(event);
 
@@ -664,7 +762,9 @@ describe("background shell notification box under Lune Core's theme", () => {
     it("ignores mouse events when no theme renderer is published", () => {
         const { box } = createBox([job()]);
         box.render(WIDTH);
-        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<NonNullable<Component["handleMouse"]>>[0];
+        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<
+            NonNullable<Component["handleMouse"]>
+        >[0];
 
         const actual = box.handleMouse?.(event);
 
@@ -675,7 +775,9 @@ describe("background shell notification box under Lune Core's theme", () => {
         const renderer = createFakeRenderer();
         publishRenderer(renderer);
         const { box } = createBox([job()]);
-        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<NonNullable<Component["handleMouse"]>>[0];
+        const event = { type: "press", x: 3, y: 1 } as unknown as Parameters<
+            NonNullable<Component["handleMouse"]>
+        >[0];
 
         const actual = box.handleMouse?.(event);
 

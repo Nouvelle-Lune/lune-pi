@@ -92,21 +92,32 @@ describe("preview box", () => {
 
     describe("renderBorderedBox", () => {
         it("wraps content in a border with one column of inner padding", () => {
-            const lines = renderBorderedBox(["hi"], 10, { colorFn: identity }).map((line) => stripTerminalSequences(line));
+            const lines = renderBorderedBox(["hi"], 10, { colorFn: identity }).map((line) =>
+                stripTerminalSequences(line),
+            );
 
             assert.deepEqual(lines, ["┌────────┐", "│ hi     │", "└────────┘"]);
         });
 
         it("draws the title into the top border", () => {
-            const lines = renderBorderedBox(["hi"], 20, { colorFn: identity, title: "Postgres" })
-                .map((line) => stripTerminalSequences(line));
+            const lines = renderBorderedBox(["hi"], 20, {
+                colorFn: identity,
+                title: "Postgres",
+            }).map((line) => stripTerminalSequences(line));
 
-            assert.deepEqual(lines, ["┌─ Postgres ───────┐", "│ hi               │", "└──────────────────┘"]);
+            assert.deepEqual(lines, [
+                "┌─ Postgres ───────┐",
+                "│ hi               │",
+                "└──────────────────┘",
+            ]);
             assertUniformWidth(lines, 20);
         });
 
         it("truncates a title that does not fit", () => {
-            const lines = renderBorderedBox(["hi"], 12, { colorFn: identity, title: "a very long option name" });
+            const lines = renderBorderedBox(["hi"], 12, {
+                colorFn: identity,
+                title: "a very long option name",
+            });
 
             assertUniformWidth(lines, 12);
             assert.match(stripTerminalSequences(lines[0]!), /^┌─ a ver… /);
@@ -155,7 +166,9 @@ describe("preview box", () => {
         });
 
         it("stays rectangular for wide characters", () => {
-            const lines = renderBorderedBox(["测试内容测试内容测试内容", "ok"], 16, { colorFn: identity });
+            const lines = renderBorderedBox(["测试内容测试内容测试内容", "ok"], 16, {
+                colorFn: identity,
+            });
 
             assertUniformWidth(lines, 16);
         });

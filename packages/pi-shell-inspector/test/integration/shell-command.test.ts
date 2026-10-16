@@ -58,10 +58,10 @@ describe("/shell command", () => {
         assert.ok(call, "the command must ask pi for a custom overlay");
 
         return call.factory(
-            { requestRender: () => { }, terminal: { rows: 40 } },
+            { requestRender: () => {}, terminal: { rows: 40 } },
             session.ctx.ui.theme,
             undefined,
-            () => { },
+            () => {},
         ) as { render(width: number): string[]; dispose(): void };
     }
 
@@ -75,9 +75,15 @@ describe("/shell command", () => {
         try {
             const lines = overlay.render(WIDTH);
 
-            assert.ok(lines.length > 0, `the empty inspector must still draw a frame, got ${lines.length} lines`);
+            assert.ok(
+                lines.length > 0,
+                `the empty inspector must still draw a frame, got ${lines.length} lines`,
+            );
             assert.ok(lines[0]!.includes("┌"), `expected a top border: ${JSON.stringify(lines)}`);
-            assert.ok(lines.at(-1)!.includes("└"), `expected a bottom border: ${JSON.stringify(lines)}`);
+            assert.ok(
+                lines.at(-1)!.includes("└"),
+                `expected a bottom border: ${JSON.stringify(lines)}`,
+            );
             assert.ok(
                 lines.some((line) => line.includes("No background shell running")),
                 `the empty pane must say why it is empty: ${JSON.stringify(lines)}`,
@@ -92,6 +98,10 @@ describe("/shell command", () => {
 
         await shellCommand.handler("", printContext);
 
-        assert.equal(session.ui.customCalls.length, 0, "a non-TUI session must not open an overlay");
+        assert.equal(
+            session.ui.customCalls.length,
+            0,
+            "a non-TUI session must not open an overlay",
+        );
     });
 });

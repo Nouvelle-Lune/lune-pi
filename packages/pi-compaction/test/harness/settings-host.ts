@@ -12,7 +12,10 @@ import {
     type ExtensionAPI,
     type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { acquireSettings, type SettingsLease } from "@lune_99/pi-lune-extensions-core/settings/advanced";
+import {
+    acquireSettings,
+    type SettingsLease,
+} from "@lune_99/pi-lune-extensions-core/settings/advanced";
 import {
     compactionSchema,
     SETTINGS_ID,

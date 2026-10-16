@@ -73,7 +73,11 @@ describe("question dock", () => {
     });
 
     it("counts the questions inside each pending request", () => {
-        questionManager.create([{ question: "Which database?" }, { question: "Which port?" }, { question: "Which region?" }]);
+        questionManager.create([
+            { question: "Which database?" },
+            { question: "Which port?" },
+            { question: "Which region?" },
+        ]);
         questionManager.create([{ question: "Anything else?" }]);
 
         render();
@@ -128,7 +132,9 @@ describe("question dock", () => {
 
         render();
 
-        const summary = /^1 pending question · (.*) · \/question to answer$/.exec(stripTerminalSequences(line()))?.[1];
+        const summary = /^1 pending question · (.*) · \/question to answer$/.exec(
+            stripTerminalSequences(line()),
+        )?.[1];
         assert.ok(summary, "the dock line must keep its shape");
         assert.ok(visibleWidth(summary) <= 41, `summary too wide: ${JSON.stringify(summary)}`);
         assert.ok(summary.endsWith("…"), "an over-budget question must be marked as truncated");

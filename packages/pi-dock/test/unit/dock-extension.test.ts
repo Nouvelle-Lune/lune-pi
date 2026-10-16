@@ -107,7 +107,8 @@ async function loadExtension(t: TestContext, options: StartOptions = {}) {
             assert.ok(handler, `the /${name} command must be registered`);
             return handler("", ctx as ExtensionCommandContext);
         },
-        subscriptionCount: () => [...handlers.values()].reduce((total, group) => total + group.size, 0),
+        subscriptionCount: () =>
+            [...handlers.values()].reduce((total, group) => total + group.size, 0),
         isAttached: () => getDockRegistry().hasHost(ui),
         widget: () => {
             assert.ok(ui.component instanceof DockComponent, "the dock widget must be mounted");
@@ -151,7 +152,10 @@ describe("dock extension startup", () => {
         await f.start();
 
         const sections = getSettingsPanelRegistry().getSections(f.ui);
-        assert.deepEqual(sections.map(({ id, label }) => [id, label]), [["dock", "Dock"]]);
+        assert.deepEqual(
+            sections.map(({ id, label }) => [id, label]),
+            [["dock", "Dock"]],
+        );
         assert.ok(f.commands.has("dock"));
     });
 
@@ -235,7 +239,11 @@ describe("dock extension live settings", () => {
 
         assert.strictEqual(f.widget(), widget);
         assert.equal(f.ui.widgetCalls.length, widgetCalls);
-        assert.equal(f.ui.footerCalls.length, footerCalls, "ruled and compact both replace the footer");
+        assert.equal(
+            f.ui.footerCalls.length,
+            footerCalls,
+            "ruled and compact both replace the footer",
+        );
         assert.equal(f.render().length, 2);
     });
 

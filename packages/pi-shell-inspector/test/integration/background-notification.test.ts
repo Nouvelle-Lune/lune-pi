@@ -17,7 +17,10 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { shellManager } from "../../src/shell/shell-manager.ts";
-import { registerBackgroundShellNotifications, type BackgroundShellNotificationDetails } from "../../src/shell/shell-notification.ts";
+import {
+    registerBackgroundShellNotifications,
+    type BackgroundShellNotificationDetails,
+} from "../../src/shell/shell-notification.ts";
 import {
     createFakeContext,
     createFakeUi,
@@ -88,16 +91,35 @@ describe("pi-shell-inspector background notifications", () => {
 
             const settled = await waitForJobSettled(jobId);
             assert.equal(settled.status, "completed", "the job must settle before it can notify");
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "one terminal event must notify once");
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "one terminal event must notify once",
+            );
 
             const call = session.host.sendMessageCalls[0]!;
             const text = messageText(call);
 
-            assert.equal(call.message.customType, "background-shell-notification", "the notification must use the extension's custom type");
-            assert.equal(call.message.display, true, "the notification must enter the transcript, where the box renders it");
+            assert.equal(
+                call.message.customType,
+                "background-shell-notification",
+                "the notification must use the extension's custom type",
+            );
+            assert.equal(
+                call.message.display,
+                true,
+                "the notification must enter the transcript, where the box renders it",
+            );
             assert.equal(call.options?.triggerTurn, true, "the agent must get a turn to read it");
-            assert.equal(call.options?.deliverAs, "steer", "the notification must steer the running turn");
+            assert.equal(
+                call.options?.deliverAs,
+                "steer",
+                "the notification must steer the running turn",
+            );
 
             const jobs = (call.message.details as BackgroundShellNotificationDetails).jobs;
             assert.equal(jobs.length, 1, "one settled job must produce one box row");
@@ -107,24 +129,50 @@ describe("pi-shell-inspector background notifications", () => {
                 { shellJobId: jobId, status: "completed", exitCode: 0 },
                 "the notification must identify the job and its outcome",
             );
-            assert.equal(job.command, "echo notify-done", "the box must render the command from details");
-            assert.ok(job.durationMs !== undefined && job.durationMs >= 0, "the box must show how long the job ran");
+            assert.equal(
+                job.command,
+                "echo notify-done",
+                "the box must render the command from details",
+            );
+            assert.ok(
+                job.durationMs !== undefined && job.durationMs >= 0,
+                "the box must show how long the job ran",
+            );
             assert.equal(
                 text.slice(job.output.start, job.output.end),
                 settled.output.content,
                 "the box must read the output from the slice of the message text, not from a second copy",
             );
 
-            assert.ok(text.startsWith(`Background shell ${jobId} completed.`), `the notification must open with the job id and status: ${text}`);
-            assert.ok(text.includes("Command: echo notify-done"), `the notification must report the command: ${text}`);
-            assert.ok(text.includes("Exit code: 0"), `the notification must report the exit code: ${text}`);
-            assert.ok(text.endsWith(`Output:\n${settled.output.content}`), `the notification must end with the job output: ${text}`);
-            assert.ok(!text.includes("undefined"), "absent optional fields must be omitted, not printed");
+            assert.ok(
+                text.startsWith(`Background shell ${jobId} completed.`),
+                `the notification must open with the job id and status: ${text}`,
+            );
+            assert.ok(
+                text.includes("Command: echo notify-done"),
+                `the notification must report the command: ${text}`,
+            );
+            assert.ok(
+                text.includes("Exit code: 0"),
+                `the notification must report the exit code: ${text}`,
+            );
+            assert.ok(
+                text.endsWith(`Output:\n${settled.output.content}`),
+                `the notification must end with the job output: ${text}`,
+            );
+            assert.ok(
+                !text.includes("undefined"),
+                "absent optional fields must be omitted, not printed",
+            );
 
             // The detached execution reports its outcome in the same turn; after its promise has
             // fully settled, the job must not have notified a second time.
             await new Promise((resolve) => setTimeout(resolve, 300));
-            assert.equal(session.host.sendMessageCalls.length, 1, "a natural completion must notify exactly once");
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "a natural completion must notify exactly once",
+            );
         });
     });
 
@@ -139,18 +187,31 @@ describe("pi-shell-inspector background notifications", () => {
             });
 
             const settled = await waitForJobSettled(jobId);
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
 
             const managed = shellManager.getJob(jobId)!;
             const expected = managed.output.fullOutputPath;
-            const job = (session.host.sendMessageCalls[0]!.message.details as BackgroundShellNotificationDetails).jobs[0]!;
+            const job = (
+                session.host.sendMessageCalls[0]!.message
+                    .details as BackgroundShellNotificationDetails
+            ).jobs[0]!;
 
             try {
-                assert.equal(settled.output.truncated, true, "guard: the output must have outgrown the tail limit");
+                assert.equal(
+                    settled.output.truncated,
+                    true,
+                    "guard: the output must have outgrown the tail limit",
+                );
                 assert.ok(expected, "guard: the manager must have spilled the output to a log");
                 assert.equal(job.fullOutputPath, expected);
                 assert.ok(existsSync(expected), `the full log must exist at ${expected}`);
-                assert.ok(readFileSync(expected, "utf8").startsWith("1\n"), "the log must hold the output from its first line");
+                assert.ok(
+                    readFileSync(expected, "utf8").startsWith("1\n"),
+                    "the log must hold the output from its first line",
+                );
             } finally {
                 if (expected) {
                     rmSync(expected, { force: true });
@@ -168,9 +229,15 @@ describe("pi-shell-inspector background notifications", () => {
             });
 
             await waitForJobSettled(jobId);
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
 
-            const job = (session.host.sendMessageCalls[0]!.message.details as BackgroundShellNotificationDetails).jobs[0]!;
+            const job = (
+                session.host.sendMessageCalls[0]!.message
+                    .details as BackgroundShellNotificationDetails
+            ).jobs[0]!;
 
             assert.equal(job.fullOutputPath, undefined);
         });
@@ -186,7 +253,11 @@ describe("pi-shell-inspector background notifications", () => {
             );
 
             assert.equal(registered.length, 1, "the box must be registered exactly once");
-            assert.equal(typeof registered[0]!.renderer, "function", "the registration must carry the renderer");
+            assert.equal(
+                typeof registered[0]!.renderer,
+                "function",
+                "the registration must carry the renderer",
+            );
         });
     });
 
@@ -200,16 +271,35 @@ describe("pi-shell-inspector background notifications", () => {
             });
 
             const settled = await waitForJobSettled(jobId);
-            assert.equal(settled.status, "failed", "the timed-out job must fail before it notifies");
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            assert.equal(
+                settled.status,
+                "failed",
+                "the timed-out job must fail before it notifies",
+            );
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
             assert.equal(session.host.sendMessageCalls.length, 1, "a failed job must notify once");
 
             const text = messageText(session.host.sendMessageCalls[0]!);
 
-            assert.ok(text.startsWith(`Background shell ${jobId} failed.`), `the notification must open with the job id and status: ${text}`);
-            assert.ok(text.includes("Error: timeout:1"), `the notification must report the failure reason: ${text}`);
-            assert.ok(!text.includes("Exit code:"), "a failed execution reports no process exit code");
-            assert.ok(!text.includes("undefined"), `absent optional fields must be omitted: ${text}`);
+            assert.ok(
+                text.startsWith(`Background shell ${jobId} failed.`),
+                `the notification must open with the job id and status: ${text}`,
+            );
+            assert.ok(
+                text.includes("Error: timeout:1"),
+                `the notification must report the failure reason: ${text}`,
+            );
+            assert.ok(
+                !text.includes("Exit code:"),
+                "a failed execution reports no process exit code",
+            );
+            assert.ok(
+                !text.includes("undefined"),
+                `absent optional fields must be omitted: ${text}`,
+            );
         });
     });
 
@@ -221,16 +311,36 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-killed",
             });
 
-            assert.equal(shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }), true, "the explicit kill must be accepted");
-            assert.equal(shellManager.getJob(jobId)?.controller.signal.aborted, true, "the kill must abort the job's controller");
+            assert.equal(
+                shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+                true,
+                "the explicit kill must be accepted",
+            );
+            assert.equal(
+                shellManager.getJob(jobId)?.controller.signal.aborted,
+                true,
+                "the kill must abort the job's controller",
+            );
 
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
             assert.equal(session.host.sendMessageCalls.length, 1, "a killed job must notify once");
             const text = messageText(session.host.sendMessageCalls[0]!);
 
-            assert.ok(text.startsWith(`Background shell ${jobId} killed.`), `the notification must open with the job id and status: ${text}`);
-            assert.ok(text.includes("Error: manual kill"), `the notification must report the kill reason: ${text}`);
-            assert.ok(!text.includes("undefined"), `absent optional fields must be omitted: ${text}`);
+            assert.ok(
+                text.startsWith(`Background shell ${jobId} killed.`),
+                `the notification must open with the job id and status: ${text}`,
+            );
+            assert.ok(
+                text.includes("Error: manual kill"),
+                `the notification must report the kill reason: ${text}`,
+            );
+            assert.ok(
+                !text.includes("undefined"),
+                `absent optional fields must be omitted: ${text}`,
+            );
         });
     });
 
@@ -244,18 +354,41 @@ describe("pi-shell-inspector background notifications", () => {
 
             const settled = await waitForJobSettled(jobId);
             assert.equal(settled.status, "failed", "the non-zero exit must settle as failed");
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "a non-zero exit must notify once");
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "a non-zero exit must notify once",
+            );
 
             const text = messageText(session.host.sendMessageCalls[0]!);
 
-            assert.ok(text.startsWith(`Background shell ${jobId} failed.`), `the notification must open with the job id and status: ${text}`);
-            assert.ok(text.includes("Exit code: 7"), `the notification must report the exit code: ${text}`);
-            assert.ok(text.includes("Error: Background shell exited with code 7"), `the notification must report the failure reason: ${text}`);
-            assert.ok(text.endsWith("Output:\npartial\n"), `the notification must end with the output produced before the failure: ${text}`);
+            assert.ok(
+                text.startsWith(`Background shell ${jobId} failed.`),
+                `the notification must open with the job id and status: ${text}`,
+            );
+            assert.ok(
+                text.includes("Exit code: 7"),
+                `the notification must report the exit code: ${text}`,
+            );
+            assert.ok(
+                text.includes("Error: Background shell exited with code 7"),
+                `the notification must report the failure reason: ${text}`,
+            );
+            assert.ok(
+                text.endsWith("Output:\npartial\n"),
+                `the notification must end with the output produced before the failure: ${text}`,
+            );
 
             await new Promise((resolve) => setTimeout(resolve, 300));
-            assert.equal(session.host.sendMessageCalls.length, 1, "a failed execution must notify exactly once");
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "a failed execution must notify exactly once",
+            );
         });
     });
 
@@ -271,15 +404,26 @@ describe("pi-shell-inspector background notifications", () => {
             });
 
             shellManager.appendOutput(jobId, "");
-            assert.deepEqual(session.host.sendMessageCalls, [], "started and output events must stay silent");
+            assert.deepEqual(
+                session.host.sendMessageCalls,
+                [],
+                "started and output events must stay silent",
+            );
 
             shellManager.clearAllJobs();
 
             // Give the aborted execution time to reject and reach its refused settle.
             await new Promise((resolve) => setTimeout(resolve, 300));
 
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "the teardown kill notifies once");
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "the teardown kill notifies once",
+            );
             const notification = sentMessage(session.host.sendMessageCalls, 0);
             const jobs = (notification.message.details as BackgroundShellNotificationDetails).jobs;
             assert.deepEqual(
@@ -287,7 +431,11 @@ describe("pi-shell-inspector background notifications", () => {
                 [{ shellJobId: jobId, status: "killed", exitCode: undefined }],
                 "the teardown kill must identify the job and its outcome",
             );
-            assert.equal(jobs[0]!.command, "sleep 1; printf 'late\\n'", "the box must render the killed job's command");
+            assert.equal(
+                jobs[0]!.command,
+                "sleep 1; printf 'late\\n'",
+                "the box must render the killed job's command",
+            );
         });
     });
 
@@ -304,16 +452,37 @@ describe("pi-shell-inspector background notifications", () => {
             const path = shellManager.getJob("job-spilled")?.output.fullOutputPath;
             assert.ok(path, `guard: the flood must have spilled, got ${String(path)}`);
 
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
             assert.equal(session.host.sendMessageCalls.length, 1, "a spilled job must notify once");
             const text = messageText(session.host.sendMessageCalls[0]!);
 
-            assert.ok(text.includes(`[Output truncated. Full output: ${path}]`), `the notification must point at the spill file: ${text}`);
-            assert.ok(text.includes("L2499"), `the newest line must reach the agent, got ${JSON.stringify(text.slice(-200))}`);
-            assert.ok(!text.includes("L0\n"), `the dropped head must not reach the agent, got ${JSON.stringify(text.slice(0, 200))}`);
-            assert.ok(!text.includes("[object Object]"), `the structured output must be rendered, got ${JSON.stringify(text.slice(0, 400))}`);
-            assert.ok(!text.includes("Showing last"), `the banner must not claim line numbers the counter cannot supply, got ${JSON.stringify(text.slice(0, 200))}`);
-            assert.ok(text.length < full.length, `the reported text must stay bounded, reported ${text.length} vs full ${full.length} characters`);
+            assert.ok(
+                text.includes(`[Output truncated. Full output: ${path}]`),
+                `the notification must point at the spill file: ${text}`,
+            );
+            assert.ok(
+                text.includes("L2499"),
+                `the newest line must reach the agent, got ${JSON.stringify(text.slice(-200))}`,
+            );
+            assert.ok(
+                !text.includes("L0\n"),
+                `the dropped head must not reach the agent, got ${JSON.stringify(text.slice(0, 200))}`,
+            );
+            assert.ok(
+                !text.includes("[object Object]"),
+                `the structured output must be rendered, got ${JSON.stringify(text.slice(0, 400))}`,
+            );
+            assert.ok(
+                !text.includes("Showing last"),
+                `the banner must not claim line numbers the counter cannot supply, got ${JSON.stringify(text.slice(0, 200))}`,
+            );
+            assert.ok(
+                text.length < full.length,
+                `the reported text must stay bounded, reported ${text.length} vs full ${full.length} characters`,
+            );
 
             rmSync(path, { force: true });
         });
@@ -323,11 +492,26 @@ describe("pi-shell-inspector background notifications", () => {
         await withSession("notify-once", async (session) => {
             startJob("job-once", "echo once");
 
-            assert.equal(shellManager.settleJob("job-once", { type: "completed", exitCode: 0 }), true, "the first settle must be accepted");
-            assert.equal(shellManager.settleJob("job-once", { type: "failed", error: "late" }), false, "a second settle must be refused");
+            assert.equal(
+                shellManager.settleJob("job-once", { type: "completed", exitCode: 0 }),
+                true,
+                "the first settle must be accepted",
+            );
+            assert.equal(
+                shellManager.settleJob("job-once", { type: "failed", error: "late" }),
+                false,
+                "a second settle must be refused",
+            );
 
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "the refused settle must not notify again");
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "the refused settle must not notify again",
+            );
         });
     });
 
@@ -381,29 +565,58 @@ describe("pi-shell-inspector background notifications", () => {
 
                 const job = shellManager.getJob(id)!;
                 assert.equal(job.status, status, "the settle outcome must be the job's status");
-                assert.ok(job.finishedAt !== undefined && job.finishedAt >= before, `the finish must be stamped after the settle, got ${String(job.finishedAt)}`);
-                assert.equal(job.lastActivityAt, job.finishedAt, "the finish must stay the last activity");
+                assert.ok(
+                    job.finishedAt !== undefined && job.finishedAt >= before,
+                    `the finish must be stamped after the settle, got ${String(job.finishedAt)}`,
+                );
+                assert.equal(
+                    job.lastActivityAt,
+                    job.finishedAt,
+                    "the finish must stay the last activity",
+                );
                 assert.equal(job.exitCode, exitCode, "the settle must carry its exit code through");
                 assert.equal(job.error, error, "the settle must carry its reason through");
-                assert.equal(job.output.content, "kept\n", "a delivery failure must not roll the output back");
+                assert.equal(
+                    job.output.content,
+                    "kept\n",
+                    "a delivery failure must not roll the output back",
+                );
                 assert.equal(job.output.totalLines, 1, "the retained tail must stay intact");
-                assert.equal(job.output.totalBytes, Buffer.byteLength("kept\n"), "the byte count must stay intact");
+                assert.equal(
+                    job.output.totalBytes,
+                    Buffer.byteLength("kept\n"),
+                    "the byte count must stay intact",
+                );
             }
 
-            await waitFor("the terminal batch to exhaust two retries", () => session.ui.notifyCalls.some((call) => call.message.includes("Permanently failed")));
+            await waitFor("the terminal batch to exhaust two retries", () =>
+                session.ui.notifyCalls.some((call) => call.message.includes("Permanently failed")),
+            );
             assert.equal(sends, 3, "one batch has one initial attempt and two retries");
-            assert.equal(session.host.sendMessageCalls.length, 3, "every attempt must be recorded on the host");
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                3,
+                "every attempt must be recorded on the host",
+            );
             assert.ok(session.ui.notifyCalls.every((call) => call.type === "error"));
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 1,
-                failedCount: 1,
-                killedCount: 1,
-            }, "every outcome must reach its own counter despite the throwing transport");
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 1,
+                    failedCount: 1,
+                    killedCount: 1,
+                },
+                "every outcome must reach its own counter despite the throwing transport",
+            );
 
             failing = false;
             startJob("state-after-stale", "echo again");
-            assert.equal(shellManager.settleJob("state-after-stale", { type: "completed", exitCode: 0 }), true, "a later settle must still be accepted");
+            assert.equal(
+                shellManager.settleJob("state-after-stale", { type: "completed", exitCode: 0 }),
+                true,
+                "a later settle must still be accepted",
+            );
             await waitFor("the later notification to be delivered", () => sends === 4);
             assert.equal(sends, 4, "later notifications continue after permanent failure");
         } finally {
@@ -415,7 +628,10 @@ describe("pi-shell-inspector background notifications", () => {
     it("stops notifying after the returned unsubscribe runs", async () => {
         const calls: SendMessageCall[] = [];
         const pi = {
-            sendMessage: (message: SendMessageCall["message"], options?: SendMessageCall["options"]) => {
+            sendMessage: (
+                message: SendMessageCall["message"],
+                options?: SendMessageCall["options"],
+            ) => {
                 calls.push({ message, options });
             },
         } as unknown as ExtensionAPI;
@@ -447,8 +663,15 @@ describe("pi-shell-inspector background notifications", () => {
 
             startJob("job-restart-1", "echo one");
             shellManager.settleJob("job-restart-1", { type: "completed", exitCode: 0 });
-            await waitFor("the batched completion after restart", () => host.sendMessageCalls.length === 1);
-            assert.equal(host.sendMessageCalls.length, 1, "one job must notify once regardless of restarts");
+            await waitFor(
+                "the batched completion after restart",
+                () => host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                host.sendMessageCalls.length,
+                1,
+                "one job must notify once regardless of restarts",
+            );
 
             for (let restart = 0; restart < 3; restart++) {
                 await host.emit("session_start", ctx);
@@ -456,11 +679,20 @@ describe("pi-shell-inspector background notifications", () => {
             startJob("job-restart-2", "echo two");
             shellManager.settleJob("job-restart-2", { type: "completed", exitCode: 0 });
 
-            await waitFor("the batched completion after restart", () => host.sendMessageCalls.length === 2);
-            assert.equal(host.sendMessageCalls.length, 2, "the second job must add exactly one notification");
+            await waitFor(
+                "the batched completion after restart",
+                () => host.sendMessageCalls.length === 2,
+            );
             assert.equal(
-                host.sendMessageCalls.filter(
-                    (call) => (call.message.details as { jobs: Array<{ shellJobId: string }> }).jobs.some((job) => job.shellJobId === "job-restart-2"),
+                host.sendMessageCalls.length,
+                2,
+                "the second job must add exactly one notification",
+            );
+            assert.equal(
+                host.sendMessageCalls.filter((call) =>
+                    (call.message.details as { jobs: Array<{ shellJobId: string }> }).jobs.some(
+                        (job) => job.shellJobId === "job-restart-2",
+                    ),
                 ).length,
                 1,
                 "the second job must not have been notified by a historical listener",
@@ -481,7 +713,11 @@ describe("pi-shell-inspector background notifications", () => {
             shellManager.appendOutput("burst-b", "b-out\n");
             shellManager.appendOutput("burst-c", "c-out\n");
 
-            assert.equal(shellManager.settleJob("burst-a", { type: "completed", exitCode: 0 }), true, "the completed settle must be accepted");
+            assert.equal(
+                shellManager.settleJob("burst-a", { type: "completed", exitCode: 0 }),
+                true,
+                "the completed settle must be accepted",
+            );
             assert.equal(
                 shellManager.settleJob("burst-b", {
                     type: "failed",
@@ -491,23 +727,42 @@ describe("pi-shell-inspector background notifications", () => {
                 true,
                 "the failed settle must be accepted",
             );
-            assert.equal(shellManager.settleJob("burst-c", { type: "killed", error: "user" }), true, "the killed settle must be accepted");
+            assert.equal(
+                shellManager.settleJob("burst-c", { type: "killed", error: "user" }),
+                true,
+                "the killed settle must be accepted",
+            );
 
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 1,
-                failedCount: 1,
-                killedCount: 1,
-            }, "the burst must move each counter exactly once");
-            await waitFor("the batched burst notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "near-simultaneous events form one batch");
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 1,
+                    failedCount: 1,
+                    killedCount: 1,
+                },
+                "the burst must move each counter exactly once",
+            );
+            await waitFor(
+                "the batched burst notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "near-simultaneous events form one batch",
+            );
             const call = session.host.sendMessageCalls[0]!;
             const jobs = (call.message.details as BackgroundShellNotificationDetails).jobs;
-            assert.deepEqual(jobs.map(({ shellJobId, status, exitCode }) => ({ shellJobId, status, exitCode })), [
-                { shellJobId: "burst-a", status: "completed", exitCode: 0 },
-                { shellJobId: "burst-b", status: "failed", exitCode: 3 },
-                { shellJobId: "burst-c", status: "killed", exitCode: undefined },
-            ], "each job must retain its own metadata without loss or duplication");
+            assert.deepEqual(
+                jobs.map(({ shellJobId, status, exitCode }) => ({ shellJobId, status, exitCode })),
+                [
+                    { shellJobId: "burst-a", status: "completed", exitCode: 0 },
+                    { shellJobId: "burst-b", status: "failed", exitCode: 3 },
+                    { shellJobId: "burst-c", status: "killed", exitCode: undefined },
+                ],
+                "each job must retain its own metadata without loss or duplication",
+            );
             const sections = messageText(call).split("\n\n---\n\n");
             for (const [index, [id, status, output]] of [
                 ["burst-a", "completed", "a-out"],
@@ -548,8 +803,15 @@ describe("pi-shell-inspector background notifications", () => {
             shellManager.settleJob("job-handover", { type: "completed", exitCode: 0 });
 
             assert.deepEqual(first.sendMessageCalls, [], "the ended session must not be notified");
-            await waitFor("the live session notification", () => second.sendMessageCalls.length === 1);
-            assert.equal(second.sendMessageCalls.length, 1, "the live session must be notified once");
+            await waitFor(
+                "the live session notification",
+                () => second.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                second.sendMessageCalls.length,
+                1,
+                "the live session must be notified once",
+            );
 
             await second.emit("session_shutdown", secondCtx);
         } finally {

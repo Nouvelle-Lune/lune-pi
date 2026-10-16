@@ -46,13 +46,33 @@ describe("pi-shell-inspector bash delegation", () => {
         // (content blocks and details) equals the result of the same command run through
         // createBashTool(cwd) directly.
         const command = "printf 'alpha\\nbeta\\n'";
-        const delegated = await runBashCommand(session.tool, { command, ctx: session.ctx, toolCallId: "call-passthrough" });
+        const delegated = await runBashCommand(session.tool, {
+            command,
+            ctx: session.ctx,
+            toolCallId: "call-passthrough",
+        });
         const reference = await runBashCommand(createBuiltInBash(workDir), { command, ctx: null });
 
-        assert.equal(reference.failed, false, `the reference call must succeed: ${reference.error?.message ?? ""}`);
-        assert.deepEqual(delegated.result, reference.result, "the delegated result must equal a direct built-in call");
-        assert.equal(resultText(requireResult(delegated)), "alpha\nbeta\n", "the result body must be the command's output");
-        assert.equal(requireResult(delegated).details, undefined, "an untruncated result carries no details");
+        assert.equal(
+            reference.failed,
+            false,
+            `the reference call must succeed: ${reference.error?.message ?? ""}`,
+        );
+        assert.deepEqual(
+            delegated.result,
+            reference.result,
+            "the delegated result must equal a direct built-in call",
+        );
+        assert.equal(
+            resultText(requireResult(delegated)),
+            "alpha\nbeta\n",
+            "the result body must be the command's output",
+        );
+        assert.equal(
+            requireResult(delegated).details,
+            undefined,
+            "an untruncated result carries no details",
+        );
     });
 
     it("delegates unchanged when the caller spells out the foreground mode", async () => {
@@ -67,8 +87,16 @@ describe("pi-shell-inspector bash delegation", () => {
         });
         const reference = await runBashCommand(createBuiltInBash(workDir), { command, ctx: null });
 
-        assert.deepEqual(explicit.result, reference.result, "the explicit foreground mode must behave like the omitted one");
-        assert.equal(resultText(requireResult(explicit)), "explicit\n", "the result body must stay the built-in output");
+        assert.deepEqual(
+            explicit.result,
+            reference.result,
+            "the explicit foreground mode must behave like the omitted one",
+        );
+        assert.equal(
+            resultText(requireResult(explicit)),
+            "explicit\n",
+            "the result body must stay the built-in output",
+        );
     });
 
     it("runs the command in ctx.cwd", async () => {
@@ -82,14 +110,22 @@ describe("pi-shell-inspector bash delegation", () => {
                 ctx: createFakeContext(otherDir),
                 toolCallId: "call-cwd-context",
             });
-            assert.equal(resultText(requireResult(inContext)).trim(), realpathSync(otherDir), "the command must run in ctx.cwd");
+            assert.equal(
+                resultText(requireResult(inContext)).trim(),
+                realpathSync(otherDir),
+                "the command must run in ctx.cwd",
+            );
 
             const inWorkDir = await runBashCommand(session.tool, {
                 command: "pwd -P",
                 ctx: session.ctx,
                 toolCallId: "call-cwd-session",
             });
-            assert.equal(resultText(requireResult(inWorkDir)).trim(), realpathSync(workDir), "the session context cwd must win over the load-time directory");
+            assert.equal(
+                resultText(requireResult(inWorkDir)).trim(),
+                realpathSync(workDir),
+                "the session context cwd must win over the load-time directory",
+            );
         } finally {
             removeTempWorkDir(otherDir);
         }
@@ -106,8 +142,15 @@ describe("pi-shell-inspector bash delegation", () => {
         });
         const error = requireError(run);
 
-        assert.equal(error.message, "Command timed out after 1 seconds", "the built-in timeout message must pass through unchanged");
-        assert.ok(run.durationMs < 4000, `the timeout must cut the 5s sleep short, took ${run.durationMs}ms`);
+        assert.equal(
+            error.message,
+            "Command timed out after 1 seconds",
+            "the built-in timeout message must pass through unchanged",
+        );
+        assert.ok(
+            run.durationMs < 4000,
+            `the timeout must cut the 5s sleep short, took ${run.durationMs}ms`,
+        );
     });
 
     it("passes a timeout that is never reached through without changing the result", async () => {
@@ -119,7 +162,11 @@ describe("pi-shell-inspector bash delegation", () => {
             toolCallId: "call-timeout-idle",
         });
 
-        assert.equal(resultText(requireResult(run)), "ok\n", "an unreached timeout must not change the result");
+        assert.equal(
+            resultText(requireResult(run)),
+            "ok\n",
+            "an unreached timeout must not change the result",
+        );
     });
 
     it("forwards the abort signal so a cancelled call fails as aborted", async () => {
@@ -136,8 +183,15 @@ describe("pi-shell-inspector bash delegation", () => {
             });
             const error = requireError(run);
 
-            assert.equal(error.message, "Command aborted", "the built-in abort message must pass through unchanged");
-            assert.ok(run.durationMs < 4000, `the abort must cut the 5s sleep short, took ${run.durationMs}ms`);
+            assert.equal(
+                error.message,
+                "Command aborted",
+                "the built-in abort message must pass through unchanged",
+            );
+            assert.ok(
+                run.durationMs < 4000,
+                `the abort must cut the 5s sleep short, took ${run.durationMs}ms`,
+            );
         } finally {
             clearTimeout(abortTimer);
         }
@@ -152,13 +206,23 @@ describe("pi-shell-inspector bash delegation", () => {
             toolCallId: "call-stream",
         });
 
-        assert.equal(run.failed, false, `expected the call to succeed: ${run.error?.message ?? ""}`);
-        assert.ok(run.updates.length > 0, `expected at least one streamed snapshot, got ${run.updates.length}`);
+        assert.equal(
+            run.failed,
+            false,
+            `expected the call to succeed: ${run.error?.message ?? ""}`,
+        );
+        assert.ok(
+            run.updates.length > 0,
+            `expected at least one streamed snapshot, got ${run.updates.length}`,
+        );
 
         let previous = "";
         for (const update of run.updates) {
             const snapshot = resultText(update);
-            assert.ok(snapshot.length >= previous.length, `a snapshot shrank: ${snapshot.length} < ${previous.length}`);
+            assert.ok(
+                snapshot.length >= previous.length,
+                `a snapshot shrank: ${snapshot.length} < ${previous.length}`,
+            );
             previous = snapshot;
         }
 
@@ -168,7 +232,11 @@ describe("pi-shell-inspector bash delegation", () => {
             resultText(requireResult(run)).startsWith(resultText(lastSnapshot)),
             `the reported text must extend the last streamed snapshot, got ${JSON.stringify(resultText(requireResult(run)).slice(0, 200))} vs snapshot ${JSON.stringify(resultText(lastSnapshot).slice(0, 200))}`,
         );
-        assert.equal(resultText(requireResult(run)), "one\ntwo\nthree\n", "the final result must carry every streamed chunk");
+        assert.equal(
+            resultText(requireResult(run)),
+            "one\ntwo\nthree\n",
+            "the final result must carry every streamed chunk",
+        );
     });
 
     it("records nothing: a foreground call creates no shell job and never touches the dock", async () => {
@@ -183,9 +251,21 @@ describe("pi-shell-inspector bash delegation", () => {
             toolCallId: "call-unobserved",
         });
 
-        assert.equal(run.failed, false, `expected the call to succeed: ${run.error?.message ?? ""}`);
-        assert.deepEqual(shellManager.getAllJobsList(), [], "a foreground call must not be recorded as a job");
-        assert.equal(session.ui.widgetCalls.length, widgetCallsBefore, "the dock must not react to a foreground call");
+        assert.equal(
+            run.failed,
+            false,
+            `expected the call to succeed: ${run.error?.message ?? ""}`,
+        );
+        assert.deepEqual(
+            shellManager.getAllJobsList(),
+            [],
+            "a foreground call must not be recorded as a job",
+        );
+        assert.equal(
+            session.ui.widgetCalls.length,
+            widgetCallsBefore,
+            "the dock must not react to a foreground call",
+        );
         assert.equal(
             session.host.sendMessageCalls.length,
             notificationsBefore,
@@ -206,7 +286,10 @@ describe("pi-shell-inspector bash delegation", () => {
         });
 
         assert.equal(run.failed, true, "a context-less call must fail");
-        assert.ok(run.error instanceof TypeError, `expected the cwd dereference to throw, got ${run.error?.name}`);
+        assert.ok(
+            run.error instanceof TypeError,
+            `expected the cwd dereference to throw, got ${run.error?.name}`,
+        );
         assert.equal(shellManager.getJob("call-no-context"), undefined, "no job may be recorded");
         assert.equal(session.ui.widgetCalls.length, widgetCallsBefore, "the dock must not react");
     });

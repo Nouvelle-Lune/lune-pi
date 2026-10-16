@@ -399,7 +399,9 @@ test("summarizeReview scopes dropped fragments to surviving calls", () => {
 });
 
 test("summarizeReview separates placeholders and unreviewed keeps from drops", () => {
-    const summary = summarizeReview(summaryFixture({ r1: ["keep", "drop", "placeholder", "unreviewed"] }));
+    const summary = summarizeReview(
+        summaryFixture({ r1: ["keep", "drop", "placeholder", "unreviewed"] }),
+    );
     const expected = { droppedFragments: 1, placeholders: 1, unreviewed: 1, removedCalls: 0 };
     const actual = {
         droppedFragments: summary.droppedFragments,

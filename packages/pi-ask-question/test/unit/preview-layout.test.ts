@@ -50,7 +50,10 @@ describe("preview layout", () => {
                 false,
             );
             assert.equal(
-                questionHasPreview({ question: "Q?", options: [{ label: "a" }, { label: "b", preview: "x" }] }),
+                questionHasPreview({
+                    question: "Q?",
+                    options: [{ label: "a" }, { label: "b", preview: "x" }],
+                }),
                 true,
             );
         });
@@ -77,7 +80,10 @@ describe("preview layout", () => {
         });
 
         it("is driven by the widest option of the whole request", () => {
-            const short: AskQuestion = { question: "Q1?", options: [{ label: "a" }, { label: "b" }] };
+            const short: AskQuestion = {
+                question: "Q1?",
+                options: [{ label: "a" }, { label: "b" }],
+            };
             const long = singleSelect("z".repeat(60));
 
             assert.equal(leftColumnWidth([short, long], 200), leftColumnWidth([long, short], 200));
@@ -99,7 +105,10 @@ describe("preview layout", () => {
             const wide = singleSelect("w".repeat(400));
             const contentWidth = 100;
 
-            assert.equal(leftColumnWidth([wide], contentWidth), Math.floor(contentWidth * MAX_LEFT_RATIO));
+            assert.equal(
+                leftColumnWidth([wide], contentWidth),
+                Math.floor(contentWidth * MAX_LEFT_RATIO),
+            );
         });
 
         it("leaves the preview its minimum width whenever the layout splits", () => {
@@ -127,7 +136,10 @@ describe("preview layout", () => {
         });
 
         it("stacks when the panel is too narrow for any useful preview", () => {
-            assert.equal(decidePreviewLayout(76, leftColumnWidth([singleSelect("a")], 76)), "stacked");
+            assert.equal(
+                decidePreviewLayout(76, leftColumnWidth([singleSelect("a")], 76)),
+                "stacked",
+            );
         });
     });
 
@@ -142,13 +154,20 @@ describe("preview layout", () => {
         });
 
         it("gives both columns the full width when stacked", () => {
-            assert.deepEqual(previewColumnWidths(76, 30, "stacked"), { leftWidth: 76, rightWidth: 76, gap: 0 });
+            assert.deepEqual(previewColumnWidths(76, 30, "stacked"), {
+                leftWidth: 76,
+                rightWidth: 76,
+                gap: 0,
+            });
         });
     });
 
     describe("previewBlockRowBudget", () => {
         it("caps the preview height per layout", () => {
-            assert.equal(previewBlockRowBudget("side-by-side", 40), PREVIEW_MAX_BLOCK_ROWS_SIDE_BY_SIDE);
+            assert.equal(
+                previewBlockRowBudget("side-by-side", 40),
+                PREVIEW_MAX_BLOCK_ROWS_SIDE_BY_SIDE,
+            );
             assert.equal(previewBlockRowBudget("stacked", 40), PREVIEW_MAX_BLOCK_ROWS_STACKED);
         });
 

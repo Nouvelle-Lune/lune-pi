@@ -41,7 +41,10 @@ type ToolExecute = (
 ) => Promise<BashToolResult>;
 
 /** Run one of the extension's non-bash tools the way pi does and return its result. */
-function invokeTool(tool: BashToolDefinition, params: Record<string, unknown> = {}): Promise<BashToolResult> {
+function invokeTool(
+    tool: BashToolDefinition,
+    params: Record<string, unknown> = {},
+): Promise<BashToolResult> {
     const execute = tool.execute as unknown as ToolExecute;
     return execute("call-codemode-inspect", params, undefined, undefined, undefined);
 }
@@ -77,16 +80,29 @@ describe("pi-shell-inspector under codemode", () => {
         // Contract: the declared schema is the built-in bash result unioned with the background start
         // shape, because codemode's resolver only reaches a script through a schema that accepts the
         // value the call answered with - including the built-in optional path on truncated output.
-        const foreground = { output: "x\n", truncated: false, exit_code: 0, wall_time_seconds: 0.1 };
+        const foreground = {
+            output: "x\n",
+            truncated: false,
+            exit_code: 0,
+            wall_time_seconds: 0.1,
+        };
 
-        assert.equal(Value.Check(outputSchema, foreground), true, "a foreground result must be accepted");
+        assert.equal(
+            Value.Check(outputSchema, foreground),
+            true,
+            "a foreground result must be accepted",
+        );
         assert.equal(
             Value.Check(outputSchema, { ...foreground, full_output_path: "/tmp/full" }),
             true,
             "the built-in full_output_path must stay accepted",
         );
         assert.equal(
-            Value.Check(outputSchema, { background: true, shell_job_id: "call-1", command: "echo hi" }),
+            Value.Check(outputSchema, {
+                background: true,
+                shell_job_id: "call-1",
+                command: "echo hi",
+            }),
             true,
             "a background start result must be accepted",
         );
@@ -119,7 +135,10 @@ describe("pi-shell-inspector under codemode", () => {
             shell_job_id: "call-codemode-bg",
             command,
         });
-        assert.equal(resultText(result), `Background shell started with ID call-codemode-bg: ${command}`);
+        assert.equal(
+            resultText(result),
+            `Background shell started with ID call-codemode-bg: ${command}`,
+        );
         assert.equal(
             Value.Check(outputSchema, structuredContent(result)),
             true,
@@ -130,29 +149,51 @@ describe("pi-shell-inspector under codemode", () => {
     it("keeps the built-in structured result for a foreground call", async () => {
         // Contract: a foreground call resolves to the built-in bash structuredContent, so a script
         // reads `output` and `exit_code` fields instead of the model-facing text.
-        const run = await runBashCommand(session.tool, { command: "printf 'hello\\n'", ctx: session.ctx });
+        const run = await runBashCommand(session.tool, {
+            command: "printf 'hello\\n'",
+            ctx: session.ctx,
+        });
         const structured = structuredContent(requireResult(run));
 
         assert.equal(structured.output, "hello\n");
         assert.equal(structured.truncated, false);
         assert.equal(structured.exit_code, 0);
         assert.equal(typeof structured.wall_time_seconds, "number");
-        assert.equal("full_output_path" in structured, false, "an untruncated result must not carry a path");
-        assert.equal(Value.Check(outputSchema, structured), true, "the declared schema must accept it");
+        assert.equal(
+            "full_output_path" in structured,
+            false,
+            "an untruncated result must not carry a path",
+        );
+        assert.equal(
+            Value.Check(outputSchema, structured),
+            true,
+            "the declared schema must accept it",
+        );
     });
 
     it("still resolves a failed foreground call to its structured result", async () => {
         // Contract: pi reports a non-zero exit as an error result, but codemode returns a declared
         // structuredContent before applying its error path, so the script receives the exit code
         // instead of a rejected call.
-        const run = await runBashCommand(session.tool, { command: "printf 'boom\\n'; exit 7", ctx: session.ctx });
+        const run = await runBashCommand(session.tool, {
+            command: "printf 'boom\\n'; exit 7",
+            ctx: session.ctx,
+        });
         const result = requireResult(run);
 
-        assert.equal(result.isError, true, "the built-in failure must stay flagged as an error result");
+        assert.equal(
+            result.isError,
+            true,
+            "the built-in failure must stay flagged as an error result",
+        );
         const structured = structuredContent(result);
         assert.equal(structured.exit_code, 7);
         assert.match(String(structured.output), /boom/);
-        assert.equal(Value.Check(outputSchema, structured), true, "the declared schema must accept it");
+        assert.equal(
+            Value.Check(outputSchema, structured),
+            true,
+            "the declared schema must accept it",
+        );
     });
 
     it("leaves the text-only tools without an output schema", async () => {
@@ -160,7 +201,11 @@ describe("pi-shell-inspector under codemode", () => {
         // no schema, so a script gets that text and is never promised a structure they do not send.
         const inspector = loadRegisteredTool(workDir, "background_shell");
 
-        assert.equal(inspector.outputSchema, undefined, "the inspector must declare no output schema");
+        assert.equal(
+            inspector.outputSchema,
+            undefined,
+            "the inspector must declare no output schema",
+        );
         assert.equal(
             loadRegisteredTool(workDir, "kill_background_shell").outputSchema,
             undefined,
@@ -168,7 +213,11 @@ describe("pi-shell-inspector under codemode", () => {
         );
 
         const result = await invokeTool(inspector);
-        assert.equal(result.structuredContent, undefined, "the inspector must answer with text only");
+        assert.equal(
+            result.structuredContent,
+            undefined,
+            "the inspector must answer with text only",
+        );
         assert.equal(resultText(result), "No background shells.");
     });
 });

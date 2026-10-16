@@ -1,14 +1,16 @@
-import { DEFAULT_MAX_LINES, truncateTail, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+    DEFAULT_MAX_LINES,
+    truncateTail,
+    type ExtensionAPI,
+    type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import xterm, { type Terminal as XtermTerminal } from "@xterm/headless";
 
 // @xterm/headless ships CommonJS, and its UMD factory hides the exports from Node's
 // named-export detection, so the class has to come off the default import.
 const { Terminal } = xterm;
 
-import {
-    appendFileSync,
-    writeFileSync,
-} from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -35,11 +37,7 @@ const screenRevisions = new WeakMap<XtermTerminal, number>();
 // Beside the terminal instead of on ShellJob: the job record is what tests and the snapshot see.
 const screenFeeds = new WeakMap<XtermTerminal, ScreenFeed>();
 
-export type ShellJobStatus =
-    | "running"
-    | "completed"
-    | "failed"
-    | "killed";
+export type ShellJobStatus = "running" | "completed" | "failed" | "killed";
 
 export interface ShellJob {
     id: string;
@@ -95,22 +93,22 @@ export type ShellManagerEvent =
     | { type: "job-killed"; id: string }
     | { type: "job-cleared"; id: string }
     | { type: "output-updated"; id: string }
-    | { type: "jobs-cleared" }
+    | { type: "jobs-cleared" };
 
 export type ShellJobOutcome =
     | {
-        type: "completed";
-        exitCode?: number;
-    }
+          type: "completed";
+          exitCode?: number;
+      }
     | {
-        type: "failed";
-        error: string;
-        exitCode?: number;
-    }
+          type: "failed";
+          error: string;
+          exitCode?: number;
+      }
     | {
-        type: "killed";
-        error?: string;
-    };
+          type: "killed";
+          error?: string;
+      };
 
 export type ShellManagerListener = (event: ShellManagerEvent) => void;
 
@@ -173,12 +171,12 @@ export class ShellManager {
 
         this.emit({
             type: "job-started",
-            id: input.id
+            id: input.id,
         });
     }
 
     /**
-     * 
+     *
      * @param pi The extension API instance, used to persist the current state of all jobs and their statistics to the pi session log.
      */
     clearAllJobs(pi?: ExtensionAPI): void {
@@ -191,8 +189,8 @@ export class ShellManager {
         // Persist the current state of all jobs and their statistics to the pi session log.
         if (pi) {
             pi.appendEntry("pi-shell-inspector-view-status", {
-                jobs: this.getAllJobsList().map(job => this.getJobSnapshot(job.id)),
-                stats: this.getAllJobsStatusStat()
+                jobs: this.getAllJobsList().map((job) => this.getJobSnapshot(job.id)),
+                stats: this.getAllJobsStatusStat(),
             });
         }
 
@@ -206,14 +204,11 @@ export class ShellManager {
         this.clearManagerstatus();
         this.inspectorIndex = 0;
         this.emit({
-            type: "jobs-cleared"
+            type: "jobs-cleared",
         });
-    };
+    }
 
-    appendOutput(
-        id: string,
-        chunk: string,
-    ): void {
+    appendOutput(id: string, chunk: string): void {
         const job = this.getRunningJob(id);
         const next = job.output.content + chunk;
         job.output.totalBytes += Buffer.byteLength(chunk);
@@ -228,10 +223,7 @@ export class ShellManager {
             if (!truncation.truncated) {
                 job.output.content = next;
             } else {
-                const path = join(
-                    tmpdir(),
-                    `pi-shell-inspector-bash-${randomUUID()}.log`,
-                );
+                const path = join(tmpdir(), `pi-shell-inspector-bash-${randomUUID()}.log`);
                 writeFileSync(path, next, "utf8");
 
                 job.output.fullOutputPath = path;
@@ -248,7 +240,7 @@ export class ShellManager {
 
         this.emit({
             type: "output-updated",
-            id: id
+            id: id,
         });
     }
 
@@ -326,15 +318,11 @@ export class ShellManager {
     }
 
     getRunningJobsList(): readonly Readonly<ShellJob>[] {
-        return Array.from(this.jobs.values()).filter(
-            (job) => job.status === "running",
-        );
+        return Array.from(this.jobs.values()).filter((job) => job.status === "running");
     }
 
     getCompletedJobsList(): readonly Readonly<ShellJob>[] {
-        return Array.from(this.jobs.values()).filter(
-            (job) => job.status === "completed",
-        );
+        return Array.from(this.jobs.values()).filter((job) => job.status === "completed");
     }
 
     getAllJobsStatusStat(): JobsStatusStat {
@@ -354,10 +342,7 @@ export class ShellManager {
         };
     }
 
-    settleJob(
-        id: string,
-        outcome: ShellJobOutcome,
-    ): boolean {
+    settleJob(id: string, outcome: ShellJobOutcome): boolean {
         // Settling is idempotent: the detached execution can race session teardown, and a job that
         // is unknown or no longer running must not be settled again (or counted twice).
         if (this.getJob(id)?.status !== "running") {
@@ -379,9 +364,9 @@ export class ShellManager {
         const shellStateEntry = [...ctx.sessionManager.getBranch()]
             .reverse()
             .find(
-                entry =>
+                (entry) =>
                     entry.type === "custom" &&
-                    entry.customType === "pi-shell-inspector-view-status"
+                    entry.customType === "pi-shell-inspector-view-status",
             );
 
         if (!shellStateEntry || shellStateEntry.type !== "custom") return;
@@ -420,9 +405,7 @@ export class ShellManager {
         const job = this.requireJob(id);
 
         if (job.status !== "running") {
-            throw new Error(
-                `Shell job "${id}" is not running: ${job.status}`,
-            );
+            throw new Error(`Shell job "${id}" is not running: ${job.status}`);
         }
 
         return job;
@@ -452,15 +435,11 @@ export class ShellManager {
 
         this.emit({
             type: "job-completed",
-            id: id
+            id: id,
         });
     }
 
-    private failJob(
-        id: string,
-        error: string,
-        exitCode?: number,
-    ): void {
+    private failJob(id: string, error: string, exitCode?: number): void {
         const job = this.getRunningJob(id);
         const now = Date.now();
 
@@ -475,7 +454,7 @@ export class ShellManager {
 
         this.emit({
             type: "job-failed",
-            id: id
+            id: id,
         });
     }
 
@@ -495,7 +474,7 @@ export class ShellManager {
 
         this.emit({
             type: "job-killed",
-            id: id
+            id: id,
         });
     }
 
@@ -526,7 +505,7 @@ export class ShellManager {
 
         this.emit({
             type: "job-cleared",
-            id: id
+            id: id,
         });
         return true;
     }
@@ -562,8 +541,8 @@ export class ShellManager {
                 totalLines: job.output.totalLines,
                 totalBytes: job.output.totalBytes,
                 fullOutputPath: job.output.fullOutputPath,
-            }
-        }
+            },
+        };
     }
 }
 

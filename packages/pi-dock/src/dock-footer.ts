@@ -104,7 +104,10 @@ export class DockFooter {
         const lines = [rule];
         // The rule under the dock row carries the key hints and doubles as the closing rule.
         if (rows.dock !== undefined) {
-            lines.push(rows.dock, input.selectedId === undefined ? rule : this.renderHintRule(width, theme));
+            lines.push(
+                rows.dock,
+                input.selectedId === undefined ? rule : this.renderHintRule(width, theme),
+            );
         }
         if (rows.info !== undefined) lines.push(rows.info);
         if (rows.statuses !== undefined) lines.push(rows.statuses);
@@ -116,11 +119,17 @@ export class DockFooter {
         // "│ " before and " │" after leave 4 columns, 1 of which the rows already spend on their gutter.
         const rows = this.renderRows(width - 3, theme, input, false);
         const border = (text: string) => theme.fg("borderMuted", text);
-        const frame = (left: string, fill: string, right: string) => border(left) + fill + border(right);
+        const frame = (left: string, fill: string, right: string) =>
+            border(left) + fill + border(right);
         const wrap = (row: string) =>
-            border("│") + row + " ".repeat(Math.max(0, width - 3 - visibleWidth(row))) + " " + border("│");
+            border("│") +
+            row +
+            " ".repeat(Math.max(0, width - 3 - visibleWidth(row))) +
+            " " +
+            border("│");
         const plain = border("─".repeat(width - 2));
-        const hinted = input.selectedId === undefined ? plain : this.renderHintRule(width - 2, theme);
+        const hinted =
+            input.selectedId === undefined ? plain : this.renderHintRule(width - 2, theme);
 
         const more = rows.info !== undefined || rows.statuses !== undefined;
         const lines: string[] = [];
@@ -140,7 +149,12 @@ export class DockFooter {
         return [rows.dock, rows.info, rows.statuses].filter((row) => row !== undefined);
     }
 
-    private renderRows(width: number, theme: Theme, input: DockFooterInput, inlineHints: boolean): Rows {
+    private renderRows(
+        width: number,
+        theme: Theme,
+        input: DockFooterInput,
+        inlineHints: boolean,
+    ): Rows {
         const { status, layout } = input;
         const showInfo = status !== undefined && layout.style !== "minimal";
         return {
@@ -166,12 +180,21 @@ export class DockFooter {
         const right = this.renderRightSegment(width, theme, input, inlineHints);
         if (!hasCells && !right.text) return undefined;
 
-        const segment = right.text + " ".repeat(Math.max(0, right.width - visibleWidth(right.text)));
+        const segment =
+            right.text + " ".repeat(Math.max(0, right.width - visibleWidth(right.text)));
         const tail = (hasCells && right.text ? theme.fg("dim", CELL_SEPARATOR) : "") + segment;
         const left = hasCells
-            ? (this.cells.render(input.entries, width - visibleWidth(tail), theme, input.selectedId, input.mode)[0] ?? "")
+            ? (this.cells.render(
+                  input.entries,
+                  width - visibleWidth(tail),
+                  theme,
+                  input.selectedId,
+                  input.mode,
+              )[0] ?? "")
             : "";
-        return left + " ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(tail))) + tail;
+        return (
+            left + " ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(tail))) + tail
+        );
     }
 
     /** Key hint while focused (when inline), otherwise the model; the minimal style adds context use. */
@@ -198,7 +221,9 @@ export class DockFooter {
                 const model = layout.showModel
                     ? renderModelSegment({ ...status, showProvider }, theme, Infinity)
                     : "";
-                const combined = model ? model + theme.fg("dim", CELL_SEPARATOR) + context : context;
+                const combined = model
+                    ? model + theme.fg("dim", CELL_SEPARATOR) + context
+                    : context;
                 if (visibleWidth(combined) <= budget) return flush(combined);
             }
         }

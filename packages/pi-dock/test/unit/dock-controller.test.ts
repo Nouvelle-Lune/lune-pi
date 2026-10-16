@@ -83,7 +83,10 @@ describe("dock controller", () => {
         const lines = componentOf(ui).render(100);
 
         assert.equal(lines.length, 5, "rule, dock row, rule, info row, rule");
-        assert.match(dockRowOf(componentOf(ui)), /^ 2 shells │ 1 question +│ claude-test • medium *$/);
+        assert.match(
+            dockRowOf(componentOf(ui)),
+            /^ 2 shells │ 1 question +│ claude-test • medium *$/,
+        );
         assert.deepEqual(
             ui.widgetCalls
                 .filter((call) => call.content !== undefined)
@@ -94,7 +97,8 @@ describe("dock controller", () => {
 
     it("keeps the selected contribution visible within a narrow terminal", () => {
         const { ui, ctx, registry, controller } = createTestContext();
-        for (let index = 0; index < 8; index++) registerContribution(registry, ctx.ui, `module-${index}`);
+        for (let index = 0; index < 8; index++)
+            registerContribution(registry, ctx.ui, `module-${index}`);
 
         const component = focusDock(ui);
         assert.equal(controller.selectedId, "module-0");
@@ -134,7 +138,11 @@ describe("dock controller", () => {
 
         ui.tui.overlay = false;
         ui.editorText = "keep this draft";
-        assert.equal(ui.sendInput(keys.down), undefined, "Down with editor text belongs to the editor");
+        assert.equal(
+            ui.sendInput(keys.down),
+            undefined,
+            "Down with editor text belongs to the editor",
+        );
 
         ui.editorText = "";
         focusDock(ui);
@@ -169,7 +177,8 @@ describe("dock controller", () => {
 
     it("moves the selection with Left and Right and wraps around both ends", () => {
         const { ui, ctx, registry, controller } = createTestContext();
-        for (const id of ["shells", "questions", "goals"]) registerContribution(registry, ctx.ui, id);
+        for (const id of ["shells", "questions", "goals"])
+            registerContribution(registry, ctx.ui, id);
 
         const component = focusDock(ui);
         assert.equal(controller.selectedId, "shells");
@@ -179,15 +188,28 @@ describe("dock controller", () => {
         component.handleInput(keys.right);
         assert.equal(controller.selectedId, "goals");
         component.handleInput(keys.right);
-        assert.equal(controller.selectedId, "shells", "Right at the end must wrap to the first item");
+        assert.equal(
+            controller.selectedId,
+            "shells",
+            "Right at the end must wrap to the first item",
+        );
         component.handleInput(keys.left);
-        assert.equal(controller.selectedId, "goals", "Left at the start must wrap to the last item");
-        assert.equal(component.focused, true, "selection changes must preserve dock keyboard focus");
+        assert.equal(
+            controller.selectedId,
+            "goals",
+            "Left at the start must wrap to the last item",
+        );
+        assert.equal(
+            component.focused,
+            true,
+            "selection changes must preserve dock keyboard focus",
+        );
     });
 
     it("jumps to the first and last contribution with Home and End", () => {
         const { ui, ctx, registry, controller } = createTestContext();
-        for (const id of ["shells", "questions", "goals"]) registerContribution(registry, ctx.ui, id);
+        for (const id of ["shells", "questions", "goals"])
+            registerContribution(registry, ctx.ui, id);
         const component = focusDock(ui);
 
         component.handleInput(keys.end);
@@ -209,7 +231,11 @@ describe("dock controller", () => {
         component.handleInput(keys.enter);
         await settle();
 
-        assert.deepEqual(activated, ["questions"], "Enter must open the selected contribution directly");
+        assert.deepEqual(
+            activated,
+            ["questions"],
+            "Enter must open the selected contribution directly",
+        );
     });
 
     it("releases dock focus while a panel is open and restores it when the panel closes", async () => {
@@ -253,7 +279,11 @@ describe("dock controller", () => {
 
         assert.equal(ui.tui.focusedComponent, editor);
         assert.equal(component.focused, false, "Up must leave the dock unfocused");
-        assert.deepEqual(receivedInput, [], "Up must be consumed instead of reaching editor history");
+        assert.deepEqual(
+            receivedInput,
+            [],
+            "Up must be consumed instead of reaching editor history",
+        );
     });
 
     it("forwards printable, paste, and app-shortcut input to the editor unchanged", () => {
@@ -292,9 +322,14 @@ describe("dock controller", () => {
     it("ignores key-release events instead of moving the selection or leaving focus", () => {
         const receivedInput: string[] = [];
         const { ui, ctx, registry, controller, editor } = createTestContext({ receivedInput });
-        for (const id of ["shells", "questions", "goals"]) registerContribution(registry, ctx.ui, id);
+        for (const id of ["shells", "questions", "goals"])
+            registerContribution(registry, ctx.ui, id);
 
-        assert.equal(ui.sendInput(keys.release.down), undefined, "a release must not enter the dock");
+        assert.equal(
+            ui.sendInput(keys.release.down),
+            undefined,
+            "a release must not enter the dock",
+        );
         assert.equal(ui.tui.focusedComponent, editor);
 
         const component = focusDock(ui);
@@ -321,7 +356,11 @@ describe("dock controller", () => {
         releaseSecond();
         await settle();
 
-        assert.equal(component.focused, true, "removing the selected item must preserve dock focus");
+        assert.equal(
+            component.focused,
+            true,
+            "removing the selected item must preserve dock focus",
+        );
         assert.equal(
             controller.selectedId,
             "third",
@@ -458,7 +497,11 @@ describe("dock controller", () => {
         });
         registerContribution(registry, ctx.ui, "other");
         controller.configure(
-            createControllerSettings({ displayMode: "full", hidden: ["hidden"], order: { hidden: -1 } }),
+            createControllerSettings({
+                displayMode: "full",
+                hidden: ["hidden"],
+                order: { hidden: -1 },
+            }),
         );
 
         publish({
@@ -505,7 +548,11 @@ describe("dock controller", () => {
             snapshot: () => ({ base: level("question") }),
         });
         controller.configure(
-            createControllerSettings({ displayMode: "full", hidden: ["questions"], order: { questions: 1 } }),
+            createControllerSettings({
+                displayMode: "full",
+                hidden: ["questions"],
+                order: { questions: 1 },
+            }),
         );
 
         componentOf(ui).invalidate();
@@ -561,7 +608,10 @@ describe("dock controller footer", () => {
         const ui = new FakeDockUi(createMainEditor());
         const registry = createDockRegistry();
         const { ctx } = createSessionContext({ ui });
-        const controller = new DockController(registry, new DockStatusSource(createCompactionReader().read));
+        const controller = new DockController(
+            registry,
+            new DockStatusSource(createCompactionReader().read),
+        );
         const stateWhenMounting: { widgets: number; host: boolean }[] = [];
         const mountFooter = ui.setFooter.bind(ui);
         ui.setFooter = (factory) => {
@@ -587,7 +637,9 @@ describe("dock controller footer", () => {
         compaction.enabled = true;
         session.model = createModel({ provider: "openai", id: "gpt-test", reasoning: false });
         session.contextUsage = { tokens: 80_000, contextWindow: 200_000, percent: 40 };
-        session.sessionManager.appendMessage(assistantMessage(createUsage({ input: 1500, output: 20, cost: 0.5 })));
+        session.sessionManager.appendMessage(
+            assistantMessage(createUsage({ input: 1500, output: 20, cost: 0.5 })),
+        );
         ui.footerData.providerCount = 2;
         ui.footerData.branch = "feature";
         ui.footerData.statuses.set("lint", "3 warnings");
@@ -597,10 +649,15 @@ describe("dock controller footer", () => {
 
         assert.match(first[1]!, /\(openai\) gpt-test *$/);
         assert.match(first[3]!, /\/work\/project .*\(feature\)/);
-        assert.match(first[3]!, / │ ↑1\.5k ↓20 {3}│ \$0\.500 {2}│ {2}80k\/200k · 40\.0% │ \(auto\)$/);
+        assert.match(
+            first[3]!,
+            / │ ↑1\.5k ↓20 {3}│ \$0\.500 {2}│ {2}80k\/200k · 40\.0% │ \(auto\)$/,
+        );
         assert.equal(first[4], " 3 warnings");
 
-        session.sessionManager.appendMessage(assistantMessage(createUsage({ input: 500, cost: 0.25 })));
+        session.sessionManager.appendMessage(
+            assistantMessage(createUsage({ input: 500, cost: 0.25 })),
+        );
         ui.footerData.branch = "main";
         ui.footerData.statuses.clear();
         const second = component.render(120).map(stripTerminalSequences);
@@ -701,7 +758,8 @@ describe("dock controller settings", () => {
 
     it("leaves out hidden contributions and ignores hidden ids that are not registered", () => {
         const { ctx, registry, controller } = createTestContext();
-        for (const id of ["shells", "questions", "goals"]) registerContribution(registry, ctx.ui, id);
+        for (const id of ["shells", "questions", "goals"])
+            registerContribution(registry, ctx.ui, id);
 
         controller.configure(createControllerSettings({ hidden: ["questions", "unregistered"] }));
 
@@ -710,7 +768,8 @@ describe("dock controller settings", () => {
 
     it("orders contributions by ascending position, counting a missing position as zero", () => {
         const { ctx, registry, controller } = createTestContext();
-        for (const id of ["late", "plain", "early", "later"]) registerContribution(registry, ctx.ui, id);
+        for (const id of ["late", "plain", "early", "later"])
+            registerContribution(registry, ctx.ui, id);
 
         controller.configure(createControllerSettings({ order: { late: 5, later: 9, early: -3 } }));
 
@@ -787,7 +846,10 @@ describe("dock controller settings", () => {
         assert.match(boxed[0]!, /^╭─+╮$/);
         assert.equal(compact.length, 2);
         assert.equal(minimal.length, 1);
-        assert.deepEqual(classic.map((line) => line.trim()), ["shells"]);
+        assert.deepEqual(
+            classic.map((line) => line.trim()),
+            ["shells"],
+        );
     });
 
     it("advertises the key hints in every style while the dock has focus", () => {
@@ -822,19 +884,20 @@ describe("dock controller footer ownership by style", () => {
     });
 
     it("renders the classic style without any footer data", async () => {
-        const { ui, ctx, registry, controller } = createTestContext({ settings: { style: "classic" } });
+        const { ui, ctx, registry, controller } = createTestContext({
+            settings: { style: "classic" },
+        });
         registerContribution(registry, ctx.ui, "shells");
         await settle();
 
         assert.equal(controller.collectStatus(), undefined);
-        assert.deepEqual(
-            componentOf(ui).render(80).map(stripTerminalSequences),
-            [" shells"],
-        );
+        assert.deepEqual(componentOf(ui).render(80).map(stripTerminalSequences), [" shells"]);
     });
 
     it("renders no rows after detach in the classic style either", () => {
-        const { ui, ctx, registry, controller } = createTestContext({ settings: { style: "classic" } });
+        const { ui, ctx, registry, controller } = createTestContext({
+            settings: { style: "classic" },
+        });
         registerContribution(registry, ctx.ui, "shells");
         const component = componentOf(ui);
 
@@ -855,7 +918,9 @@ describe("dock controller footer ownership by style", () => {
     });
 
     it("takes the footer over when the style switches away from classic", () => {
-        const { ui, ctx, registry, controller } = createTestContext({ settings: { style: "classic" } });
+        const { ui, ctx, registry, controller } = createTestContext({
+            settings: { style: "classic" },
+        });
         registerContribution(registry, ctx.ui, "shells");
 
         controller.configure(createControllerSettings({ style: "ruled" }));

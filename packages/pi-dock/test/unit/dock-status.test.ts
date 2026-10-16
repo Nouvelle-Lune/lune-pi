@@ -58,11 +58,33 @@ describe("dock status source", () => {
     it("sums usage from assistant, tool result, usage, compaction and branch summary entries", () => {
         const { session, collect } = createSource();
         const manager = session.sessionManager;
-        const first = manager.appendMessage(assistantMessage(createUsage({ input: 1, output: 2, cost: 0.5 })));
-        manager.appendMessage(toolResultMessage(createUsage({ input: 10, output: 20, cost: 0.25 })));
-        manager.appendUsage("cache_warm", "anthropic", "claude-test", createUsage({ input: 100, cacheRead: 7 }));
-        manager.appendCompaction("summary", first, 500, undefined, undefined, createUsage({ input: 1000, cacheWrite: 9 }));
-        manager.branchWithSummary(first, "summary", undefined, undefined, createUsage({ input: 10_000, output: 40 }));
+        const first = manager.appendMessage(
+            assistantMessage(createUsage({ input: 1, output: 2, cost: 0.5 })),
+        );
+        manager.appendMessage(
+            toolResultMessage(createUsage({ input: 10, output: 20, cost: 0.25 })),
+        );
+        manager.appendUsage(
+            "cache_warm",
+            "anthropic",
+            "claude-test",
+            createUsage({ input: 100, cacheRead: 7 }),
+        );
+        manager.appendCompaction(
+            "summary",
+            first,
+            500,
+            undefined,
+            undefined,
+            createUsage({ input: 1000, cacheWrite: 9 }),
+        );
+        manager.branchWithSummary(
+            first,
+            "summary",
+            undefined,
+            undefined,
+            createUsage({ input: 10_000, output: 40 }),
+        );
 
         const { cacheHitRate: _rate, ...actual } = collect().usage;
 
@@ -123,7 +145,9 @@ describe("dock status source", () => {
 
     it("derives the cache-hit rate from the latest assistant message only", () => {
         const { session, collect } = createSource();
-        session.sessionManager.appendMessage(assistantMessage(createUsage({ input: 100, cacheRead: 300 })));
+        session.sessionManager.appendMessage(
+            assistantMessage(createUsage({ input: 100, cacheRead: 300 })),
+        );
         session.sessionManager.appendMessage(toolResultMessage(createUsage({ input: 999 })));
         assert.equal(collect().usage.cacheHitRate, 75);
 
@@ -182,8 +206,18 @@ describe("dock status source", () => {
         const status = collect();
 
         assert.deepEqual(
-            { model: status.model?.id, provider: status.model?.provider, name: status.sessionName, branch: status.branch },
-            { model: "claude-test", provider: "anthropic", name: "release prep", branch: "feature/x" },
+            {
+                model: status.model?.id,
+                provider: status.model?.provider,
+                name: status.sessionName,
+                branch: status.branch,
+            },
+            {
+                model: "claude-test",
+                provider: "anthropic",
+                name: "release prep",
+                branch: "feature/x",
+            },
         );
     });
 
@@ -254,7 +288,11 @@ describe("dock status source", () => {
         const source = new DockStatusSource(compaction.read);
         compaction.enabled = true;
 
-        const frames = [source.collect(ctx, footerData), source.collect(ctx, footerData), source.collect(ctx, footerData)];
+        const frames = [
+            source.collect(ctx, footerData),
+            source.collect(ctx, footerData),
+            source.collect(ctx, footerData),
+        ];
         compaction.enabled = false;
         frames.push(source.collect(ctx, footerData));
 
@@ -314,7 +352,10 @@ describe("dock model segment", () => {
 
         const actual = renderModelSegment(status, identityTheme, 9);
 
-        assert.ok(visibleWidth(actual) <= 9, `segment exceeds its budget: ${JSON.stringify(actual)}`);
+        assert.ok(
+            visibleWidth(actual) <= 9,
+            `segment exceeds its budget: ${JSON.stringify(actual)}`,
+        );
         assert.match(stripTerminalSequences(actual), /^claude/);
     });
 
@@ -338,7 +379,15 @@ describe("dock model segment", () => {
 });
 
 /** Reserved columns of each statistic slot, leftmost first, as the info row documents them. */
-const SLOT_WIDTH = { write: 5, read: 5, cacheHit: 8, tokens: 11, cost: 7, context: 17, auto: 6 } as const;
+const SLOT_WIDTH = {
+    write: 5,
+    read: 5,
+    cacheHit: 8,
+    tokens: 11,
+    cost: 7,
+    context: 17,
+    auto: 6,
+} as const;
 type SlotName = keyof typeof SLOT_WIDTH;
 const ALL_SLOTS = Object.keys(SLOT_WIDTH) as SlotName[];
 const WITHOUT_AUTO = ALL_SLOTS.filter((slot) => slot !== "auto");
@@ -378,7 +427,11 @@ describe("dock info row", () => {
     };
 
     it("puts the directory, branch and session name left and every statistic on a grid against the right edge", () => {
-        const status = createStatus({ sessionName: "my-session", usage: fullUsage, autoCompact: true });
+        const status = createStatus({
+            sessionName: "my-session",
+            usage: fullUsage,
+            autoCompact: true,
+        });
 
         const row = stripTerminalSequences(renderInfoRow(status, 160, identityTheme));
 
@@ -418,7 +471,10 @@ describe("dock info row", () => {
     it("omits the branch and the session name when there are none", () => {
         const row = renderInfoRow(createStatus({ branch: null }), 160, identityTheme);
 
-        assert.match(stripTerminalSequences(row), /^ \S {2}\/work\/project +│ {1,5}\d+k\/200k · +\d+\.\d%$/);
+        assert.match(
+            stripTerminalSequences(row),
+            /^ \S {2}\/work\/project +│ {1,5}\d+k\/200k · +\d+\.\d%$/,
+        );
     });
 
     it("shows an unknown context share as a question mark in its slot", () => {
@@ -431,7 +487,8 @@ describe("dock info row", () => {
 
     it("puts each token counter right after its label, in columns of its own", () => {
         const rowFor = (usage: Partial<typeof fullUsage>) =>
-            cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO).tokens;
+            cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO)
+                .tokens;
 
         const actual = [
             rowFor({ input: 1500 }),
@@ -453,18 +510,29 @@ describe("dock info row", () => {
 
         assert.deepEqual([read.write, read.read, read.cacheHit], ["", " │ R3.0k", " │ CH 40.0%"]);
         assert.deepEqual([write.write, write.read, write.cacheHit], [" │ W400", "", " │ CH 0.0%"]);
-        assert.deepEqual([both.write, both.read, both.cacheHit], [" │ W4.5M", " │ R187k", " │ CH 4.0%"]);
+        assert.deepEqual(
+            [both.write, both.read, both.cacheHit],
+            [" │ W4.5M", " │ R187k", " │ CH 4.0%"],
+        );
     });
 
     it("quotes a cache-hit rate only when the cache was used and a rate exists", () => {
-        const unused = renderInfoRow(createStatus({ usage: { cacheHitRate: 40 } }), 160, identityTheme);
+        const unused = renderInfoRow(
+            createStatus({ usage: { cacheHitRate: 40 } }),
+            160,
+            identityTheme,
+        );
         const unknown = renderInfoRow(
             createStatus({ usage: { cacheRead: 3000, cacheHitRate: undefined } }),
             160,
             identityTheme,
         );
 
-        assert.equal(cellsOf(unused, WITHOUT_AUTO).cacheHit, "", "no cache traffic draws no CH slot");
+        assert.equal(
+            cellsOf(unused, WITHOUT_AUTO).cacheHit,
+            "",
+            "no cache traffic draws no CH slot",
+        );
         assert.deepEqual(
             [cellsOf(unknown, WITHOUT_AUTO).read, cellsOf(unknown, WITHOUT_AUTO).cacheHit],
             [" │ R3.0k", ""],
@@ -519,11 +587,18 @@ describe("dock info row", () => {
         const cases: [string, Partial<typeof fullUsage>, SlotName[]][] = [
             ["tokens", { input: 1500 }, ["tokens", "context"]],
             ["cost", { cost: 0.5 }, ["cost", "context"]],
-            ["cache writes and CH", { cacheWrite: 400, cacheHitRate: 0 }, ["write", "cacheHit", "context"]],
+            [
+                "cache writes and CH",
+                { cacheWrite: 400, cacheHitRate: 0 },
+                ["write", "cacheHit", "context"],
+            ],
         ];
 
         for (const [name, usage, expected] of cases) {
-            const cells = cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO);
+            const cells = cellsOf(
+                renderInfoRow(createStatus({ usage }), 160, identityTheme),
+                WITHOUT_AUTO,
+            );
 
             const actual = WITHOUT_AUTO.filter((slot) => cells[slot] !== "");
 
@@ -549,7 +624,11 @@ describe("dock info row", () => {
         ];
 
         for (const [input, expected] of counts) {
-            const row = renderInfoRow(createStatus({ usage: { input, output: 1 } }), 160, identityTheme);
+            const row = renderInfoRow(
+                createStatus({ usage: { input, output: 1 } }),
+                160,
+                identityTheme,
+            );
             const tokens = cellsOf(row, WITHOUT_AUTO).tokens!;
 
             assert.equal(tokens.slice(BAR, BAR + 5), `↑${expected}`.padEnd(5), `${input} tokens`);
@@ -563,7 +642,14 @@ describe("dock info row", () => {
         const populated = {
             small: createStatus({
                 ...base,
-                usage: { input: 7, output: 3, cacheRead: 1, cacheWrite: 2, cost: 0.001, cacheHitRate: 0 },
+                usage: {
+                    input: 7,
+                    output: 3,
+                    cacheRead: 1,
+                    cacheWrite: 2,
+                    cost: 0.001,
+                    cacheHitRate: 0,
+                },
                 context: { tokens: 200, percent: 0.1, window: 200_000 },
             }),
             huge: createStatus({
@@ -580,12 +666,26 @@ describe("dock info row", () => {
             }),
             nearlyFull: createStatus({
                 ...base,
-                usage: { input: 1500, output: 1, cost: 99.9999, cacheRead: 3000, cacheWrite: 5, cacheHitRate: 99.96 },
+                usage: {
+                    input: 1500,
+                    output: 1,
+                    cost: 99.9999,
+                    cacheRead: 3000,
+                    cacheWrite: 5,
+                    cacheHitRate: 99.96,
+                },
                 context: { tokens: 199_920, percent: 99.96, window: 200_000 },
             }),
             unknownContext: createStatus({
                 ...base,
-                usage: { input: 1, output: 42, cacheRead: 77, cacheWrite: 9, cost: 5, cacheHitRate: 12.3 },
+                usage: {
+                    input: 1,
+                    output: 42,
+                    cacheRead: 77,
+                    cacheWrite: 9,
+                    cost: 5,
+                    cacheHitRate: 12.3,
+                },
                 context: createContext(null, 200_000),
             }),
         };
@@ -652,7 +752,9 @@ describe("dock info row", () => {
             const fresh = createStatus({ ...base });
 
             for (let width = 40; width <= 170; width++) {
-                const expected = reservedAt(width).filter((slot) => slot === "context" || slot === "auto");
+                const expected = reservedAt(width).filter(
+                    (slot) => slot === "context" || slot === "auto",
+                );
 
                 assert.deepEqual(
                     drawn(renderInfoRow(fresh, width, identityTheme)).sort(),
@@ -669,15 +771,33 @@ describe("dock info row", () => {
             const write = { cacheWrite: 400 };
             // A session reports tokens and cost first; cache reads and writes follow when the provider has them.
             const orders = {
-                session: [{}, { ...tokens, ...cost }, { ...tokens, ...cost, ...read }, { ...tokens, ...cost, ...read, ...write }],
-                reverse: [{}, { ...write }, { ...write, ...read }, { ...write, ...read, ...cost }, { ...write, ...read, ...cost, ...tokens }],
-                outputFirst: [{ output: 20 }, { ...tokens }, { ...tokens, cacheRead: 3000 }, { ...tokens, ...read }],
+                session: [
+                    {},
+                    { ...tokens, ...cost },
+                    { ...tokens, ...cost, ...read },
+                    { ...tokens, ...cost, ...read, ...write },
+                ],
+                reverse: [
+                    {},
+                    { ...write },
+                    { ...write, ...read },
+                    { ...write, ...read, ...cost },
+                    { ...write, ...read, ...cost, ...tokens },
+                ],
+                outputFirst: [
+                    { output: 20 },
+                    { ...tokens },
+                    { ...tokens, cacheRead: 3000 },
+                    { ...tokens, ...read },
+                ],
             };
             const labels = ["W", "R", "CH", "↑", "↓", "$", "/200k", "(auto)"];
             const columnsOf = (row: string) => {
                 const plain = stripTerminalSequences(row);
                 return Object.fromEntries(
-                    labels.filter((label) => plain.includes(label)).map((label) => [label, plain.indexOf(label)]),
+                    labels
+                        .filter((label) => plain.includes(label))
+                        .map((label) => [label, plain.indexOf(label)]),
                 );
             };
 
@@ -693,10 +813,17 @@ describe("dock info row", () => {
                         const where = `${name} step ${step} at ${width} columns`;
                         assert.equal(visibleWidth(after), width, where);
                         for (const column of separatorColumns(before)) {
-                            assert.ok(separatorColumns(after).includes(column), `bar at ${column} moved, ${where}`);
+                            assert.ok(
+                                separatorColumns(after).includes(column),
+                                `bar at ${column} moved, ${where}`,
+                            );
                         }
                         for (const [label, column] of Object.entries(columnsOf(before))) {
-                            assert.equal(columnsOf(after)[label], column, `"${label}" moved, ${where}`);
+                            assert.equal(
+                                columnsOf(after)[label],
+                                column,
+                                `"${label}" moved, ${where}`,
+                            );
                         }
                     }
                 }
@@ -707,7 +834,10 @@ describe("dock info row", () => {
             const variants = [
                 createStatus({ cwd: "/a", branch: null }),
                 createStatus({ cwd: "/work/project", branch: "main", sessionName: "s" }),
-                createStatus({ cwd: "/work/a-very/long/path/to/the/project", branch: "feature/long-branch-name" }),
+                createStatus({
+                    cwd: "/work/a-very/long/path/to/the/project",
+                    branch: "feature/long-branch-name",
+                }),
                 createStatus({ cwd: "/工作/项目", branch: "分支🙂", sessionName: "会话" }),
             ];
 
@@ -731,12 +861,15 @@ describe("dock info row", () => {
                     WITHOUT_AUTO,
                 ).context;
 
-            assert.deepEqual([at(9.9), at(12.3), at(100), at(null)], [
-                " │  25k/256k · 9.9%",
-                " │  25k/256k · 12.3%",
-                " │  25k/256k · 100%",
-                " │  25k/256k · ?",
-            ]);
+            assert.deepEqual(
+                [at(9.9), at(12.3), at(100), at(null)],
+                [
+                    " │  25k/256k · 9.9%",
+                    " │  25k/256k · 12.3%",
+                    " │  25k/256k · 100%",
+                    " │  25k/256k · ?",
+                ],
+            );
         });
     });
 
@@ -789,8 +922,15 @@ describe("dock info row", () => {
         it("keeps a slot at the exact width where it fits and drops it one column earlier", () => {
             const thresholds: [SlotName, number][] = [
                 ["write", WORKSPACE_RESERVE + blockWidth(...ALL_SLOTS)],
-                ["read", WORKSPACE_RESERVE + blockWidth("read", "cacheHit", "tokens", "cost", "context", "auto")],
-                ["cacheHit", WORKSPACE_RESERVE + blockWidth("cacheHit", "tokens", "cost", "context", "auto")],
+                [
+                    "read",
+                    WORKSPACE_RESERVE +
+                        blockWidth("read", "cacheHit", "tokens", "cost", "context", "auto"),
+                ],
+                [
+                    "cacheHit",
+                    WORKSPACE_RESERVE + blockWidth("cacheHit", "tokens", "cost", "context", "auto"),
+                ],
                 ["tokens", WORKSPACE_RESERVE + blockWidth("tokens", "cost", "context", "auto")],
                 ["cost", WORKSPACE_RESERVE + blockWidth("cost", "context", "auto")],
                 ["auto", WORKSPACE_RESERVE + blockWidth("context", "auto")],
@@ -836,7 +976,10 @@ describe("dock info row", () => {
                 " 25k/200k · 12.3%",
                 "(auto)",
             ]);
-            assert.deepEqual(slotsOf(renderInfoRow(zero, 80, identityTheme)), [" 25k/200k · 12.3%", "(auto)"]);
+            assert.deepEqual(slotsOf(renderInfoRow(zero, 80, identityTheme)), [
+                " 25k/200k · 12.3%",
+                "(auto)",
+            ]);
         });
     });
 
@@ -962,7 +1105,11 @@ describe("dock info row parts", () => {
             "↑1.5k ↓20   │ $0.500  │  25k/200k · 12.3%",
         );
         assert.equal(visibleWidth(row), 70);
-        assert.match(stripTerminalSequences(row), /^ +↑/, "the row starts with padding, not a separator");
+        assert.match(
+            stripTerminalSequences(row),
+            /^ +↑/,
+            "the row starts with padding, not a separator",
+        );
     });
 
     it("draws the bar of the leftmost slot once a slot further left gains data", () => {
@@ -988,7 +1135,9 @@ describe("dock info row parts", () => {
         const parts = { workspace: false, usage: true };
 
         const fits = stripTerminalSequences(renderInfoRow(status, all, identityTheme, parts));
-        const oneShort = stripTerminalSequences(renderInfoRow(status, all - 1, identityTheme, parts));
+        const oneShort = stripTerminalSequences(
+            renderInfoRow(status, all - 1, identityTheme, parts),
+        );
 
         assert.equal(all, 80);
         assert.match(fits, /^ {3}W400 .*R3\.0k.*CH.*\(auto\)$/);
@@ -1043,7 +1192,10 @@ describe("dock info row parts", () => {
         ]) {
             for (let width = 1; width <= 100; width++) {
                 const row = renderInfoRow(status, width, identityTheme, parts);
-                assert.ok(visibleWidth(row) <= width, `${JSON.stringify(parts)} width ${width}: ${JSON.stringify(row)}`);
+                assert.ok(
+                    visibleWidth(row) <= width,
+                    `${JSON.stringify(parts)} width ${width}: ${JSON.stringify(row)}`,
+                );
             }
         }
     });
@@ -1052,23 +1204,27 @@ describe("dock info row parts", () => {
 describe("dock context cell", () => {
     const cell = (tokens: number | null, percent: number | null, window = 256_000) =>
         stripTerminalSequences(
-            renderContextCell(createStatus({ context: { tokens, percent, window } }), identityTheme),
+            renderContextCell(
+                createStatus({ context: { tokens, percent, window } }),
+                identityTheme,
+            ),
         );
 
     it("shows used tokens, the window and the share, in that order", () => {
         const actual = cell(25_000, 9.8);
 
         assert.equal(actual, " 25k/256k · 9.8% ");
-        assert.ok(actual.indexOf("25k") < actual.indexOf("256k") && actual.indexOf("256k") < actual.indexOf("9.8%"));
+        assert.ok(
+            actual.indexOf("25k") < actual.indexOf("256k") &&
+                actual.indexOf("256k") < actual.indexOf("9.8%"),
+        );
     });
 
     it("right-aligns the used tokens, so the slash and the share keep their columns", () => {
-        assert.deepEqual([cell(0, 0), cell(25_000, 9.9), cell(88_000, 34.34), cell(179_200, 70)], [
-            "   0/256k · 0.0% ",
-            " 25k/256k · 9.9% ",
-            " 88k/256k · 34.3%",
-            "179k/256k · 70.0%",
-        ]);
+        assert.deepEqual(
+            [cell(0, 0), cell(25_000, 9.9), cell(88_000, 34.34), cell(179_200, 70)],
+            ["   0/256k · 0.0% ", " 25k/256k · 9.9% ", " 88k/256k · 34.3%", "179k/256k · 70.0%"],
+        );
     });
 
     it("separates the window from the share with a middle dot", () => {
@@ -1076,25 +1232,26 @@ describe("dock context cell", () => {
     });
 
     it("shows a whole percentage from 99.95 so 100% costs no extra column", () => {
-        assert.deepEqual([cell(255_800, 99.94), cell(255_900, 99.95), cell(256_000, 100)], [
-            "256k/256k · 99.9%",
-            "256k/256k · 100% ",
-            "256k/256k · 100% ",
-        ]);
+        assert.deepEqual(
+            [cell(255_800, 99.94), cell(255_900, 99.95), cell(256_000, 100)],
+            ["256k/256k · 99.9%", "256k/256k · 100% ", "256k/256k · 100% "],
+        );
     });
 
     it("shows unknown tokens and an unknown share as question marks in their own fields", () => {
-        assert.deepEqual([cell(null, 12.3), cell(25_000, null), cell(null, null, 1_000_000)], [
-            "   ?/256k · 12.3%",
-            " 25k/256k · ?    ",
-            "   ?/1.0M · ?    ",
-        ]);
+        assert.deepEqual(
+            [cell(null, 12.3), cell(25_000, null), cell(null, null, 1_000_000)],
+            ["   ?/256k · 12.3%", " 25k/256k · ?    ", "   ?/1.0M · ?    "],
+        );
     });
 
     it("keeps the same width whether or not the fields are known", () => {
-        const widths = [cell(null, null), cell(null, 12.3), cell(25_000, null), cell(25_000, 12.3)].map(
-            visibleWidth,
-        );
+        const widths = [
+            cell(null, null),
+            cell(null, 12.3),
+            cell(25_000, null),
+            cell(25_000, 12.3),
+        ].map(visibleWidth);
 
         assert.deepEqual(widths, [17, 17, 17, 17]);
     });
@@ -1104,7 +1261,10 @@ describe("dock context cell", () => {
 
         const actual = counts.map((tokens) => visibleWidth(cell(tokens, 12.3)));
 
-        assert.deepEqual(actual, counts.map(() => 17));
+        assert.deepEqual(
+            actual,
+            counts.map(() => 17),
+        );
     });
 
     it("keeps the same width across shares and windows", () => {
@@ -1129,12 +1289,10 @@ describe("dock context cell", () => {
             return colorsOf(stripTerminalSequences(renderContextCell(status, identityTheme)))[0];
         };
 
-        assert.deepEqual([colorFor(70), colorFor(70.1), colorFor(90), colorFor(90.1)], [
-            "muted",
-            "warning",
-            "warning",
-            "error",
-        ]);
+        assert.deepEqual(
+            [colorFor(70), colorFor(70.1), colorFor(90), colorFor(90.1)],
+            ["muted", "warning", "warning", "error"],
+        );
     });
 
     it("stays muted, with the same padding, while the share is unknown", () => {

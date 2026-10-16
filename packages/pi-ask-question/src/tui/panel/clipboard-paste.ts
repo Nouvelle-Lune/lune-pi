@@ -62,7 +62,10 @@ async function saveClipboardImage(bytes: Uint8Array): Promise<string> {
     if (extension === undefined) {
         // A clipboard can hold formats a model cannot read, such as the BMP that Windows puts
         // there; pi converts those to PNG as well.
-        const png = await convertToPng(Buffer.from(bytes).toString("base64"), "application/octet-stream");
+        const png = await convertToPng(
+            Buffer.from(bytes).toString("base64"),
+            "application/octet-stream",
+        );
 
         if (!png) {
             throw new Error("the clipboard image format is not supported");
@@ -101,7 +104,9 @@ function imageExtension(bytes: Uint8Array): string | undefined {
 }
 
 function startsWithBytes(bytes: Uint8Array, signature: readonly number[]): boolean {
-    return bytes.length >= signature.length && signature.every((byte, index) => bytes[index] === byte);
+    return (
+        bytes.length >= signature.length && signature.every((byte, index) => bytes[index] === byte)
+    );
 }
 
 function startsWithAscii(bytes: Uint8Array, offset: number, text: string): boolean {

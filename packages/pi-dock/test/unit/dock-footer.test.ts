@@ -3,8 +3,20 @@ import { describe, it } from "node:test";
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import { DOCK_STYLES, DockFooter, replacesFooter, type DockFooterInput, type DockLayout } from "../../src/dock-footer.ts";
-import { createLayout, createStatus, identityTheme, textComponent, textSnapshot } from "../harness.ts";
+import {
+    DOCK_STYLES,
+    DockFooter,
+    replacesFooter,
+    type DockFooterInput,
+    type DockLayout,
+} from "../../src/dock-footer.ts";
+import {
+    createLayout,
+    createStatus,
+    identityTheme,
+    textComponent,
+    textSnapshot,
+} from "../harness.ts";
 
 const HINT_FULL = "←→ select · enter open · esc back";
 const HINT_SHORT = "enter open · esc back";
@@ -26,7 +38,9 @@ function input(overrides: Partial<DockFooterInput> = {}): DockFooterInput {
 }
 
 function render(width: number, overrides: Partial<DockFooterInput> = {}): string[] {
-    return new DockFooter().render(width, identityTheme, input(overrides)).map(stripTerminalSequences);
+    return new DockFooter()
+        .render(width, identityTheme, input(overrides))
+        .map(stripTerminalSequences);
 }
 
 const rule = (width: number) => "─".repeat(width);
@@ -56,7 +70,9 @@ describe("dock footer", () => {
 
     it("starts the model on a bar of the info row, so the two rows share it", () => {
         // The model lands on the cost slot, whose bar is drawn once there is a cost.
-        const [, dockRow, , infoRow] = render(80, { status: createStatus({ usage: { cost: 0.12 } }) });
+        const [, dockRow, , infoRow] = render(80, {
+            status: createStatus({ usage: { cost: 0.12 } }),
+        });
 
         const modelBar = barColumns(dockRow!).at(-1)!;
 
@@ -82,7 +98,14 @@ describe("dock footer", () => {
         const used = render(120, {
             status: createStatus({
                 autoCompact: true,
-                usage: { input: 1500, output: 20, cacheRead: 3000, cacheWrite: 400, cost: 0.12, cacheHitRate: 50 },
+                usage: {
+                    input: 1500,
+                    output: 20,
+                    cacheRead: 3000,
+                    cacheWrite: 400,
+                    cost: 0.12,
+                    cacheHitRate: 50,
+                },
             }),
         })[1];
 
@@ -147,8 +170,16 @@ describe("dock footer", () => {
 
         assert.equal(lines.length, 3);
         assert.equal(lines[0], rule(39));
-        assert.match(lines[1]!, / 25k\/200k · 12\.3%$/, "the context slot keeps its whole reservation");
-        assert.doesNotMatch(lines[1]!, /\/work\/project/, "the directory gives way to the context slot");
+        assert.match(
+            lines[1]!,
+            / 25k\/200k · 12\.3%$/,
+            "the context slot keeps its whole reservation",
+        );
+        assert.doesNotMatch(
+            lines[1]!,
+            /\/work\/project/,
+            "the directory gives way to the context slot",
+        );
         assert.equal(visibleWidth(lines[1]!), 39);
         assert.equal(lines[2], rule(39));
     });
@@ -186,8 +217,14 @@ describe("dock footer", () => {
         });
 
         it("degrade to shorter hints as the rule narrows", () => {
-            assert.match(render(30, { selectedId: "shells" })[2]!, new RegExp(`^─+ ${HINT_SHORT} ─$`));
-            assert.match(render(20, { selectedId: "shells" })[2]!, new RegExp(`^─+ ${HINT_MINIMAL} ─$`));
+            assert.match(
+                render(30, { selectedId: "shells" })[2]!,
+                new RegExp(`^─+ ${HINT_SHORT} ─$`),
+            );
+            assert.match(
+                render(20, { selectedId: "shells" })[2]!,
+                new RegExp(`^─+ ${HINT_MINIMAL} ─$`),
+            );
         });
 
         it("leave a plain rule when no hint fits", () => {
@@ -210,7 +247,9 @@ describe("dock footer", () => {
 
     describe("extension statuses", () => {
         it("follow the info row on their own row before the closing rule", () => {
-            const lines = render(80, { status: createStatus({ extensionStatuses: ["alpha", "beta"] }) });
+            const lines = render(80, {
+                status: createStatus({ extensionStatuses: ["alpha", "beta"] }),
+            });
 
             assert.equal(lines.length, 6);
             assert.match(lines[3]!, /\/work\/project/);
@@ -240,7 +279,9 @@ describe("dock footer", () => {
         const footer = new DockFooter();
         const entries = cells("item-0", "item-1", "item-2", "item-3", "item-4", "item-5");
         const dockRow = (selectedId: string) =>
-            stripTerminalSequences(footer.render(39, identityTheme, input({ entries, selectedId }))[1]!);
+            stripTerminalSequences(
+                footer.render(39, identityTheme, input({ entries, selectedId }))[1]!,
+            );
 
         assert.match(dockRow("item-5"), /^❯‹3 item-3 │ item-4 │ item-5/);
 
@@ -263,7 +304,14 @@ const WIDE_STATUS = createStatus({
     sessionName: "会话🙂",
     model: { provider: "供应商", id: "模型🙂-1", thinking: "high" },
     showProvider: true,
-    usage: { input: 1500, output: 20, cacheRead: 3000, cacheWrite: 400, cost: 1.5, cacheHitRate: 50 },
+    usage: {
+        input: 1500,
+        output: 20,
+        cacheRead: 3000,
+        cacheWrite: 400,
+        cost: 1.5,
+        cacheHitRate: 50,
+    },
     autoCompact: true,
     extensionStatuses: ["状态🙂 ok"],
 });
@@ -346,9 +394,17 @@ describe("dock footer styles", () => {
             const lines = renderStyle("ruled", 39, { entries: [] });
 
             assert.equal(lines.length, 3);
-            assert.match(lines[1]!, / 25k\/200k · 12\.3%$/, "the context slot keeps its whole reservation");
-        assert.doesNotMatch(lines[1]!, /\/work\/project/, "the directory gives way to the context slot");
-        assert.equal(visibleWidth(lines[1]!), 39);
+            assert.match(
+                lines[1]!,
+                / 25k\/200k · 12\.3%$/,
+                "the context slot keeps its whole reservation",
+            );
+            assert.doesNotMatch(
+                lines[1]!,
+                /\/work\/project/,
+                "the directory gives way to the context slot",
+            );
+            assert.equal(visibleWidth(lines[1]!), 39);
         });
 
         it("keeps only the statuses row when nothing else is drawn", () => {
@@ -363,7 +419,12 @@ describe("dock footer styles", () => {
         });
 
         it("renders nothing when nothing is drawable", () => {
-            const lines = renderStyle("ruled", 30, { entries: [] }, { showWorkspace: false, showUsage: false });
+            const lines = renderStyle(
+                "ruled",
+                30,
+                { entries: [] },
+                { showWorkspace: false, showUsage: false },
+            );
 
             assert.deepEqual(lines, []);
         });
@@ -378,7 +439,10 @@ describe("dock footer styles", () => {
             assert.equal(lines.length, 6);
             assert.match(lines[0]!, /^╭─+╮$/);
             assert.match(lines[1]!, /^│ shells │ questions .* │ claude-test • high +│$/);
-            assert.ok(barColumns(lines[3]!).includes(barColumns(lines[1]!).at(-2)!), "the model bar continues an info row bar");
+            assert.ok(
+                barColumns(lines[3]!).includes(barColumns(lines[1]!).at(-2)!),
+                "the model bar continues an info row bar",
+            );
             assert.match(lines[2]!, /^├─+┤$/);
             assert.match(lines[3]!, /^│ .*\/work\/project.* │$/);
             assert.match(lines[4]!, /^│ alpha +│$/);
@@ -436,7 +500,12 @@ describe("dock footer styles", () => {
         });
 
         it("renders nothing when nothing is drawable", () => {
-            const lines = renderStyle("boxed", 30, { entries: [] }, { showWorkspace: false, showUsage: false });
+            const lines = renderStyle(
+                "boxed",
+                30,
+                { entries: [] },
+                { showWorkspace: false, showUsage: false },
+            );
 
             assert.deepEqual(lines, []);
         });
@@ -457,7 +526,10 @@ describe("dock footer styles", () => {
             const lines = renderStyle("compact", 100);
 
             assert.equal(lines.length, 2);
-            assert.match(lines[0]!, /^ shells │ questions .* │ \(anthropic\) claude-test • high *$/);
+            assert.match(
+                lines[0]!,
+                /^ shells │ questions .* │ \(anthropic\) claude-test • high *$/,
+            );
             assert.match(lines[1]!, /\/work\/project/);
             assert.doesNotMatch(lines.join("\n"), /[─╭╰├]/);
         });
@@ -482,19 +554,38 @@ describe("dock footer styles", () => {
         });
 
         it("degrades the hint to fit half the row", () => {
-            assert.match(renderStyle("compact", 50, { selectedId: "shells" })[0]!, new RegExp(`${HINT_SHORT}$`));
-            assert.match(renderStyle("compact", 30, { selectedId: "shells" })[0]!, new RegExp(`${HINT_MINIMAL}$`));
-            assert.doesNotMatch(renderStyle("compact", 22, { selectedId: "shells" })[0]!, /enter open/);
+            assert.match(
+                renderStyle("compact", 50, { selectedId: "shells" })[0]!,
+                new RegExp(`${HINT_SHORT}$`),
+            );
+            assert.match(
+                renderStyle("compact", 30, { selectedId: "shells" })[0]!,
+                new RegExp(`${HINT_MINIMAL}$`),
+            );
+            assert.doesNotMatch(
+                renderStyle("compact", 22, { selectedId: "shells" })[0]!,
+                /enter open/,
+            );
         });
 
         it("shows the hint even when the model is hidden", () => {
-            const lines = renderStyle("compact", 100, { selectedId: "shells" }, { showModel: false });
+            const lines = renderStyle(
+                "compact",
+                100,
+                { selectedId: "shells" },
+                { showModel: false },
+            );
 
             assert.match(lines[0]!, new RegExp(`${HINT_FULL}$`));
         });
 
         it("renders nothing when nothing is drawable", () => {
-            const lines = renderStyle("compact", 30, { entries: [] }, { showWorkspace: false, showUsage: false });
+            const lines = renderStyle(
+                "compact",
+                30,
+                { entries: [] },
+                { showWorkspace: false, showUsage: false },
+            );
 
             assert.deepEqual(lines, []);
         });
@@ -502,10 +593,15 @@ describe("dock footer styles", () => {
 
     describe("minimal", () => {
         it("draws one row of cells, model and context use, and no info row", () => {
-            const lines = renderStyle("minimal", 100, { status: createStatus({ showProvider: false }) });
+            const lines = renderStyle("minimal", 100, {
+                status: createStatus({ showProvider: false }),
+            });
 
             assert.equal(lines.length, 1);
-            assert.match(lines[0]!, /^ shells │ questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/);
+            assert.match(
+                lines[0]!,
+                /^ shells │ questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/,
+            );
             assert.doesNotMatch(lines[0]!, /\/work\/project/);
         });
 
@@ -562,7 +658,10 @@ describe("dock footer styles", () => {
         it("keeps the right-hand block where it is as the context share grows", () => {
             const rowFor = (percent: number | null) =>
                 renderStyle("minimal", 100, {
-                    status: createStatus({ showProvider: false, context: { tokens: 25_000, percent, window: 256_000 } }),
+                    status: createStatus({
+                        showProvider: false,
+                        context: { tokens: 25_000, percent, window: 256_000 },
+                    }),
                 })[0]!;
             const columns = (row: string) => {
                 const found: number[] = [];
@@ -597,7 +696,11 @@ describe("dock footer styles", () => {
             const compactRow = renderStyle("compact", 40, { status })[0]!;
 
             assert.match(minimalRow, / │ claude-test • high$/);
-            assert.doesNotMatch(compactRow, / │ claude-test • high$/, "half the row cannot hold the whole model");
+            assert.doesNotMatch(
+                compactRow,
+                / │ claude-test • high$/,
+                "half the row cannot hold the whole model",
+            );
             assert.match(compactRow, /claude-test/);
         });
     });
@@ -618,9 +721,18 @@ describe("dock footer styles", () => {
         });
 
         it("degrades the hint and drops it when it leaves less than a gap of three", () => {
-            assert.match(renderStyle("classic", 50, { selectedId: "shells" })[0]!, new RegExp(`${HINT_SHORT}$`));
-            assert.match(renderStyle("classic", 40, { selectedId: "shells" })[0]!, new RegExp(`${HINT_MINIMAL}$`));
-            assert.doesNotMatch(renderStyle("classic", 30, { selectedId: "shells" })[0]!, /enter open/);
+            assert.match(
+                renderStyle("classic", 50, { selectedId: "shells" })[0]!,
+                new RegExp(`${HINT_SHORT}$`),
+            );
+            assert.match(
+                renderStyle("classic", 40, { selectedId: "shells" })[0]!,
+                new RegExp(`${HINT_MINIMAL}$`),
+            );
+            assert.doesNotMatch(
+                renderStyle("classic", 30, { selectedId: "shells" })[0]!,
+                /enter open/,
+            );
         });
 
         it("never draws a hint for an unfocused dock", () => {
@@ -628,7 +740,12 @@ describe("dock footer styles", () => {
         });
 
         it("ignores the model, directory and usage switches", () => {
-            const hidden = renderStyle("classic", 80, {}, { showModel: false, showWorkspace: false, showUsage: false });
+            const hidden = renderStyle(
+                "classic",
+                80,
+                {},
+                { showModel: false, showWorkspace: false, showUsage: false },
+            );
 
             assert.deepEqual(hidden, renderStyle("classic", 80));
         });

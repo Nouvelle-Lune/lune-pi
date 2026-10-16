@@ -1689,8 +1689,7 @@ for (const mode of ["on", "compact"] as const) {
         // Raw code or the empty-script placeholder would flash before the call tree replaces it.
         const scriptPreview = /const |tools\.|text\(|Preparing script/;
         // Status marks and durations change in place; the call name and summary identify the row.
-        const callLabel = (row: string) =>
-            row.replace(/^\s*[├└] \S /, "").replace(/ · \d+ms$/, "");
+        const callLabel = (row: string) => row.replace(/^\s*[├└] \S /, "").replace(/ · \d+ms$/, "");
         const card = runtime.stream("codemode");
         const frames: string[][] = [];
         const capture = () => {

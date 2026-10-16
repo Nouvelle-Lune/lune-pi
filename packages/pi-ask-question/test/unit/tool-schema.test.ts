@@ -53,7 +53,11 @@ describe("ask_user_questions schema", () => {
                 displayText: "The service runs on a single node.",
                 multiSelect: true,
                 options: [
-                    { label: "Postgres", description: "server", preview: "DATABASE_URL=postgres://localhost/app" },
+                    {
+                        label: "Postgres",
+                        description: "server",
+                        preview: "DATABASE_URL=postgres://localhost/app",
+                    },
                     { label: "SQLite" },
                 ],
             },
@@ -67,7 +71,10 @@ describe("ask_user_questions schema", () => {
     });
 
     it("rejects a header that is too long for a tab", () => {
-        assert.throws(() => validate([{ header: "x".repeat(17), question: "Which database?" }]), /header/);
+        assert.throws(
+            () => validate([{ header: "x".repeat(17), question: "Which database?" }]),
+            /header/,
+        );
     });
 
     it("rejects a question without question text", () => {
@@ -77,23 +84,34 @@ describe("ask_user_questions schema", () => {
     it("rejects a request without questions or with too many", () => {
         assert.throws(() => validate([]), /questions/);
         assert.throws(
-            () => validate(Array.from({ length: 5 }, (_, index) => ({ header: `H${index}`, question: `Q${index}` }))),
+            () =>
+                validate(
+                    Array.from({ length: 5 }, (_, index) => ({
+                        header: `H${index}`,
+                        question: `Q${index}`,
+                    })),
+                ),
             /questions/,
         );
     });
 
     it("rejects an option list that is not a real choice", () => {
         assert.throws(
-            () => validate([{ header: "Storage", question: "Which?", options: [{ label: "Only" }] }]),
+            () =>
+                validate([{ header: "Storage", question: "Which?", options: [{ label: "Only" }] }]),
             /options/,
         );
         assert.throws(
             () =>
-                validate([{
-                    header: "Storage",
-                    question: "Which?",
-                    options: Array.from({ length: 5 }, (_, index) => ({ label: `option ${index}` })),
-                }]),
+                validate([
+                    {
+                        header: "Storage",
+                        question: "Which?",
+                        options: Array.from({ length: 5 }, (_, index) => ({
+                            label: `option ${index}`,
+                        })),
+                    },
+                ]),
             /options/,
         );
     });

@@ -22,7 +22,10 @@ initTheme();
 const WIDE_QUESTION: AskQuestion = {
     question: "Which database?",
     options: [
-        { label: "Postgres", preview: "# Postgres\n\n- JSONB\n- `pg_stat`\n\n```sql\nSELECT 1;\n```" },
+        {
+            label: "Postgres",
+            preview: "# Postgres\n\n- JSONB\n- `pg_stat`\n\n```sql\nSELECT 1;\n```",
+        },
         { label: "SQLite", preview: "**file only**" },
     ],
 };
@@ -39,7 +42,10 @@ describe("preview renderer", () => {
     it("uses the renderer's own question to answer availability", () => {
         assert.equal(createRenderer().hasAnyPreview(), true);
         assert.equal(
-            createRenderer({ question: "Q?", options: [{ label: "a" }, { label: "b" }] }).hasAnyPreview(),
+            createRenderer({
+                question: "Q?",
+                options: [{ label: "a" }, { label: "b" }],
+            }).hasAnyPreview(),
             false,
         );
     });
@@ -92,13 +98,21 @@ describe("preview renderer", () => {
         const { lines } = renderer.render(1, 60, 14);
 
         assert.match(text(lines), /No preview available/);
-        assert.ok(stripTerminalSequences(lines[0]!).startsWith("┌"), "the box stays for layout stability");
+        assert.ok(
+            stripTerminalSequences(lines[0]!).startsWith("┌"),
+            "the box stays for layout stability",
+        );
     });
 
     it("caps the block height and reports the hidden remainder", () => {
         const renderer = createRenderer({
             question: "Q?",
-            options: [{ label: "a", preview: Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n") }],
+            options: [
+                {
+                    label: "a",
+                    preview: Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n"),
+                },
+            ],
         });
 
         const { lines, hidden } = renderer.render(0, 60, 8);
@@ -120,8 +134,9 @@ describe("preview renderer", () => {
             options: [{ label: "a", preview: "\n\n- one\n- two\n\n\n" }, { label: "b" }],
         });
 
-        const inner = renderer.render(0, 60, 14).lines
-            .slice(1, -1)
+        const inner = renderer
+            .render(0, 60, 14)
+            .lines.slice(1, -1)
             .map((line) => stripTerminalSequences(line).slice(2, -2).replace(/\s+$/, ""));
 
         assert.deepEqual(inner, ["- one", "- two"]);
@@ -145,7 +160,10 @@ describe("preview renderer", () => {
     });
 
     it("renders a very long preview without a stall", () => {
-        const preview = Array.from({ length: 400 }, (_, index) => `- line ${index} ${"x".repeat(40)}`).join("\n");
+        const preview = Array.from(
+            { length: 400 },
+            (_, index) => `- line ${index} ${"x".repeat(40)}`,
+        ).join("\n");
         const renderer = createRenderer({
             question: "Q?",
             options: [{ label: "a", preview }, { label: "b" }],
@@ -157,7 +175,10 @@ describe("preview renderer", () => {
 
         assert.equal(lines.length, 14, "the block still respects its row budget");
         assert.ok(hidden > 0);
-        assert.ok(elapsed < 1000, `a ${preview.length} character preview took ${elapsed.toFixed(0)}ms`);
+        assert.ok(
+            elapsed < 1000,
+            `a ${preview.length} character preview took ${elapsed.toFixed(0)}ms`,
+        );
     });
 
     it("keeps two questions apart even when they share option indexes", () => {

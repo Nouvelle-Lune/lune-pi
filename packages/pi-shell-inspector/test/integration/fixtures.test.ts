@@ -87,32 +87,50 @@ describe("pi-shell-inspector long-running fixtures", () => {
             it("forwards cumulative onUpdate snapshots ending with the reported output", () => {
                 // Contract: the first snapshot is empty, later snapshots are cumulative and never
                 // shrink, and the last snapshot is a prefix of the text the call finally reports.
-                assert.ok(run.updates.length >= 2, `expected the initial empty update plus a content update, got ${run.updates.length}`);
+                assert.ok(
+                    run.updates.length >= 2,
+                    `expected the initial empty update plus a content update, got ${run.updates.length}`,
+                );
 
                 const first = run.updates.at(0);
-                assert.ok(first, `expected the initial empty update, got ${run.updates.length} updates`);
+                assert.ok(
+                    first,
+                    `expected the initial empty update, got ${run.updates.length} updates`,
+                );
                 assert.deepEqual(first.content, [], "the first snapshot must be empty");
                 assert.equal(first.details, undefined, "the first snapshot must carry no details");
 
                 const snapshots = run.updates.slice(1).map((update) => resultText(update));
-                assert.ok(snapshots.length > 0, `expected at least one content snapshot, got ${run.updates.length} updates`);
+                assert.ok(
+                    snapshots.length > 0,
+                    `expected at least one content snapshot, got ${run.updates.length} updates`,
+                );
 
                 let previous = "";
                 for (const [index, snapshot] of snapshots.entries()) {
                     assert.ok(snapshot.length > 0, `snapshot ${index + 1} must carry output`);
-                    assert.ok(snapshot.length >= previous.length, `snapshot ${index + 1} shrank: ${snapshot.length} < ${previous.length}`);
+                    assert.ok(
+                        snapshot.length >= previous.length,
+                        `snapshot ${index + 1} shrank: ${snapshot.length} < ${previous.length}`,
+                    );
                     previous = snapshot;
                 }
 
                 const lastSnapshot = snapshots.at(-1) ?? "";
-                assert.ok(reportedText(run).startsWith(lastSnapshot), `the reported text must extend the last streamed snapshot, got ${JSON.stringify(reportedText(run).slice(0, 200))} vs snapshot ${JSON.stringify(lastSnapshot.slice(0, 200))}`);
+                assert.ok(
+                    reportedText(run).startsWith(lastSnapshot),
+                    `the reported text must extend the last streamed snapshot, got ${JSON.stringify(reportedText(run).slice(0, 200))} vs snapshot ${JSON.stringify(lastSnapshot.slice(0, 200))}`,
+                );
             });
 
             it("reports at least the output line count the fixture expectations require", () => {
                 // Contract: the fixture really produced its output, so the reported line count
                 // (complete count for truncated output) reaches expectations.minLines.
                 const lines = reportedLineCount(run);
-                assert.ok(lines >= expectations.minLines, `expected at least ${expectations.minLines} reported lines, got ${lines}`);
+                assert.ok(
+                    lines >= expectations.minLines,
+                    `expected at least ${expectations.minLines} reported lines, got ${lines}`,
+                );
             });
 
             if (expectations.fails) {
@@ -121,7 +139,11 @@ describe("pi-shell-inspector long-running fixtures", () => {
                     // rather than a throw, and the extension passes that result through unchanged,
                     // so the text still carries the fixture output and the built-in status line.
                     const result = requireResult(run);
-                    assert.equal(result.isError, true, "a non-zero exit must be reported as an error result");
+                    assert.equal(
+                        result.isError,
+                        true,
+                        "a non-zero exit must be reported as an error result",
+                    );
 
                     const text = resultText(result);
                     for (const needle of expectations.errorIncludes) {
@@ -132,7 +154,10 @@ describe("pi-shell-inspector long-running fixtures", () => {
                     }
 
                     const exitCode = expectations.exitCode;
-                    assert.ok(exitCode !== undefined, `the failing fixture must declare an exit code, got ${String(exitCode)}`);
+                    assert.ok(
+                        exitCode !== undefined,
+                        `the failing fixture must declare an exit code, got ${String(exitCode)}`,
+                    );
                     assert.ok(
                         text.includes(`Command exited with code ${exitCode}`),
                         `result text must report the exit code ${exitCode}, got ${JSON.stringify(text)}`,
@@ -144,7 +169,10 @@ describe("pi-shell-inspector long-running fixtures", () => {
                     // marker the fixture expectations list.
                     const output = resultText(requireResult(run));
                     for (const needle of expectations.outputIncludes) {
-                        assert.ok(output.includes(needle), `output must contain ${JSON.stringify(needle)}, got: ${JSON.stringify(output)}`);
+                        assert.ok(
+                            output.includes(needle),
+                            `output must contain ${JSON.stringify(needle)}, got: ${JSON.stringify(output)}`,
+                        );
                     }
                 });
             }
@@ -155,15 +183,25 @@ describe("pi-shell-inspector long-running fixtures", () => {
                     // truncation with the real totals and details.fullOutputPath points at the complete
                     // output file.
                     const details = requireResult(run).details;
-                    assert.equal(details?.truncation?.truncated, true, "the truncated result must say so in details");
+                    assert.equal(
+                        details?.truncation?.truncated,
+                        true,
+                        "the truncated result must say so in details",
+                    );
                     assert.ok(
                         (details?.truncation?.totalLines ?? 0) >= 3000,
                         `expected the complete line count, got ${details?.truncation?.totalLines}`,
                     );
 
                     const fullOutputPath = details?.fullOutputPath;
-                    assert.ok(fullOutputPath, `expected details.fullOutputPath on a truncated result, got ${JSON.stringify(details)}`);
-                    assert.ok(existsSync(fullOutputPath), `expected the full output file at ${fullOutputPath}`);
+                    assert.ok(
+                        fullOutputPath,
+                        `expected details.fullOutputPath on a truncated result, got ${JSON.stringify(details)}`,
+                    );
+                    assert.ok(
+                        existsSync(fullOutputPath),
+                        `expected the full output file at ${fullOutputPath}`,
+                    );
                     assert.ok(
                         statSync(fullOutputPath).size > 50 * 1024,
                         `the persisted output must exceed the 50KB display limit, got ${statSync(fullOutputPath).size} bytes`,
@@ -171,7 +209,10 @@ describe("pi-shell-inspector long-running fixtures", () => {
 
                     const persisted = readFileSync(fullOutputPath, "utf8");
                     for (const needle of expectations.fullOutputIncludes) {
-                        assert.ok(persisted.includes(needle), `persisted output must contain ${JSON.stringify(needle)}, got ${JSON.stringify(persisted.slice(0, 300))}...`);
+                        assert.ok(
+                            persisted.includes(needle),
+                            `persisted output must contain ${JSON.stringify(needle)}, got ${JSON.stringify(persisted.slice(0, 300))}...`,
+                        );
                     }
                 });
 
@@ -182,26 +223,48 @@ describe("pi-shell-inspector long-running fixtures", () => {
                     const output = resultText(result);
                     const details = result.details;
 
-                    assert.match(output, /\[Showing lines \d+-\d+ of \d+[^\]]*\]/, "the built-in truncation footer must be kept");
+                    assert.match(
+                        output,
+                        /\[Showing lines \d+-\d+ of \d+[^\]]*\]/,
+                        "the built-in truncation footer must be kept",
+                    );
                     assert.ok(
                         output.includes(`Full output: ${details?.fullOutputPath ?? ""}`),
                         `the footer must point at details.fullOutputPath, got ${JSON.stringify(output.slice(-200))}`,
                     );
 
                     for (const needle of expectations.fullOutputIncludes) {
-                        assert.ok(output.includes(needle), `the reported text must keep the tail of the output: ${JSON.stringify(needle)}, got ${JSON.stringify(output.slice(-300))}`);
+                        assert.ok(
+                            output.includes(needle),
+                            `the reported text must keep the tail of the output: ${JSON.stringify(needle)}, got ${JSON.stringify(output.slice(-300))}`,
+                        );
                     }
 
-                    const persistedFirstLine = readFileSync(details?.fullOutputPath ?? "", "utf8").split("\n").at(0) ?? "";
-                    assert.ok(persistedFirstLine.length > 0, `the persisted output must not be empty, got ${JSON.stringify(readFileSync(details?.fullOutputPath ?? "", "utf8").slice(0, 200))}`);
-                    assert.equal(output.includes(persistedFirstLine), false, "the dropped head must not be reported");
+                    const persistedFirstLine =
+                        readFileSync(details?.fullOutputPath ?? "", "utf8")
+                            .split("\n")
+                            .at(0) ?? "";
+                    assert.ok(
+                        persistedFirstLine.length > 0,
+                        `the persisted output must not be empty, got ${JSON.stringify(readFileSync(details?.fullOutputPath ?? "", "utf8").slice(0, 200))}`,
+                    );
+                    assert.equal(
+                        output.includes(persistedFirstLine),
+                        false,
+                        "the dropped head must not be reported",
+                    );
                 });
 
                 it("marks the streamed snapshots as truncated once the limits are crossed", () => {
                     // Contract: the built-in tool emits its truncation details on the streamed onUpdate
                     // snapshots too, so the caller sees them before the call settles.
-                    const truncatedUpdates = run.updates.filter((update) => update.details?.truncation?.truncated === true);
-                    assert.ok(truncatedUpdates.length > 0, `expected at least one streamed snapshot to report truncation, got ${truncatedUpdates.length}`);
+                    const truncatedUpdates = run.updates.filter(
+                        (update) => update.details?.truncation?.truncated === true,
+                    );
+                    assert.ok(
+                        truncatedUpdates.length > 0,
+                        `expected at least one streamed snapshot to report truncation, got ${truncatedUpdates.length}`,
+                    );
                 });
             }
         });

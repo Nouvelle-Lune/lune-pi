@@ -11,12 +11,22 @@ const values = Value.Default(dockSchema, {});
 const styleField = dockPanel.fields.find((field) => field.path === "style");
 
 function preview(style, width = 126) {
-    const component = styleField.preview({ value: style, values: { ...values, style }, theme, scope: "global" });
+    const component = styleField.preview({
+        value: style,
+        values: { ...values, style },
+        theme,
+        scope: "global",
+    });
     return component.render(width);
 }
 
 writeFrames(root, [
-    { name: "dock-overview", title: "pi — select a module, press Enter, get back to work", theme, lines: preview("ruled") },
+    {
+        name: "dock-overview",
+        title: "pi — select a module, press Enter, get back to work",
+        theme,
+        lines: preview("ruled"),
+    },
     {
         name: "dock-styles",
         title: "pi — five styles, the same tools at your fingertips",

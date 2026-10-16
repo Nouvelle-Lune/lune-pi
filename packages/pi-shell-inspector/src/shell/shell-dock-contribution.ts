@@ -1,6 +1,9 @@
 import type { ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
-import { createDockContribution, type LuneDockSnapshot } from "@lune_99/pi-lune-extensions-core/dock";
+import {
+    createDockContribution,
+    type LuneDockSnapshot,
+} from "@lune_99/pi-lune-extensions-core/dock";
 import { shellDock } from "./shell-dock.ts";
 import { collapseShellCommand } from "./shell-command.ts";
 import { openShellInspector } from "./shell-inspector.ts";

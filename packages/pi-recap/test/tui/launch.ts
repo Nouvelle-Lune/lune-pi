@@ -61,10 +61,7 @@ async function main(): Promise<void> {
             fileURLToPath(new URL("../../src/extension.ts", import.meta.url)),
             "-e",
             fileURLToPath(
-                new URL(
-                    "../../../pi-lune-extensions-core/dist/extension.js",
-                    import.meta.url,
-                ),
+                new URL("../../../pi-lune-extensions-core/dist/extension.js", import.meta.url),
             ),
             "-e",
             fileURLToPath(new URL("./recap-fixture.ts", import.meta.url)),

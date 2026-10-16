@@ -22,10 +22,18 @@ const END = "\x1b[F";
 const WIDTH = 110;
 const TERMINAL_ROWS = 40;
 
-const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+const theme = {
+    fg: (_color: string, text: string) => text,
+    bold: (text: string) => text,
+} as unknown as Theme;
 
 async function addJob(id: string, output: string): Promise<void> {
-    shellManager.startJob({ id, command: `cmd ${id}`, cwd: "/work", controller: new AbortController() });
+    shellManager.startJob({
+        id,
+        command: `cmd ${id}`,
+        cwd: "/work",
+        controller: new AbortController(),
+    });
     await write(id, output);
 }
 
@@ -183,7 +191,11 @@ describe("shell inspector screen reads", () => {
         const wide = inspector.render(200);
         const narrow = inspector.render(WIDTH);
         const longestRun = (frame: string[]) =>
-            Math.max(...frame.map((line) => (line.match(/w+/g) ?? [""]).reduce((max, run) => Math.max(max, run.length), 0)));
+            Math.max(
+                ...frame.map((line) =>
+                    (line.match(/w+/g) ?? [""]).reduce((max, run) => Math.max(max, run.length), 0),
+                ),
+            );
 
         assert.equal(longestRun(wide), 150);
         assert.ok(longestRun(narrow) < 150, "the narrow frame must wrap the line");

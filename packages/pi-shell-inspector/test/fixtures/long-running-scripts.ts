@@ -174,7 +174,11 @@ export const LONG_RUNNING_FIXTURES: LongRunningFixture[] = [
             exitCode: 3,
             truncated: false,
             outputIncludes: [],
-            errorIncludes: ["build: step 1 ok", "fatal: aborting with code 3", "Command exited with code 3"],
+            errorIncludes: [
+                "build: step 1 ok",
+                "fatal: aborting with code 3",
+                "Command exited with code 3",
+            ],
             fullOutputIncludes: [],
             minLines: 4,
             minDurationMs: 1500,
@@ -187,7 +191,9 @@ export const LONG_RUNNING_FIXTURES: LongRunningFixture[] = [
 export function getFixture(id: string): LongRunningFixture {
     const fixture = LONG_RUNNING_FIXTURES.find((entry) => entry.id === id);
     if (!fixture) {
-        throw new Error(`Unknown fixture id ${JSON.stringify(id)}; available: ${fixtureIds().join(", ")}`);
+        throw new Error(
+            `Unknown fixture id ${JSON.stringify(id)}; available: ${fixtureIds().join(", ")}`,
+        );
     }
     return fixture;
 }

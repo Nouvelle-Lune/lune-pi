@@ -27,10 +27,7 @@ export interface PaneGeometry {
 export function paneGeometry(width: number, terminalRows: number): PaneGeometry {
     const bodyHeight = Math.min(
         BODY_MAX_HEIGHT,
-        Math.max(
-            BODY_MIN_HEIGHT,
-            Math.floor(terminalRows * OVERLAY_HEIGHT_RATIO) - FRAME_HEIGHT,
-        ),
+        Math.max(BODY_MIN_HEIGHT, Math.floor(terminalRows * OVERLAY_HEIGHT_RATIO) - FRAME_HEIGHT),
     );
 
     const innerWidth = Math.max(
