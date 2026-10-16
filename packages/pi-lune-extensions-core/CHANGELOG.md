@@ -66,6 +66,9 @@ All notable changes are documented here using
   `acquire` and `dispose`.
 - **Recipes and CI.** `docs/recipes.md` collects copy-pasteable examples, and a GitHub
   Actions workflow runs typecheck, tests and a package dry run.
+- **Arrow keys switch settings tabs.** In the main list, Right and Left move to the next
+  and previous section, like Tab and Shift+Tab. Text inputs, choice lists and custom
+  editors still receive the arrows while they are open.
 
 ### Changed
 

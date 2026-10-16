@@ -47,6 +47,8 @@ const keys = {
     removedReload: "\x0c",
     backspace: "\x7f",
     end: "\x1b[F",
+    left: "\x1b[D",
+    right: "\x1b[C",
 };
 const theme = {
     fg: (_color: string, text: string) => text,
@@ -653,13 +655,14 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         const mainPanel = ui.panel!.render(width).map(stripTerminalSequences);
         assertPanelFrame(mainPanel);
         assert.match(mainPanel.at(-2) ?? "", /↑↓ select · Enter change/);
+        assert.match(mainPanel.at(-2) ?? "", /Tab\/←→ section/);
 
         ui.press(keys.enter);
         const plainChoices = ui.panel!.render(width).map(stripTerminalSequences);
         assertPanelFrame(plainChoices);
         assert.match(plainChoices[1] ?? "", /Density · global/);
         assert.match(plainChoices.at(-2) ?? "", /Type to search.*Enter save/);
-        assert.doesNotMatch(plainChoices.at(-2) ?? "", /Tab section|Ctrl\+G scope|Ctrl\+R reset/);
+        assert.doesNotMatch(plainChoices.at(-2) ?? "", /section|Ctrl\+G scope|Ctrl\+R reset/);
 
         ui.press(keys.escape);
         ui.press(keys.down);
@@ -947,6 +950,105 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         assert.equal(manager.get("enabled"), false);
         assert.match(ui.text(), /Settings change listeners failed after state was updated/);
         assert.doesNotMatch(ui.text(), /Effective:|Source:/);
+        ui.press(keys.escape);
+        await opening;
+    });
+
+    test("Left and Right switch sections like Shift+Tab and Tab with wrap-around", async (t) => {
+        const { ctx, ui, section, releases } = await fixture(t);
+        releases.push(
+            registerSettingsSection(ui, {
+                ...section,
+                id: "other",
+                label: "Other",
+                fields: [section.fields[2]!],
+            }),
+        );
+        const opening = openSettingsPanel(ctx, { section: "other" });
+        assert.doesNotMatch(ui.text(), /enabled/);
+        ui.press(keys.right);
+        assert.match(ui.text(), /enabled/);
+        ui.press(keys.right);
+        assert.doesNotMatch(ui.text(), /enabled/);
+        ui.press(keys.left);
+        assert.match(ui.text(), /enabled/);
+        ui.press(keys.left);
+        assert.doesNotMatch(ui.text(), /enabled/);
+        ui.press(keys.escape);
+        await opening;
+    });
+
+    test("Left and Right edit the open input instead of switching sections", async (t) => {
+        const { manager, ctx, ui, section, releases } = await fixture(t);
+        releases.push(
+            registerSettingsSection(ui, {
+                ...section,
+                id: "zeta",
+                label: "Zeta",
+                fields: [section.fields[0]!],
+            }),
+        );
+        const opening = openSettingsPanel(ctx);
+        assert.match(ui.text(), /Count/);
+        ui.press(keys.down);
+        ui.press(keys.down);
+        ui.press(keys.enter);
+        // Left moves the cursor before the existing "1", so "5" yields "51".
+        ui.press(keys.left);
+        ui.press("5");
+        ui.press(keys.right);
+        ui.press("7");
+        assert.match(ui.text(), /Count · global/);
+
+        await ui.save();
+        assert.equal(manager.get("count"), 517);
+        ui.press(keys.escape);
+        await opening;
+    });
+
+    test("Left and Right do not switch sections while a choice editor is open", async (t) => {
+        const { manager, ctx, ui, section, releases } = await fixture(t);
+        releases[0]!();
+        releases.push(
+            registerSettingsSection(
+                ui,
+                createSettingsSection(manager, {
+                    label: "Sample",
+                    fieldOrder: ["density"],
+                    fields: {
+                        density: {
+                            label: "Density",
+                            editor: "select",
+                            choices: [
+                                { value: "base", label: "Base" },
+                                { value: "full", label: "Full" },
+                            ],
+                        },
+                    },
+                }),
+            ),
+        );
+        releases.push(
+            registerSettingsSection(ui, {
+                ...section,
+                id: "zeta",
+                label: "Zeta",
+                fields: [section.fields[0]!],
+            }),
+        );
+        const opening = openSettingsPanel(ctx);
+        // Each arrow is checked alone: a left/right pair would cancel out on two sections.
+        for (const arrow of [keys.right, keys.left]) {
+            ui.press(keys.enter);
+            assert.match(ui.text(), /Density · global/);
+            ui.press(arrow);
+            assert.match(ui.text(), /Density · global/);
+            ui.press(keys.escape);
+            // Still in the Sample section: Zeta's only row would be "enabled".
+            assert.match(ui.text(), /Lune settings · global/);
+            assert.match(ui.text(), /Density/);
+            assert.doesNotMatch(ui.text(), /enabled/);
+        }
         ui.press(keys.escape);
         await opening;
     });
@@ -1417,7 +1519,7 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
     });
 
     test("unavailable sections show the error with a retry hint and Ctrl+S reloads", async (t) => {
-        const { ctx, ui, releases } = await fixture(t);
+        const { ctx, ui, section, releases } = await fixture(t);
         releases[0]!();
         let reloads = 0;
         let failure: Error | undefined;
@@ -1435,12 +1537,18 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
                 },
             }),
         );
+        releases.push(registerSettingsSection(ui, { ...section, id: "other", label: "Other" }));
         const opening = openSettingsPanel(ctx, { section: "broken" });
 
         assert.match(ui.text(), /Settings could not be loaded:/);
         assert.match(ui.text(), /Migration failed: boom/);
         assert.match(ui.text(), /Fix the problem, then press Ctrl\+S to retry\./);
-        assert.match(ui.text(), /Ctrl\+S retry/);
+        assert.match(ui.text(), /Tab\/←→ section · Ctrl\+S retry · Esc close/);
+        ui.press(keys.right);
+        assert.match(ui.text(), /Count/);
+        assert.doesNotMatch(ui.text(), /could not be loaded/);
+        ui.press(keys.left);
+        assert.match(ui.text(), /Settings could not be loaded:/);
         assert.doesNotMatch(ui.text(), /No settings are available/);
         ui.press(keys.scope);
         assert.match(ui.text(), /Lune settings · global/);

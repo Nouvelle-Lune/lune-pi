@@ -13,7 +13,7 @@ The demo uses temporary agent, project and session files; it does not change you
 
 Try:
   Enter           open appearance choices, then Up/Down to preview; Enter saves, Esc cancels
-  Tab/Shift+Tab   change section
+  Tab/Shift+Tab   change section; Right/Left also work
   Ctrl+G          switch global/project scope
   Ctrl+S          save the current candidate
   Ctrl+R          reset the selected override
