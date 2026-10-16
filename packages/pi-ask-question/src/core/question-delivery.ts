@@ -1,8 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { formatAnswerMessage } from "./question-format.ts";
-import { questionManager } from "./questionManager.ts";
-import type { AnswerMessageQuestion, AskQuestion, AskQuestionRequest } from "./question-types.ts";
+import { questionManager, toAnswerMessageQuestion } from "./questionManager.ts";
+import type { AskQuestionRequest } from "./question-types.ts";
 
 /** Custom message type carrying answers (or a skip) back to the model. */
 export const ASK_QUESTION_ANSWER_MESSAGE = "pi-ask-question-answer";
@@ -15,6 +15,32 @@ export interface QuestionDeliveryOptions {
      * never learn that the model never received the answer.
      */
     onError?: (error: unknown) => void;
+}
+
+/**
+ * Attempt delivery as soon as a request settles.
+ *
+ * This is the initial attempt only. The persistence listener runs first, so the settled
+ * request is already in the durable outbox when this send happens; if pi drops the message,
+ * reconciliation recovers it instead of the answer being lost with the call.
+ */
+export function registerQuestionAnswerNotifications(
+    pi: ExtensionAPI,
+    options: QuestionDeliveryOptions = {},
+): () => void {
+    return questionManager.subscribe((event) => {
+        if (event.type !== "request-answered" && event.type !== "request-skipped") {
+            return;
+        }
+
+        const request = questionManager.get(event.id);
+
+        if (!request) {
+            return;
+        }
+
+        deliverQuestionResult(pi, request, options);
+    });
 }
 
 /**
@@ -65,47 +91,66 @@ export function reconcileQuestionDeliveries(
     ctx: ExtensionContext,
     options: QuestionDeliveryOptions = {},
 ): void {
-    for (const request of questionManager.getUndeliveredRequests()) {
-        if (hasCommittedAnswerMessage(ctx, request.id)) {
-            questionManager.acknowledgeDelivery(request.id);
-            continue;
-        }
-
+    for (const request of releaseDeliveredQuestions(ctx)) {
         deliverQuestionResult(pi, request, options);
     }
 }
 
-/** Whether the active branch really holds this request's answer message. */
-function hasCommittedAnswerMessage(ctx: ExtensionContext, requestId: string): boolean {
-    for (const entry of ctx.sessionManager.getBranch()) {
-        if (
-            entry.type === "custom_message"
-            && entry.customType === ASK_QUESTION_ANSWER_MESSAGE
-            && matchesRequestId(entry.details, requestId)
-        ) {
-            return true;
+/**
+ * Release the settled requests whose answer message the active branch already holds, and
+ * return the ones still missing.
+ *
+ * On its own this never sends. It runs while the session is live, where a missing message may
+ * have been cleared from pi's queue by an abort: sending it again would start the turn the user
+ * just stopped. The next session start or tree move attempts those again.
+ */
+export function releaseDeliveredQuestions(ctx: ExtensionContext): Readonly<AskQuestionRequest>[] {
+    const undelivered = questionManager.getUndeliveredRequests();
+
+    if (undelivered.length === 0) {
+        return [];
+    }
+
+    const committed = committedRequestIds(ctx);
+    const missing: Readonly<AskQuestionRequest>[] = [];
+
+    for (const request of undelivered) {
+        if (committed.has(request.id)) {
+            questionManager.acknowledgeDelivery(request.id);
+        } else {
+            missing.push(request);
         }
     }
 
-    return false;
+    return missing;
+}
+
+/** Request ids of the answer messages the active branch really holds. */
+function committedRequestIds(ctx: ExtensionContext): Set<string> {
+    const ids = new Set<string>();
+
+    for (const entry of ctx.sessionManager.getBranch()) {
+        if (entry.type !== "custom_message" || entry.customType !== ASK_QUESTION_ANSWER_MESSAGE) {
+            continue;
+        }
+
+        const requestId = answerRequestId(entry.details);
+
+        if (requestId !== undefined) {
+            ids.add(requestId);
+        }
+    }
+
+    return ids;
 }
 
 /** The stable identity of an answer message; details without a string requestId never match. */
-function matchesRequestId(details: unknown, requestId: string): boolean {
+function answerRequestId(details: unknown): string | undefined {
     if (details === null || typeof details !== "object") {
-        return false;
+        return undefined;
     }
 
     const candidate = details as { requestId?: unknown };
 
-    return typeof candidate.requestId === "string" && candidate.requestId === requestId;
-}
-
-/** The answer row reads the label, the prompt and the option names; previews stay in the panel. */
-function toAnswerMessageQuestion(question: AskQuestion): AnswerMessageQuestion {
-    return {
-        header: question.header,
-        question: question.question,
-        options: question.options?.map((option) => ({ label: option.label })),
-    };
+    return typeof candidate.requestId === "string" ? candidate.requestId : undefined;
 }

@@ -372,6 +372,8 @@ export interface AnyToolDefinition {
         details: unknown;
         isError?: boolean;
     }>;
+    /** Pi calls this with partial arguments while the model still streams the call. */
+    renderCall?(args: unknown, theme: Theme, context: unknown): Component;
 }
 
 export function requireTool(host: FakePiHost, name: string): AnyToolDefinition {

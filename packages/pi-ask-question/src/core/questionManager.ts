@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type {
+    AnswerMessageQuestion,
     AskQuestion,
     AskQuestionAnswer,
     AskQuestionDraft,
@@ -58,6 +59,13 @@ export class QuestionManager {
     private readonly outbox = new Map<string, AskQuestionRequest>();
     private readonly listeners = new Map<QuestionManagerListener, QuestionManagerListenerErrorHandler | undefined>();
     private shownSeqCounter = 0;
+    /**
+     * JSON of the state the active branch already records, or `undefined` when unknown.
+     *
+     * Every `appendEntry` adds a session line and a tree node, and quit and `/tree` persist
+     * whether or not anything changed, so a snapshot equal to this one is not written again.
+     */
+    private persistedSnapshot: string | undefined;
 
     create(questions: readonly AskQuestion[]): AskQuestionRequest {
         const request: AskQuestionRequest = {
@@ -138,15 +146,7 @@ export class QuestionManager {
 
         request.status = "answered";
         request.answers = answers.map(copyAnswer);
-        request.settledAt = Date.now();
-
-        // Settling is one move: out of the pending queue, into the durable outbox. The
-        // request must not be asked again, but its payload has to survive until pi's
-        // session really carries the answer message. The draft stays with the panel: keeping
-        // it would duplicate a written answer in the outbox and the snapshot.
-        request.draft = emptyDraft(request.questions.length);
-        this.pending.delete(id);
-        this.outbox.set(id, request);
+        this.settle(request);
 
         this.emit({ type: "request-answered", id });
 
@@ -160,14 +160,10 @@ export class QuestionManager {
             return false;
         }
 
-        request.status = "skipped";
-        request.settledAt = Date.now();
-
         // A skip is delivered as a custom message too, so it takes the same durable path
         // as an answer: dropping it from the outbox would lose the model's only notice.
-        request.draft = emptyDraft(request.questions.length);
-        this.pending.delete(id);
-        this.outbox.set(id, request);
+        request.status = "skipped";
+        this.settle(request);
 
         this.emit({ type: "request-skipped", id });
 
@@ -198,6 +194,8 @@ export class QuestionManager {
 
     /** Drop every request, pending or not; a session starts from its own branch. */
     clearAll(): void {
+        this.persistedSnapshot = undefined;
+
         if (this.pending.size === 0 && this.outbox.size === 0) {
             return;
         }
@@ -207,9 +205,21 @@ export class QuestionManager {
         this.emit({ type: "requests-cleared" });
     }
 
-    /** Persist the pending requests (with drafts) and the delivery outbox into the session of `pi`. */
+    /**
+     * Persist the pending requests (with drafts) and the delivery outbox into the session of `pi`,
+     * unless the active branch already records this exact state.
+     */
     persist(pi: ExtensionAPI): void {
-        pi.appendEntry(QUESTION_STATE_ENTRY, this.snapshot());
+        const snapshot = this.snapshot();
+        const serialized = JSON.stringify(snapshot);
+
+        if (serialized === this.persistedSnapshot) {
+            return;
+        }
+
+        pi.appendEntry(QUESTION_STATE_ENTRY, snapshot);
+        // Only a write that succeeded counts; a failed one is attempted again next time.
+        this.persistedSnapshot = serialized;
     }
 
     snapshot(): AskQuestionStateSnapshot {
@@ -221,24 +231,17 @@ export class QuestionManager {
 
     /** Restore the newest snapshot on the active branch; the newest state always wins. */
     restore(ctx: ExtensionContext): void {
-        const branch = ctx.sessionManager.getBranch();
+        const wasEmpty = this.pending.size === 0 && this.outbox.size === 0;
+        const snapshot = newestSnapshot(ctx);
+        const restored = snapshot !== undefined && this.restoreSnapshot(snapshot);
 
-        for (let index = branch.length - 1; index >= 0; index--) {
-            const entry = branch[index];
+        // The branch record is known only when no live request was merged into it. It is set
+        // before the event, so the persistence listener does not write the branch's own state
+        // back onto it.
+        this.persistedSnapshot = wasEmpty ? JSON.stringify(this.snapshot()) : undefined;
 
-            if (!entry || entry.type !== "custom" || entry.customType !== QUESTION_STATE_ENTRY) {
-                continue;
-            }
-
-            const snapshot = entry.data as Partial<AskQuestionStateSnapshot> | undefined;
-
-            // The newest state entry wins, but only when it matches the schema this build
-            // writes; a malformed snapshot is not guessed at and not patched over.
-            if (snapshot && Array.isArray(snapshot.requests) && Array.isArray(snapshot.outbox)) {
-                this.restoreSnapshot(snapshot as AskQuestionStateSnapshot);
-            }
-
-            return;
+        if (restored) {
+            this.emit({ type: "requests-restored" });
         }
     }
 
@@ -255,7 +258,25 @@ export class QuestionManager {
         };
     }
 
-    private restoreSnapshot(snapshot: AskQuestionStateSnapshot): void {
+    /**
+     * Settling is one move: out of the pending queue, into the durable outbox. The request must
+     * not be asked again, but its payload has to survive until pi's session really carries the
+     * answer message.
+     *
+     * Only the delivery payload goes along. The draft stays with the panel - keeping it would
+     * duplicate a written answer - and `displayText` and the previews are panel input that every
+     * later snapshot would otherwise copy until the delivery is confirmed.
+     */
+    private settle(request: AskQuestionRequest): void {
+        request.settledAt = Date.now();
+        request.questions = request.questions.map(toAnswerMessageQuestion);
+        request.draft = emptyDraft(request.questions.length);
+        this.pending.delete(request.id);
+        this.outbox.set(request.id, request);
+    }
+
+    /** Returns whether anything was restored; the caller emits the event. */
+    private restoreSnapshot(snapshot: AskQuestionStateSnapshot): boolean {
         let restored = false;
 
         for (const saved of snapshot.requests) {
@@ -287,9 +308,7 @@ export class QuestionManager {
             restored = true;
         }
 
-        if (restored) {
-            this.emit({ type: "requests-restored" });
-        }
+        return restored;
     }
 
     /** Whether either queue already holds `id`; a snapshot never replaces live state. */
@@ -330,6 +349,15 @@ function copyQuestion(question: AskQuestion): AskQuestion {
         options: Array.isArray(question.options)
             ? question.options.map((option) => ({ ...option }))
             : undefined,
+    };
+}
+
+/** The fields an answer message reads: the label, the prompt and the option names. */
+export function toAnswerMessageQuestion(question: AskQuestion): AnswerMessageQuestion {
+    return {
+        header: question.header,
+        question: question.question,
+        options: question.options?.map((option) => ({ label: option.label })),
     };
 }
 
@@ -394,9 +422,9 @@ function normalizePendingRequest(saved: AskQuestionRequest): AskQuestionRequest 
 /**
  * A settled outbox entry read back from a snapshot.
  *
- * Only the delivery payload is kept: a settled request never reopens, so its draft is not
- * restored as panel state. An answered entry without valid answers cannot be delivered and
- * is not guessed at.
+ * Only the delivery payload is kept: a settled request never reopens, so neither its draft nor
+ * its panel-only question fields are restored. An answered entry without valid answers cannot
+ * be delivered and is not guessed at.
  */
 function normalizeSettledRequest(saved: AskQuestionRequest): AskQuestionRequest | undefined {
     if (saved.status !== "answered" && saved.status !== "skipped") {
@@ -406,7 +434,7 @@ function normalizeSettledRequest(saved: AskQuestionRequest): AskQuestionRequest 
     const request: AskQuestionRequest = {
         id: saved.id,
         createdAt: typeof saved.createdAt === "number" ? saved.createdAt : Date.now(),
-        questions: saved.questions.map(copyQuestion),
+        questions: saved.questions.map((question) => toAnswerMessageQuestion(copyQuestion(question))),
         status: saved.status,
         draft: emptyDraft(saved.questions.length),
         settledAt: typeof saved.settledAt === "number" ? saved.settledAt : Date.now(),
@@ -467,6 +495,32 @@ function clampIndex(index: number, questionCount: number): number {
     }
 
     return Math.min(questionCount, Math.max(0, Math.trunc(index)));
+}
+
+/**
+ * The newest state entry on the active branch, when it matches the schema this build writes.
+ *
+ * Only the newest entry counts: a malformed one is not guessed at and not patched over with an
+ * older one.
+ */
+function newestSnapshot(ctx: ExtensionContext): AskQuestionStateSnapshot | undefined {
+    const branch = ctx.sessionManager.getBranch();
+
+    for (let index = branch.length - 1; index >= 0; index--) {
+        const entry = branch[index];
+
+        if (!entry || entry.type !== "custom" || entry.customType !== QUESTION_STATE_ENTRY) {
+            continue;
+        }
+
+        const snapshot = entry.data as Partial<AskQuestionStateSnapshot> | undefined;
+
+        return snapshot && Array.isArray(snapshot.requests) && Array.isArray(snapshot.outbox)
+            ? snapshot as AskQuestionStateSnapshot
+            : undefined;
+    }
+
+    return undefined;
 }
 
 function isStoredRequest(value: unknown): value is AskQuestionRequest {

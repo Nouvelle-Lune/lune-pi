@@ -2,12 +2,13 @@
  * Terminal renderer of the question panel: frame, header/footer hints, the focused question,
  * its option rows, the submit summary and the option preview pane.
  *
- * It reads the request's `questions` and `draft` but never mutates them; the panel owns the
- * interaction, the draft and the editor, and hands the renderer the transient state it cannot
- * read from the request (`inputMode`, the editor component and the body budget).
+ * It reads the questions and the draft through the controller's read-only view and never
+ * changes them; the panel owns the interaction, the draft and the editor, and hands the renderer
+ * the transient state it cannot read from the view (`inputMode`, the editor component and the
+ * body budget).
  *
- * The renderer's own caches are render state, not session state: the Markdown parser and one
- * preview renderer per question, both dropped by `invalidate()` when the theme changes.
+ * The renderer's own caches are render state, not session state: one `displayText` parser and
+ * one preview renderer per question, both dropped by `invalidate()` when the theme changes.
  */
 import {
     getMarkdownTheme,
@@ -24,6 +25,7 @@ import {
 
 import {
     formatAnswer,
+    optionLabel,
     questionHeaderPrefix,
     questionTabLabel,
     summarizeText,
@@ -31,7 +33,6 @@ import {
 import type {
     AskQuestion,
     AskQuestionAnswer,
-    AskQuestionRequest,
 } from "../../core/question-types.ts";
 import {
     MIN_BLOCK_ROWS,
@@ -43,9 +44,9 @@ import {
 } from "../preview/preview-layout.ts";
 import { QuestionPreviewRenderer } from "../preview/preview-renderer.ts";
 import {
-    areAllAnswered,
     focusedRowIndex,
     questionRows,
+    type QuestionPanelView,
     type QuestionRow,
 } from "./question-panel-controller.ts";
 
@@ -128,16 +129,16 @@ interface RenderedBody {
 }
 
 export interface QuestionPanelRendererOptions {
-    request: AskQuestionRequest;
+    view: QuestionPanelView;
     theme: Theme;
 }
 
 export class QuestionPanelRenderer {
-    private readonly request: AskQuestionRequest;
+    private readonly view: QuestionPanelView;
     private readonly theme: Theme;
 
-    private markdown: Markdown | undefined;
-    private markdownText: string | undefined;
+    /** One `displayText` parser per question, so switching tabs does not parse it again. */
+    private readonly displayMarkdown = new Map<number, Markdown>();
     /**
      * One preview renderer per question: an option index only identifies an option inside its
      * own question, so a renderer must not be shared across tabs.
@@ -145,7 +146,7 @@ export class QuestionPanelRenderer {
     private readonly previewRenderers = new Map<number, QuestionPreviewRenderer>();
 
     constructor(options: QuestionPanelRendererOptions) {
-        this.request = options.request;
+        this.view = options.view;
         this.theme = options.theme;
     }
 
@@ -154,7 +155,7 @@ export class QuestionPanelRenderer {
         const contentWidth = innerWidth - 2;
         // The tab strip stays put while the body scrolls. It is the only way to see which
         // questions exist and to reach the others, so it must not scroll out of view.
-        const tabs = this.isMultiQuestion
+        const tabs = this.view.isMultiQuestion
             ? this.renderTabsBlock(contentWidth)
             : { lines: [], spans: [] };
         const bodyRoom = Math.max(1, state.maxBodyHeight - tabs.lines.length);
@@ -233,49 +234,24 @@ export class QuestionPanelRenderer {
     }
 
     invalidate(): void {
-        this.markdown = undefined;
-        this.markdownText = undefined;
+        this.displayMarkdown.clear();
         // The renderers hold the markdown theme they were built with, so a theme change has
         // to rebuild them.
         this.previewRenderers.clear();
     }
 
-    private get draft() {
-        return this.request.draft;
-    }
-
-    private get questions(): readonly AskQuestion[] {
-        return this.request.questions;
-    }
-
-    private get isMultiQuestion(): boolean {
-        return this.questions.length > 1;
-    }
-
-    private get isSubmitTab(): boolean {
-        return this.draft.currentIndex >= this.questions.length;
-    }
-
-    private currentQuestion(): AskQuestion | undefined {
-        return this.questions[this.draft.currentIndex];
-    }
-
-    private allAnswered(): boolean {
-        return areAllAnswered(this.questions, this.draft);
-    }
-
     private renderHeader(width: number): string {
         const contentWidth = width - 2;
         const title = this.theme.bold("Questions");
-        const answered = this.draft.answers.filter((answer) => answer !== undefined).length;
-        const status = `${answered}/${this.questions.length} answered`;
+        const answered = this.view.draft.answers.filter((answer) => answer !== undefined).length;
+        const status = `${answered}/${this.view.questions.length} answered`;
         const gap = Math.max(1, contentWidth - visibleWidth(title) - visibleWidth(status));
 
         return this.cell(`${title}${" ".repeat(gap)}${this.theme.fg("muted", status)}`, width);
     }
 
     private renderFooter(width: number, inputMode: boolean): string {
-        const question = this.currentQuestion();
+        const question = this.view.currentQuestion();
 
         let hints: string;
 
@@ -283,12 +259,12 @@ export class QuestionPanelRenderer {
             // Shift+S belongs to the editor while it owns the keys, so the footer must not
             // advertise skip here; Esc leaves the editor and skips from the options.
             hints = "Enter submit · Esc back to options";
-        } else if (this.isSubmitTab) {
-            hints = `${this.isMultiQuestion ? "Tab/←→ switch · " : ""}Enter submit · ⇧S skip · Esc close`;
+        } else if (this.view.isSubmitTab) {
+            hints = `${this.view.isMultiQuestion ? "Tab/←→ switch · " : ""}Enter submit · ⇧S skip · Esc close`;
         } else if (question?.multiSelect === true) {
             hints = "↑↓ move · Space/Enter toggle · Tab next · ⇧S skip · Esc close";
         } else {
-            hints = `↑↓ select · Enter confirm${this.isMultiQuestion ? " · Tab/←→ switch" : ""} · ⇧S skip · Esc close`;
+            hints = `↑↓ select · Enter confirm${this.view.isMultiQuestion ? " · Tab/←→ switch" : ""} · ⇧S skip · Esc close`;
         }
 
         return this.cell(this.theme.fg("dim", hints), width);
@@ -303,13 +279,13 @@ export class QuestionPanelRenderer {
         const marks: BodyMarks = {};
         let keep: RenderedBody["keep"];
 
-        if (this.isSubmitTab) {
+        if (this.view.isSubmitTab) {
             lines.push(...this.renderSubmit(contentWidth));
 
             return { lines, focusLine: 0, marks };
         }
 
-        const question = this.currentQuestion();
+        const question = this.view.currentQuestion();
 
         if (!question) {
             return { lines, focusLine: 0, marks };
@@ -327,7 +303,7 @@ export class QuestionPanelRenderer {
         if (question.displayText) {
             lines.push("");
 
-            for (const line of this.markdownFor(question.displayText).render(contentWidth)) {
+            for (const line of this.displayMarkdownFor(this.view.draft.currentIndex, question.displayText).render(contentWidth)) {
                 lines.push(line);
             }
         }
@@ -398,7 +374,7 @@ export class QuestionPanelRenderer {
         inputMode: boolean,
         previewScroll: number,
     ): OptionRegion {
-        const renderer = this.previewRendererFor(this.draft.currentIndex, question);
+        const renderer = this.previewRendererFor(this.view.draft.currentIndex, question);
 
         // While the editor is open the focused row is the custom row, which has no preview of
         // its own, and the editor below needs the full width more than a preview does.
@@ -406,7 +382,7 @@ export class QuestionPanelRenderer {
             return this.renderOptionRows(question, contentWidth);
         }
 
-        const leftWidth = leftColumnWidth(this.questions, contentWidth);
+        const leftWidth = leftColumnWidth(this.view.questions, contentWidth);
         const mode = decidePreviewLayout(contentWidth, leftWidth);
         const columns = previewColumnWidths(contentWidth, leftWidth, mode);
         const rows = this.renderOptionRows(question, columns.leftWidth);
@@ -422,7 +398,7 @@ export class QuestionPanelRenderer {
         }
 
         const block = renderer.render(
-            this.draft.optionIndex,
+            this.view.draft.optionIndex,
             columns.rightWidth,
             previewBlockRowBudget(mode, available),
             previewScroll,
@@ -461,8 +437,8 @@ export class QuestionPanelRenderer {
     private renderOptionRows(question: AskQuestion, contentWidth: number): OptionRegion {
         const lines: string[] = [];
         const rows = questionRows(question);
-        const focusedIndex = focusedRowIndex(rows, this.draft.optionIndex);
-        const answer = this.draft.answers[this.draft.currentIndex];
+        const focusedIndex = focusedRowIndex(rows, this.view.draft.optionIndex);
+        const answer = this.view.draft.answers[this.view.draft.currentIndex];
         let focusLine = 0;
 
         for (const [rowIndex, row] of rows.entries()) {
@@ -549,9 +525,9 @@ export class QuestionPanelRenderer {
             { text: " ", style: plain },
         ];
 
-        for (const [index, question] of this.questions.entries()) {
-            const answered = this.draft.answers[index] !== undefined;
-            const active = !this.isSubmitTab && index === this.draft.currentIndex;
+        for (const [index, question] of this.view.questions.entries()) {
+            const answered = this.view.draft.answers[index] !== undefined;
+            const active = !this.view.isSubmitTab && index === this.view.draft.currentIndex;
 
             segments.push({
                 text: ` ${answered ? "■" : "□"} ${questionTabLabel(question)} `,
@@ -566,10 +542,10 @@ export class QuestionPanelRenderer {
         segments.push(
             {
                 text: " ✓ Submit ",
-                style: (text) => this.isSubmitTab
+                style: (text) => this.view.isSubmitTab
                     ? this.theme.bg("selectedBg", this.theme.fg("text", text))
-                    : this.theme.fg(this.allAnswered() ? "success" : "dim", text),
-                target: { kind: "tab", index: this.questions.length },
+                    : this.theme.fg(this.view.allAnswered() ? "success" : "dim", text),
+                target: { kind: "tab", index: this.view.questions.length },
             },
             { text: "→", style: plain, target: { kind: "step", step: 1 } },
         );
@@ -584,9 +560,10 @@ export class QuestionPanelRenderer {
         answer: AskQuestionAnswer | undefined,
         contentWidth: number,
     ): string[] {
-        const lines: string[] = [];
+        const cursor = focused ? this.theme.fg("accent", "›") : " ";
 
         if (row.kind === "option") {
+            const lines: string[] = [];
             const option = question.options?.[row.index];
 
             if (!option) {
@@ -594,11 +571,10 @@ export class QuestionPanelRenderer {
             }
 
             const chosen = answer?.selectedIndexes.includes(row.index) ?? false;
-            const cursor = focused ? this.theme.fg("accent", "›") : " ";
             const marker = question.multiSelect === true
                 ? this.theme.fg(chosen ? "success" : "dim", chosen ? "[x]" : "[ ]")
                 : this.theme.fg(chosen ? "success" : "dim", chosen ? "●" : "○");
-            const label = `${row.index + 1}. ${option.label}`;
+            const label = optionLabel(question, row.index);
             const labelColor: ThemeColor = focused || chosen ? "accent" : "text";
 
             pushWrapped(
@@ -616,39 +592,48 @@ export class QuestionPanelRenderer {
         }
 
         if (row.kind === "custom") {
-            const questionIndex = this.draft.currentIndex;
             // Only a committed answer is shown here. Mirroring the draft would make the row
             // rewrite itself on every keystroke while the editor below shows the same text,
             // and it would follow edits to an answer that was already written.
-            const written = this.draft.answers[questionIndex]?.customText;
+            const written = this.view.draft.answers[this.view.draft.currentIndex]?.customText;
 
             if (written !== undefined && written.length > 0) {
+                const lines: string[] = [];
+
                 pushWrapped(
                     lines,
                     contentWidth,
-                    `${focused ? this.theme.fg("accent", "›") : " "} ${this.theme.fg("dim", "✎")} `,
+                    `${cursor} ${this.theme.fg("dim", "✎")} `,
                     this.theme.fg(focused ? "accent" : "text", summarizeText(written, Math.max(4, contentWidth - 8))),
                 );
-            } else {
-                pushWrapped(
-                    lines,
-                    contentWidth,
-                    `${focused ? this.theme.fg("accent", "›") : " "} ${this.theme.fg("dim", "✎")} `,
-                    this.theme.fg(focused ? "accent" : "text", "Type something"),
-                );
-                pushWrapped(lines, contentWidth, "      ", this.theme.fg("muted", "write your own answer"));
+
+                return lines;
             }
 
-            return lines;
+            return this.renderActionRow(cursor, "✎", "Type something", "write your own answer", focused, contentWidth);
         }
+
+        return this.renderActionRow(cursor, "→", "Next", "confirm the selection", focused, contentWidth);
+    }
+
+    /** A fixed row: glyph and title, with a muted hint under them. */
+    private renderActionRow(
+        cursor: string,
+        glyph: string,
+        title: string,
+        hint: string,
+        focused: boolean,
+        contentWidth: number,
+    ): string[] {
+        const lines: string[] = [];
 
         pushWrapped(
             lines,
             contentWidth,
-            `${focused ? this.theme.fg("accent", "›") : " "} ${this.theme.fg("dim", "→")} `,
-            this.theme.fg(focused ? "accent" : "text", "Next"),
+            `${cursor} ${this.theme.fg("dim", glyph)} `,
+            this.theme.fg(focused ? "accent" : "text", title),
         );
-        pushWrapped(lines, contentWidth, "      ", this.theme.fg("muted", "confirm the selection"));
+        pushWrapped(lines, contentWidth, "      ", this.theme.fg("muted", hint));
 
         return lines;
     }
@@ -659,8 +644,8 @@ export class QuestionPanelRenderer {
         pushWrapped(lines, contentWidth, "", this.theme.fg("accent", this.theme.bold("Ready to submit")));
         lines.push("");
 
-        for (const [index, question] of this.questions.entries()) {
-            const answer = this.draft.answers[index];
+        for (const [index, question] of this.view.questions.entries()) {
+            const answer = this.view.draft.answers[index];
 
             pushWrapped(
                 lines,
@@ -683,11 +668,11 @@ export class QuestionPanelRenderer {
 
         lines.push("");
 
-        if (this.allAnswered()) {
+        if (this.view.allAnswered()) {
             pushWrapped(lines, contentWidth, "", this.theme.fg("success", "Press Enter to submit"));
         } else {
-            const missing = this.questions
-                .filter((_, index) => this.draft.answers[index] === undefined)
+            const missing = this.view.questions
+                .filter((_, index) => this.view.draft.answers[index] === undefined)
                 .map((question) => questionTabLabel(question))
                 .join(", ");
 
@@ -697,13 +682,17 @@ export class QuestionPanelRenderer {
         return lines;
     }
 
-    private markdownFor(text: string): Markdown {
-        if (!this.markdown || this.markdownText !== text) {
-            this.markdown = new Markdown(text, 0, 0, getMarkdownTheme());
-            this.markdownText = text;
+    private displayMarkdownFor(questionIndex: number, text: string): Markdown {
+        const cached = this.displayMarkdown.get(questionIndex);
+
+        if (cached) {
+            return cached;
         }
 
-        return this.markdown;
+        const markdown = new Markdown(text, 0, 0, getMarkdownTheme());
+        this.displayMarkdown.set(questionIndex, markdown);
+
+        return markdown;
     }
 
     private frame(text: string): string {

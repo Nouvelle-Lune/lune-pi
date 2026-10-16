@@ -395,6 +395,103 @@ describe("question manager", () => {
             assert.deepEqual(manager.get(request.id)?.draft.answers[0], { selectedIndexes: [0] });
         });
 
+        it("does not write a snapshot equal to the one it last wrote", () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const host = createFakePiHost(() => undefined);
+
+            manager.persist(host.api);
+            manager.persist(host.api);
+
+            assert.equal(host.appendEntryCalls.length, 1, "an unchanged state is not written twice");
+
+            // Drafts change in place without an event; the comparison still has to see them.
+            request.draft.customDrafts[1] = "half typed";
+            manager.persist(host.api);
+
+            assert.equal(host.appendEntryCalls.length, 2, "a changed draft is written");
+        });
+
+        it("does not write back the state it just restored from the branch", () => {
+            const source = newManager();
+            source.create(QUESTIONS);
+            const branch = branchWith(source.snapshot());
+            const manager = newManager();
+            const host = createFakePiHost(() => undefined, { branch });
+
+            manager.restore(createFakeContext({ branch }));
+            manager.persist(host.api);
+
+            assert.equal(manager.getPendingRequests().length, 1);
+            assert.equal(host.appendEntryCalls.length, 0, "the branch already records this state");
+        });
+
+        it("writes the snapshot again after a write that failed", () => {
+            const manager = newManager();
+            manager.create(QUESTIONS);
+            const host = createFakePiHost(() => undefined);
+            const appendEntry = host.api.appendEntry;
+
+            host.api.appendEntry = () => {
+                throw new Error("session is read-only");
+            };
+            assert.throws(() => manager.persist(host.api), /read-only/);
+
+            host.api.appendEntry = appendEntry;
+            manager.persist(host.api);
+
+            assert.equal(host.appendEntryCalls.length, 1, "the failed snapshot is written once the session accepts it");
+        });
+
+        it("keeps only the delivery fields of a settled request", () => {
+            const manager = newManager();
+            const question: AskQuestion = {
+                header: "Storage",
+                question: "Which database?",
+                displayText: "DISPLAY_SENTINEL",
+                multiSelect: true,
+                options: [{ label: "Postgres", description: "server", preview: "PREVIEW_SENTINEL" }, { label: "SQLite" }],
+            };
+            const answered = manager.create([question]);
+            const skipped = manager.create([question]);
+
+            manager.submit(answered.id, [{ selectedIndexes: [0] }]);
+            manager.skip(skipped.id);
+
+            const expected = [{ header: "Storage", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }];
+            const actual = manager.snapshot().outbox.map((request) => request.questions);
+
+            assert.deepEqual(actual, [expected, expected]);
+        });
+
+        it("restores a settled request from an older snapshot with only its delivery fields", () => {
+            const branch = branchWith({
+                requests: [],
+                outbox: [{
+                    id: "settled-1",
+                    createdAt: 1,
+                    settledAt: 2,
+                    status: "answered",
+                    questions: [{
+                        header: "Storage",
+                        question: "Which database?",
+                        displayText: "DISPLAY_SENTINEL",
+                        options: [{ label: "Postgres", preview: "PREVIEW_SENTINEL" }, { label: "SQLite" }],
+                    }],
+                    draft: { currentIndex: 0, optionIndex: 0, answers: [undefined], customDrafts: [undefined] },
+                    answers: [{ selectedIndexes: [0] }],
+                }],
+            });
+            const manager = newManager();
+
+            manager.restore(createFakeContext({ branch }));
+
+            const expected = [{ header: "Storage", question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] }];
+            const actual = manager.get("settled-1")?.questions;
+
+            assert.deepEqual(actual, expected);
+        });
+
         it("clears every request including settled ones", () => {
             const manager = newManager();
             const request = manager.create(QUESTIONS);

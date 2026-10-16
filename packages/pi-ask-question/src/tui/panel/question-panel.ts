@@ -11,6 +11,7 @@ import {
     type EditorTheme,
     type Focusable,
     type KeybindingsManager,
+    type SizeValue,
     type TUI,
     type TuiMouseEvent,
     type TuiMouseEventResult,
@@ -35,8 +36,8 @@ const OVERLAY_MIN_WIDTH = 70;
  * The overlay is clamped to the terminal minus its margins, so a taller share than this buys
  * nothing; 90% is what a short terminal needs for the preview block to fit at all.
  */
-const OVERLAY_MAX_HEIGHT = "90%";
 const OVERLAY_HEIGHT_RATIO = 0.9;
+const OVERLAY_MAX_HEIGHT: SizeValue = `${OVERLAY_HEIGHT_RATIO * 100}%`;
 const OVERLAY_MARGIN = 2;
 
 /** Frame rows: top border, header, two separators, footer, bottom border. */
@@ -220,7 +221,7 @@ export class QuestionPanel implements Component, Focusable {
         this.terminalRows = () => options.tui.terminal.rows;
         this.controller = new QuestionPanelController(options.request);
         this.renderer = new QuestionPanelRenderer({
-            request: options.request,
+            view: this.controller,
             theme: options.theme,
         });
 

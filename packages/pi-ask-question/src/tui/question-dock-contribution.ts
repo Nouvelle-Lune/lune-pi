@@ -1,7 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import { createDockContribution, type LuneDockSnapshot } from "@lune_99/pi-lune-extensions-core/dock";
 import { openPendingQuestions } from "../commands/question.ts";
+import { singleLine } from "../core/question-format.ts";
 import { questionManager } from "../core/questionManager.ts";
 import { questionDock } from "./question-dock.ts";
 
@@ -10,9 +11,7 @@ export const QUESTION_CONTRIBUTION_ID = "ask-question";
 export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot {
     const count = questionManager.getPendingRequests().length;
     const next = questionManager.nextPendingRequest();
-    const title = stripTerminalSequences(
-        next?.questions[0]?.header ?? next?.questions[0]?.question ?? "",
-    ).replace(/[\r\n\t]+/g, " ");
+    const title = singleLine(next?.questions[0]?.header ?? next?.questions[0]?.question ?? "");
     const summary =
         count === 0 ? "idle" : `${count} pending ${count === 1 ? "request" : "requests"}`;
     const component = (suffix: string): Component => ({

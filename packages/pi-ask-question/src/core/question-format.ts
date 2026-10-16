@@ -4,7 +4,7 @@ import type {
     AnswerMessageQuestion,
     AskQuestionAnswer,
     AskQuestionRequest,
-} from "./questionManager.ts";
+} from "./question-types.ts";
 
 /** Widest a tab label gets before it is cut, so several tabs still fit one row. */
 export const TAB_LABEL_MAX_WIDTH = 16;
@@ -32,21 +32,26 @@ export function questionHeaderPrefix(question: AnswerMessageQuestion): string {
     return label.length === 0 ? "" : `${label}: `;
 }
 
-/** Collapse a question (or option text) onto one row for a dock or a header. */
-export function summarizeText(text: string, maxWidth: number): string {
-    const singleLine = stripTerminalSequences(text)
+/** Model-written text as one plain row: no terminal sequences, line breaks or runs of spaces. */
+export function singleLine(text: string): string {
+    return stripTerminalSequences(text)
         .replace(/[\r\n\t]/g, " ")
         .replace(/ +/g, " ")
         .trim();
+}
+
+/** Collapse a question (or option text) onto one row for a dock or a header. */
+export function summarizeText(text: string, maxWidth: number): string {
+    const line = singleLine(text);
 
     if (maxWidth <= 0) {
         return "";
     }
 
     // The budget is terminal columns: a CJK question is longer on screen than in code units.
-    return visibleWidth(singleLine) <= maxWidth
-        ? singleLine
-        : truncateToWidth(singleLine, maxWidth, "…");
+    return visibleWidth(line) <= maxWidth
+        ? line
+        : truncateToWidth(line, maxWidth, "…");
 }
 
 /** Numbered label of one option as the panel shows it: `2. Name`. */
