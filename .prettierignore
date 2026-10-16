@@ -1,0 +1,14 @@
+**/dist/
+**/coverage/
+
+# Generated assets and npm-owned dependency metadata.
+**/*.svg
+docs/previews/capture.json
+package-lock.json
+
+# Released package changelog sections are immutable.
+packages/*/CHANGELOG.md
+
+# Package-local agent guides and notes are not repository sources.
+packages/*/AGENTS*.md
+**/.docs/

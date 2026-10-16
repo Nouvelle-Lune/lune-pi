@@ -9,7 +9,7 @@ import {
     ModelRuntime,
     type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { modelChoices, type SettingsChoiceSource } from "../src/panel/index.ts";
+import { modelChoices } from "../src/panel/index.ts";
 
 function chat(id: string, provider = "chat-provider"): Model<string> {
     return {
@@ -135,10 +135,11 @@ test("invalid model types and candidate ranges fail during declaration without q
         () => modelChoices({ type: "classifier", scopes: ["scoped"] } as never),
         /only contain chat/,
     );
-    if (false) {
+    const typeProbe = () => {
         // @ts-expect-error Classifiers cannot use Pi's chat scopes.
         modelChoices({ type: "classifier", scopes: ["scoped"] });
-    }
+    };
+    void typeProbe;
 });
 
 test("manual refresh passes the operation signal and reports cancellation or provider failures", async () => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { createSettingsFixture, createSettingsSchema } from "../harness/settings.ts";

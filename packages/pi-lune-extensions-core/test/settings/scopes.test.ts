@@ -26,12 +26,12 @@ test("acquisitions of one live id must agree on schema, version and global-only 
         version: defineSettings({ id: "shared", schema, migrations: [(o) => o] }),
         globalOnly: defineSettings({ id: "shared", schema, globalOnly: ["token"] }),
     };
-    for (const [reason, definition] of Object.entries(conflicts))
+    for (const definition of Object.values(conflicts))
         await assert.rejects(fixture.sandbox.acquire(definition), {
             name: "TypeError",
             message: /Conflicting settings declaration for "shared"/,
         });
-    // The conflicting attempt must not disturb the live lease (reason: ${reason}).
+    // The conflicting attempt must not disturb the live lease.
     assert.equal(first.settings.get("limit"), 10);
 
     const same = await fixture.sandbox.acquire(defineSettings({ id: "shared", schema }));

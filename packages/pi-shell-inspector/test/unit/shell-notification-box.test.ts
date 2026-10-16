@@ -275,7 +275,23 @@ describe("background shell notification box", () => {
 /** Where Lune Core publishes its theme renderer; Core is an optional peer, so tests publish a fake. */
 const THEME_RENDERER_KEY = Symbol.for("@lune_99/pi-core-theme/renderer/v1");
 
-type RenderActivityArgs = [activity: any, options: { expanded: boolean; key?: object }, theme: Theme];
+/** The activity payload of the theme renderer contract, restated because the box does not export it. */
+interface ThemeActivity {
+    title: string;
+    summary?: string;
+    entries: {
+        name: string;
+        summary?: string;
+        status: "running" | "done" | "failed" | "cancelled";
+        detail?: string;
+        durationMs?: number;
+        error?: string;
+        output?: string;
+        fullOutputPath?: string;
+    }[];
+}
+
+type RenderActivityArgs = [activity: ThemeActivity, options: { expanded: boolean; key?: object }, theme: Theme];
 
 interface FakeThemedComponent extends Component {
     renderWidths: number[];
@@ -486,7 +502,7 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         renderBackgroundShellNotificationBox({ content, details: legacyDetails }, { expanded: false, outputPad: 1 }, theme)?.render(WIDTH);
 
-        const [entry] = renderer.calls[0]![0].entries;
+        const entry = renderer.calls[0]![0].entries[0]!;
 
         assert.equal(entry.fullOutputPath, undefined);
         assert.equal(entry.output, "out\n", "the rest of the entry must still render");
@@ -514,7 +530,7 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         box.render(WIDTH);
 
-        const [entry] = renderer.calls[0]![0].entries;
+        const entry = renderer.calls[0]![0].entries[0]!;
 
         assert.equal(entry.detail, undefined);
         assert.equal(entry.durationMs, undefined);
@@ -529,7 +545,7 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         box.render(WIDTH);
 
-        const actual = renderer.calls[0]![0].entries[0].output;
+        const actual = renderer.calls[0]![0].entries[0]!.output;
         const expected = "red\nprogress 100%\ncrlf line\ntrailing   with tab\n";
 
         assert.equal(actual, expected);

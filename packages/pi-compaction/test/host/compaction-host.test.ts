@@ -15,7 +15,6 @@ import {
     policy,
     toolResult,
     user,
-    ZERO_USAGE,
 } from "../harness/fixtures.ts";
 import { startLifecycleHost } from "../harness/lifecycle-host.ts";
 

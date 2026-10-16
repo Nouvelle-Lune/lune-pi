@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Shared lint and format checks.** Add ESLint for TypeScript and JavaScript and pin Prettier 3.8.3 to the local Zed formatting rules. Run `npm run format` to apply the style, or `npm run check` to validate formatting, lint, types, tests, and package contents; CI enforces the same checks on both supported Node.js versions.
 - **Lune monorepo.** Bring Core and the six Lune extensions into one npm workspace with their existing package names and independent versions. A shared lockfile, Pi SDK 1.3.0 development baseline, root validation commands, and GitHub Actions check all seven packages together.
 - **Native workspace recordings.** Add real Ghostty screenshots, a full Pi walkthrough and a GIF extracted from the recording, including all seven current themes. A repeatable capture script drives the actual plugin workflows with an offline model provider.
 

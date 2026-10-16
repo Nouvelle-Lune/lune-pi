@@ -55,7 +55,7 @@ export default function (pi: ExtensionAPI): void {
 
     });
 
-    pi.on("session_shutdown", (_event, ctx) => {
+    pi.on("session_shutdown", () => {
         // Unsubscribe before clearing: clearAllJobs() emits, and a live
         // listener would re-render the dock after it was removed.
         unsubscribeShellManager?.();

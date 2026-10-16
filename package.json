@@ -18,10 +18,13 @@
     "packageManager": "npm@11.6.2",
     "scripts": {
         "build": "npm run build --workspace=@lune_99/pi-lune-extensions-core && npm run build --workspace=@lune_99/pi-recap",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "lint": "eslint . --max-warnings=0",
         "typecheck": "npm run build && npm run typecheck --workspaces",
         "test": "npm run build && npm test --workspaces",
         "pack:check": "npm pack --workspaces --dry-run --ignore-scripts",
-        "check": "npm run typecheck && npm test && npm run pack:check",
+        "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run pack:check",
         "docs:previews": "node tools/make-readme-previews.mjs"
     },
     "repository": {
@@ -30,6 +33,11 @@
     },
     "license": "MIT",
     "devDependencies": {
-        "@xterm/headless": "6.0.0"
+        "@eslint/js": "10.0.1",
+        "@xterm/headless": "6.0.0",
+        "eslint": "10.13.0",
+        "globals": "17.13.0",
+        "prettier": "3.8.3",
+        "typescript-eslint": "8.71.2"
     }
 }

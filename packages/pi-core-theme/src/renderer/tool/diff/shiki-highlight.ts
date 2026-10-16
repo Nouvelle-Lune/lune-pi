@@ -78,7 +78,10 @@ export class ShikiHighlightCache {
                     if (!differs(lines, subscriber.fallback)) continue;
                     try {
                         subscriber.invalidate();
-                    } catch {}
+                    } catch {
+                        // Subscriber errors are dropped so the remaining invalidations still run;
+                        // the fallback highlight stays on screen.
+                    }
                 }
             })
             .catch(() => {})

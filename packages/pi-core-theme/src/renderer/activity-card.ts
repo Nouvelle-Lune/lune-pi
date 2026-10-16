@@ -133,7 +133,7 @@ export class ActivityCard implements Component {
             !expanded &&
             (this.header.contains(event) || this.hints.some((hint) => hint.contains(event)));
         if (event.type === "move") {
-            let changed = false;
+            let changed: boolean;
             if (output) changed = hover.focus(output.target);
             else if (hint) changed = hover.focus(this.state);
             else {

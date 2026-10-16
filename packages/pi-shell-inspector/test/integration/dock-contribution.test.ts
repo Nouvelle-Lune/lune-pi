@@ -7,7 +7,6 @@ import {
     type DockHost,
 } from "@lune_99/pi-lune-extensions-core/dock/host";
 
-import type { LuneDockProvider } from "@lune_99/pi-lune-extensions-core/dock";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 import luneShellInspector from "../../src/index.ts";
@@ -98,13 +97,6 @@ async function startSession(ui = createFakeUi(), host = createShellHost()): Prom
     const session = { host, ui, ctx, closed: false };
     liveSessions.push(session);
     return session;
-}
-
-/** Resolve the real shell contribution registered for this session's UI. */
-function registeredContribution(ui: object): LuneDockProvider {
-    const contribution = getDockRegistry().getContributions(ui).find((item) => item.id === "shell-inspector");
-    assert.ok(contribution, "the extension entry point must register the shell contribution for this UI");
-    return contribution.provider;
 }
 
 /** Mount a dock host in one UI scope and count invalidations from that contribution. */

@@ -681,7 +681,7 @@ class ToolCard implements Component {
             : this.disclosure.contains(event);
         if (event.type === "move") {
             if (!config.fullscreenMouse) return undefined;
-            let changed = false;
+            let changed: boolean;
             if (hidden) changed = this.hover.focus(hidden);
             else if (hint) changed = this.hover.focus(this);
             else {

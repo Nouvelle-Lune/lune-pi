@@ -235,7 +235,7 @@ test("public builders infer nested values and array item choices from their path
     const panel = defineSettingsPanel(defineSettings({ id: "typed", schema }), {
         label: "Typed",
         fields: (field) => {
-            if (false) {
+            const typeProbe = () => {
                 // @ts-expect-error Unknown nested paths must be rejected.
                 field(["nested", "missing"]);
                 // @ts-expect-error Optional properties cannot become separate panel paths.
@@ -249,7 +249,8 @@ test("public builders infer nested values and array item choices from their path
                         ],
                     },
                 });
-            }
+            };
+            void typeProbe;
             return [
                 field("enabled", {
                     formatValue: (value, { values }) => `${value && values.enabled}`,

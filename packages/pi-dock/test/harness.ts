@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { TestContext as NodeTestContext } from "node:test";
-import type { AssistantMessage, Model, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import {
     CustomEditor,
     SessionManager,
@@ -263,20 +263,20 @@ export function createMainEditor(
     return editor;
 }
 
-export function createModel(overrides: Partial<Model<any>> = {}): Model<any> {
+export function createModel(overrides: Partial<Model<Api>> = {}): Model<Api> {
     return {
         provider: "anthropic",
         id: "claude-test",
         reasoning: true,
         contextWindow: 200_000,
         ...overrides,
-    } as Model<any>;
+    } as Model<Api>;
 }
 
 /** What Pi reports about the running session; a test changes it between frames. */
 export interface SessionFixture {
     sessionManager: SessionManager;
-    model: Model<any> | undefined;
+    model: Model<Api> | undefined;
     thinkingLevel: ExtensionContext["thinkingLevel"];
     contextUsage: ContextUsage | undefined;
 }

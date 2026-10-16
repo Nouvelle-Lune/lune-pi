@@ -432,7 +432,7 @@ export class ShellManager {
         for (const listener of this.listeners) {
             try {
                 listener(event);
-            } catch (error) {
+            } catch {
                 // Ignore errors thrown by listeners to prevent one failing listener from affecting others.
             }
         }

@@ -92,7 +92,7 @@ export const transformMarkdown: MarkdownTransformer = (markdown, context) => {
             const marker = fence[2]!;
             const label = fence[3]!;
             const closing = new RegExp(
-                `^${prefix.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")}${marker[0]}{${marker.length},}\\s*$`,
+                `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${marker[0]}{${marker.length},}\\s*$`,
             );
             let end = index + 1;
             while (end < lines.length && !closing.test(lines[end]!)) end++;

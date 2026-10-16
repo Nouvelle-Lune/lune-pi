@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
 import { ShellInspector } from "../../src/shell/shell-inspector.ts";
 import { shellManager } from "../../src/shell/shell-manager.ts";

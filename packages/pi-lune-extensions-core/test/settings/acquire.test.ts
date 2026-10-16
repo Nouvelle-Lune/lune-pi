@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Type } from "typebox";
-import { acquireSettings, type SettingsLease } from "../../src/settings/advanced.ts";
+import { acquireSettings } from "../../src/settings/advanced.ts";
 import {
     defineSettings,
     SettingsNotificationError,
@@ -46,12 +46,12 @@ test("settings views hide backend schema and transaction primitives while nested
 
     assert.equal("settingSchema" in settings, false);
     assert.equal("update" in settings, false);
-    const checkTypes = () => {
+    const checkTypes = () => ({
         // @ts-expect-error Storage schemas belong to the backend SPI.
-        settings.settingSchema;
+        schema: settings.settingSchema,
         // @ts-expect-error Consumers edit nested values through field bindings.
-        settings.update;
-    };
+        update: settings.update,
+    });
     void checkTypes;
 
     await settings.field(["appearance", "color"]).set("purple");
@@ -315,7 +315,6 @@ test("a synchronous write notification can release its lease without bypassing t
     });
     const listeners = new Set<() => void>();
     let backendReleaseCount = 0;
-    let lease!: SettingsLease<typeof schema>;
     let reentrantRelease: Promise<void> | undefined;
     const backend: SettingsBackend<typeof schema> = {
         id: "sync-write-release",
@@ -352,7 +351,7 @@ test("a synchronous write notification can release its lease without bypassing t
             },
         }),
     });
-    lease = await acquireSettings(definition, { cwd: fixture.cwd, projectTrusted: true });
+    const lease = await acquireSettings(definition, { cwd: fixture.cwd, projectTrusted: true });
     t.after(async () => {
         finishWrite();
         await lease.release();
@@ -384,7 +383,6 @@ test("a synchronous backend subscription callback cannot escape lease cleanup", 
     const schema = Type.Object({ enabled: Type.Boolean({ default: true }) });
     let activeSubscriptions = 0;
     let unsubscribeCount = 0;
-    let lease!: SettingsLease<typeof schema>;
     const backend: SettingsBackend<typeof schema> = {
         id: "sync-subscribe-release",
         settingSchema: schema as never,
@@ -407,7 +405,7 @@ test("a synchronous backend subscription callback cannot escape lease cleanup", 
         },
         reload: async () => undefined,
     };
-    lease = await acquireSettings(
+    const lease = await acquireSettings(
         defineSettings({
             id: "sync-subscribe-release",
             schema,
@@ -555,7 +553,6 @@ test("lease release publishes its promise before reentrant subscription cleanup"
     // Reentrant cleanup must observe the in-flight release and close the owned backend exactly once.
     const fixture = await createSettingsFixture(t);
     const schema = Type.Object({ enabled: Type.Boolean({ default: true }) });
-    let lease!: SettingsLease<typeof schema>;
     let nestedRelease: Promise<void> | undefined;
     let unsubscribeCount = 0;
     let backendReleaseCount = 0;
@@ -587,7 +584,7 @@ test("lease release publishes its promise before reentrant subscription cleanup"
             },
         }),
     });
-    lease = await acquireSettings(definition, { cwd: fixture.cwd, projectTrusted: true });
+    const lease = await acquireSettings(definition, { cwd: fixture.cwd, projectTrusted: true });
     lease.settings.subscribe(() => undefined);
 
     const release = lease.release();
