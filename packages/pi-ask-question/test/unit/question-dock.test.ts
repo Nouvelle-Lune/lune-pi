@@ -109,6 +109,24 @@ describe("question dock", () => {
         assert.equal(line(), "2 pending questions · Second question · /question to answer");
     });
 
+    it("marks that the agent waits while a blocking call waits on the next request", () => {
+        const request = questionManager.create([{ question: "Which database?" }]);
+        const controller = new AbortController();
+        void questionManager.waitForSettle(request.id, controller.signal);
+
+        render();
+
+        assert.equal(
+            line(),
+            "1 pending question · agent waiting · Which database? · /question to answer",
+        );
+
+        controller.abort();
+        dock.render();
+
+        assert.equal(line(), "1 pending question · Which database? · /question to answer");
+    });
+
     it("truncates a long question and keeps one line", () => {
         questionManager.create([{ question: `Which ${"x".repeat(60)} database?\nsecond line` }]);
 

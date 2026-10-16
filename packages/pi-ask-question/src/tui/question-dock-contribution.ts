@@ -15,8 +15,14 @@ export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot
     const count = questionManager.getPendingRequests().length;
     const next = questionManager.nextPendingRequest();
     const title = singleLine(next?.questions[0]?.header ?? next?.questions[0]?.question ?? "");
-    const summary =
-        count === 0 ? "idle" : `${count} pending ${count === 1 ? "request" : "requests"}`;
+    // A waited-on request is always the next one; every level shows that the agent is paused.
+    const waiting = next !== undefined && questionManager.isWaiting(next.id) ? "agent waiting" : "";
+    const summary = [
+        count === 0 ? "idle" : `${count} pending ${count === 1 ? "request" : "requests"}`,
+        waiting,
+    ]
+        .filter(Boolean)
+        .join(" · ");
     const component = (suffix: string): Component => ({
         render: (width) => [
             truncateToWidth(
@@ -27,7 +33,7 @@ export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot
         invalidate() {},
     });
     return {
-        base: component(""),
+        base: component(waiting),
         detail: component(summary),
         full: component([summary, title].filter(Boolean).join(" · ")),
     };

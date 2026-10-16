@@ -158,6 +158,29 @@ describe("question dock contribution", () => {
         );
     });
 
+    it("shows that the agent waits on every level while a blocking call waits, and drops it after an abort", () => {
+        // Contract: a waited-on request pauses the agent, so base, detail and full all say so.
+        const request = questionManager.create([
+            { header: "Storage", question: "Which database?" },
+        ]);
+        const controller = new AbortController();
+        void questionManager.waitForSettle(request.id, controller.signal);
+        const text = (level: "base" | "detail" | "full"): string =>
+            stripTerminalSequences(
+                getQuestionDockSnapshot(createFakeContext())[level]!.render(120)[0]!,
+            );
+
+        assert.equal(text("base"), "● Ask · agent waiting");
+        assert.equal(text("detail"), "● Ask · 1 pending request · agent waiting");
+        assert.equal(text("full"), "● Ask · 1 pending request · agent waiting · Storage");
+
+        controller.abort();
+
+        assert.equal(text("base"), "● Ask");
+        assert.equal(text("detail"), "● Ask · 1 pending request");
+        assert.equal(text("full"), "● Ask · 1 pending request · Storage");
+    });
+
     it("publishes atomic levels, retains an idle base, and stays single-line at narrow widths", async () => {
         const session = await startSession();
         const mounted = getDockRegistry().getContributions(session.ui)[0]!;

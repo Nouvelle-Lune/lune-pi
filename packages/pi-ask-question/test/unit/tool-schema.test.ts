@@ -26,12 +26,12 @@ function toolSchema(): Tool {
 }
 
 /** Validate a question list the way pi validates a tool call before reaching `execute`. */
-function validate(questions: unknown): unknown {
+function validate(questions: unknown, extra: Record<string, unknown> = {}): unknown {
     return validateToolArguments(toolSchema(), {
         type: "toolCall",
         id: "call-1",
         name: TOOL_NAME,
-        arguments: { questions } as JsonObject,
+        arguments: { questions, ...extra } as JsonObject,
     });
 }
 
@@ -114,5 +114,25 @@ describe("ask_user_questions schema", () => {
                 ]),
             /options/,
         );
+    });
+});
+
+describe("ask_user_questions mode", () => {
+    const question = [{ header: "Storage", question: "Which database?" }];
+
+    it("accepts continue and block", () => {
+        for (const mode of ["continue", "block"]) {
+            const args = validate(question, { mode }) as { mode?: string };
+
+            assert.equal(args.mode, mode);
+        }
+    });
+
+    it("keeps the mode optional", () => {
+        assert.doesNotThrow(() => validate(question));
+    });
+
+    it("rejects any other mode", () => {
+        assert.throws(() => validate(question, { mode: "wait" }), /mode/);
     });
 });

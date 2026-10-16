@@ -342,10 +342,9 @@ describe("pi-ask-question extension", () => {
                 false,
                 "the questions are already in the tool call arguments",
             );
-            assert.equal(
-                pendingText.includes(requestId),
-                false,
-                "the request id is not model-facing",
+            assert.ok(
+                pendingText.includes(`Request id: ${requestId}`),
+                "the request id is model-facing so the model can withdraw the request",
             );
             assert.equal(ui.customCalls.length, 1);
             assert.equal(ui.customCalls[0]!.overlay, true);

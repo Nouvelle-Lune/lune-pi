@@ -10,6 +10,7 @@ import {
 } from "./core/question-delivery.ts";
 import { questionManager } from "./core/questionManager.ts";
 import { askUserQuestions } from "./tools/ask-user-questions.ts";
+import { withdrawUserQuestions } from "./tools/withdraw-user-questions.ts";
 import {
     renderQuestionAnswerMessage,
     type AskQuestionAnswerMessageDetails,
@@ -140,6 +141,7 @@ export default function (pi: ExtensionAPI): void {
     });
 
     pi.registerTool(askUserQuestions(persist));
+    pi.registerTool(withdrawUserQuestions());
     registerQuestionCommand(pi, persist);
 
     pi.registerMessageRenderer<AskQuestionAnswerMessageDetails>(

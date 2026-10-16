@@ -41,12 +41,15 @@ export class QuestionDock {
         const count = `${questions} pending ${questions === 1 ? "question" : "questions"}`;
         // The question the panel would show next, so the hint and `/question` agree.
         const summary = summarizeText(next?.questions[0]?.question ?? "", SUMMARY_MAX_WIDTH);
+        // A waited-on request is always the next one, and the agent is paused until it settles.
+        const waiting = next !== undefined && questionManager.isWaiting(next.id);
 
         this.ctx.ui.setWidget(
             WIDGET_ID,
             [
                 [
                     theme.fg("accent", count),
+                    waiting ? theme.fg("warning", "agent waiting") : undefined,
                     summary.length > 0 ? theme.fg("muted", summary) : undefined,
                     theme.fg("dim", "/question to answer"),
                 ]

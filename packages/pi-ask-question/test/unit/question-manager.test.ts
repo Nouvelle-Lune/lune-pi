@@ -157,6 +157,225 @@ describe("question manager", () => {
         });
     });
 
+    describe("request ids", () => {
+        it("creates ids of eight lowercase hex characters", () => {
+            const manager = newManager();
+
+            for (let index = 0; index < 50; index++) {
+                assert.match(manager.create(QUESTIONS).id, /^[0-9a-f]{8}$/);
+            }
+        });
+
+        it("never reuses the id of a live pending or outbox request", () => {
+            const manager = newManager();
+            const answered = manager.create(QUESTIONS);
+            manager.skip(answered.id);
+            const live = new Set([answered.id]);
+
+            for (let index = 0; index < 200; index++) {
+                const request = manager.create(QUESTIONS);
+
+                assert.equal(live.has(request.id), false, `duplicate id ${request.id}`);
+                live.add(request.id);
+            }
+        });
+
+        it("keeps the UUID id of a request restored from an older snapshot and withdraws it", () => {
+            const manager = newManager();
+            const uuid = "5f0c6a52-9d3b-4c9e-8a57-0b6f2d1e7c11";
+            const ctx = createFakeContext({
+                branch: branchWith({
+                    requests: [
+                        {
+                            id: uuid,
+                            createdAt: 1,
+                            status: "pending",
+                            questions: [{ header: "Storage", question: "Which database?" }],
+                        },
+                    ],
+                    outbox: [],
+                }),
+            });
+
+            manager.restore(ctx);
+
+            assert.equal(manager.getPendingRequest(uuid)?.id, uuid);
+            assert.equal(manager.withdraw(uuid, "not needed").status, "withdrawn");
+            assert.equal(manager.getPendingRequests().length, 0);
+        });
+    });
+
+    describe("withdraw", () => {
+        it("removes a pending request without an outbox entry and emits the reason", () => {
+            const manager = newManager();
+            const events: QuestionManagerEvent[] = [];
+            const request = manager.create(QUESTIONS);
+            manager.subscribe((event) => events.push(event));
+
+            const outcome = manager.withdraw(request.id, "answered by the test run");
+
+            assert.equal(outcome.status, "withdrawn");
+            assert.equal(outcome.status === "withdrawn" && outcome.request.id, request.id);
+            assert.equal(manager.getPendingRequest(request.id), undefined);
+            assert.deepEqual(manager.getUndeliveredRequests(), []);
+            assert.deepEqual(events, [
+                { type: "request-withdrawn", id: request.id, reason: "answered by the test run" },
+            ]);
+        });
+
+        it("reports a settled request in the outbox and leaves it there", () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            manager.skip(request.id);
+
+            const outcome = manager.withdraw(request.id, "late");
+
+            assert.equal(outcome.status, "settled");
+            assert.equal(manager.getUndeliveredRequests().length, 1);
+        });
+
+        it("reports an unknown id", () => {
+            assert.deepEqual(newManager().withdraw("missing", "reason"), { status: "unknown" });
+        });
+
+        it("reports a request a blocking call waits on and keeps it pending", () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            void manager.waitForSettle(request.id, undefined);
+
+            const outcome = manager.withdraw(request.id, "reason");
+
+            assert.deepEqual(outcome, { status: "waiting" });
+            assert.ok(manager.getPendingRequest(request.id));
+        });
+
+        it("lets the first of withdraw, submit and skip win", () => {
+            const manager = newManager();
+            const withdrawn = manager.create(QUESTIONS);
+            manager.withdraw(withdrawn.id, "reason");
+
+            assert.equal(manager.submit(withdrawn.id, []), false);
+            assert.equal(manager.skip(withdrawn.id), false);
+            assert.deepEqual(manager.getUndeliveredRequests(), []);
+
+            const answered = manager.create(QUESTIONS);
+            manager.submit(answered.id, [{ selectedIndexes: [0] }, { selectedIndexes: [0] }]);
+
+            assert.equal(manager.withdraw(answered.id, "reason").status, "settled");
+        });
+
+        it("withdraws a request again once its wait was aborted", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const controller = new AbortController();
+            const wait = manager.waitForSettle(request.id, controller.signal);
+
+            controller.abort();
+            await wait;
+
+            assert.equal(manager.withdraw(request.id, "reason").status, "withdrawn");
+        });
+    });
+
+    describe("waiting for a settle", () => {
+        it("resolves with the settled request and skips the outbox", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const wait = manager.waitForSettle(request.id, undefined);
+
+            assert.equal(manager.isWaiting(request.id), true);
+
+            manager.submit(request.id, [{ selectedIndexes: [1] }, { selectedIndexes: [0] }]);
+            const outcome = await wait;
+
+            assert.equal(outcome.status, "settled");
+            assert.equal(
+                outcome.status === "settled" && outcome.request.status,
+                "answered",
+                "the wait carries the answer",
+            );
+            assert.equal(manager.isWaiting(request.id), false);
+            assert.deepEqual(manager.getUndeliveredRequests(), []);
+            assert.equal(manager.getPendingRequest(request.id), undefined);
+        });
+
+        it("resolves a skip as settled without an outbox entry", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const wait = manager.waitForSettle(request.id, undefined);
+
+            manager.skip(request.id);
+            const outcome = await wait;
+
+            assert.equal(outcome.status === "settled" && outcome.request.status, "skipped");
+            assert.deepEqual(manager.getUndeliveredRequests(), []);
+        });
+
+        it("resolves as interrupted on abort and keeps the request pending", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const controller = new AbortController();
+            const events: QuestionManagerEvent[] = [];
+            const wait = manager.waitForSettle(request.id, controller.signal);
+            manager.subscribe((event) => events.push(event));
+
+            controller.abort();
+
+            assert.deepEqual(await wait, { status: "interrupted" });
+            assert.equal(manager.isWaiting(request.id), false);
+            assert.ok(manager.getPendingRequest(request.id));
+            assert.deepEqual(events, [{ type: "request-wait-ended", id: request.id }]);
+
+            manager.submit(request.id, [{ selectedIndexes: [0] }, { selectedIndexes: [0] }]);
+
+            assert.equal(manager.getUndeliveredRequests().length, 1, "a later answer is a message");
+        });
+
+        it("resolves at once as interrupted for a signal that is already aborted", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+
+            const outcome = await manager.waitForSettle(request.id, AbortSignal.abort());
+
+            assert.deepEqual(outcome, { status: "interrupted" });
+            assert.equal(manager.isWaiting(request.id), false);
+            assert.ok(manager.getPendingRequest(request.id));
+        });
+
+        it("resolves as interrupted when all state is cleared", async () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            const wait = manager.waitForSettle(request.id, undefined);
+
+            manager.clearAll();
+
+            assert.deepEqual(await wait, { status: "interrupted" });
+            assert.equal(manager.isWaiting(request.id), false);
+        });
+
+        it("rejects a second waiter and an unknown request", () => {
+            const manager = newManager();
+            const request = manager.create(QUESTIONS);
+            void manager.waitForSettle(request.id, undefined);
+
+            assert.throws(() => manager.waitForSettle(request.id, undefined));
+            assert.throws(() => manager.waitForSettle("missing", undefined));
+        });
+
+        it("shows the waited-on request first, also ahead of requests never shown", () => {
+            const manager = newManager();
+            const first = manager.create(QUESTIONS);
+            const second = manager.create(QUESTIONS);
+            manager.markShown(second.id);
+            const third = manager.create(QUESTIONS);
+
+            void manager.waitForSettle(second.id, undefined);
+
+            assert.equal(manager.nextPendingRequest()?.id, second.id);
+            assert.notEqual(first.id, third.id);
+        });
+    });
+
     describe("showing order", () => {
         it("prefers a request that was never shown", () => {
             const manager = newManager();

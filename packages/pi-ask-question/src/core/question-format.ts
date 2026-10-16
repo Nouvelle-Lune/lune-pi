@@ -102,15 +102,33 @@ export function formatAnswerMessage(request: AskQuestionRequest): string {
     return lines.join("\n").trimEnd();
 }
 
+/** The headers of a request as one plain label, such as `Storage, Auth`. */
+export function requestHeaders(request: { questions: readonly AnswerMessageQuestion[] }): string {
+    return request.questions
+        .map((question) => singleLine(question.header ?? ""))
+        .filter((header) => header.length > 0)
+        .join(", ");
+}
+
 /**
  * Model-facing text of the tool result, which returns before any answer exists.
  *
- * The questions are left out on purpose: they are the tool call's own arguments, and the
- * request id is nothing the model can act on - neither belongs in the context twice.
+ * The questions are left out on purpose: they are the tool call's own arguments and do not
+ * belong in the context twice. The request id is the handle for `withdraw_user_questions`.
  */
-export function formatPendingMessage(): string {
+export function formatPendingMessage(requestId: string): string {
     return [
         "Questions are pending. Continue any independent work.",
         "The user's answers will arrive as a follow-up message.",
+        `Request id: ${requestId}`,
+    ].join("\n");
+}
+
+/** Model-facing text of a blocking call whose wait was aborted before the user answered. */
+export function formatInterruptedMessage(requestId: string): string {
+    return [
+        "Interrupted before the user answered. The questions stay pending.",
+        "The user's answers will arrive as a follow-up message.",
+        `Request id: ${requestId}`,
     ].join("\n");
 }
