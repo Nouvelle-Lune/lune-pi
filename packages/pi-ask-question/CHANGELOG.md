@@ -20,6 +20,22 @@
   session UI cleanup, and host-presence switching. The existing independent status bar is
   restored immediately when Lune Dock is disabled through `/dock` or is absent.
 
+- **Fewer and smaller state entries.** The question state is written only when it differs from what the branch already records, so quitting and `/tree` no longer add an entry to sessions that never asked a question. A settled request keeps only its headers, questions and option labels, and it leaves the outbox when the run settles instead of at the next session start.
+
+- **Below-editor dock counts questions.** The `N pending questions` row counts the questions inside every pending request, so one request with three questions reads `3 pending questions`. The Lune Dock item still counts requests.
+
+- **Shorter tool prompt.** Each `ask_user_questions` rule is stated once, either in the guidelines or in the field description, which cuts the prompt by about a quarter.
+
+- **Smaller npm package.** Only the gallery image `docs/question-panel.png` is published; the README already loads its images from GitHub.
+
+### Fixed
+
+- **Tool card while streaming.** The `ask_user_questions` card no longer falls back to pi's raw-argument card while the model is still writing the call.
+
+### Refactored
+
+- **Panel and delivery cleanup.** The renderer reads question state through the controller, answer notifications live in `question-delivery.ts`, and the row, label and text helpers are shared instead of repeated.
+
 ## [0.1.0] - 2026-10-03
 
 ### Added

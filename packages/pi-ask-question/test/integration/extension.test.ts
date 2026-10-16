@@ -23,7 +23,7 @@ import {
     type AskQuestion,
     type AskQuestionAnswer,
 } from "../../src/core/questionManager.ts";
-import { ASK_QUESTION_ANSWER_MESSAGE } from "../../src/core/question-notification.ts";
+import { ASK_QUESTION_ANSWER_MESSAGE } from "../../src/core/question-delivery.ts";
 import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
 import {
     createFakeContext,
@@ -569,6 +569,34 @@ describe("pi-ask-question extension", () => {
             assert.equal(questionManager.getPendingRequests().length, 0, "delivered is not pending");
         });
 
+        it("releases a committed answer when the run settles, without sending it again", async () => {
+            const { host, ui } = await startSession();
+
+            await ask(host, ui, QUESTIONS, "call-1");
+            const requestId = questionManager.getPendingRequests()[0]!.id;
+            answerFocusedOption(ui);
+            commitAnswer(host, requestId);
+
+            await host.fire("agent_settled", createFakeContext({ ui, branch: host.branch }));
+
+            assert.equal(durableAnswers(host.branch, requestId), undefined, "the confirmed answer leaves the outbox");
+            assert.equal(deliveryAttempts(host, requestId).length, 1, "and is not sent a second time");
+        });
+
+        it("keeps an uncommitted answer when the run settles, without sending it again", async () => {
+            const { host, ui } = await startSession();
+
+            await ask(host, ui, QUESTIONS, "call-1");
+            const requestId = questionManager.getPendingRequests()[0]!.id;
+            answerFocusedOption(ui);
+
+            // An abort can clear pi's queue; a send here would restart the run the user stopped.
+            await host.fire("agent_settled", createFakeContext({ ui, branch: host.branch }));
+
+            assert.deepEqual(durableAnswers(host.branch, requestId), [{ selectedIndexes: [0] }], "the answer stays durable");
+            assert.equal(deliveryAttempts(host, requestId).length, 1, "and waits for the next session start or tree move");
+        });
+
         it("restores an answered-but-undelivered request without reopening the question", async () => {
             const branch: FakeBranchEntry[] = [];
             const first = await startSession(branch);
@@ -1042,6 +1070,30 @@ describe("pi-ask-question extension", () => {
             assert.equal(questionManager.getPendingRequests().length, 1);
         });
 
+        it("writes no question state for a session that never asked anything", async () => {
+            const session = await startSession();
+
+            await switchBranch(session, session.host.branch);
+            await session.host.fire("session_shutdown", createFakeContext({ ui: session.ui, branch: session.host.branch }));
+
+            const writes = session.host.appendEntryCalls.filter((call) => call.customType === QUESTION_STATE_ENTRY);
+
+            assert.equal(writes.length, 0);
+        });
+
+        it("does not write the restored state back after a tree jump", async () => {
+            const session = await startSession();
+
+            await ask(session.host, session.ui, QUESTIONS, "call-1");
+            const writesBefore = session.host.appendEntryCalls.length;
+
+            // The fake jumps back onto the same branch, which already records this state.
+            await switchBranch(session, session.host.branch);
+
+            assert.equal(questionManager.getPendingRequests().length, 1, "the request is restored from the branch");
+            assert.equal(session.host.appendEntryCalls.length, writesBefore, "and the same state is not written again");
+        });
+
         it("does not let a stale overlay release the panel of the session that replaced it", async () => {
             const { host, ui } = await startSession();
 
@@ -1126,6 +1178,8 @@ describe("pi-ask-question extension", () => {
             const { host, ui } = await startSession();
 
             await ask(host, ui, QUESTIONS, "call-1");
+            // A moved focus is a draft change, so the defer has a new snapshot to write.
+            ui.panel!.handleInput?.("j");
 
             host.api.appendEntry = () => {
                 throw new Error("session is read-only");
@@ -1151,6 +1205,8 @@ describe("pi-ask-question extension", () => {
             const { host, ui, branch } = await startSession();
 
             await ask(host, ui, QUESTIONS, "call-1");
+            // A moved focus is a draft change, so shutdown has a new snapshot to write.
+            ui.panel!.handleInput?.("j");
 
             host.api.appendEntry = () => {
                 throw new Error("session is read-only");
@@ -1164,6 +1220,33 @@ describe("pi-ask-question extension", () => {
                 ui.notifyCalls.some((call) => call.type === "error" && /could not be saved/.test(call.message)),
                 `expected a snapshot error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
+        });
+    });
+
+    describe("tool call card", () => {
+        it("renders each stage of the arguments while the model streams them", () => {
+            const tool = requireTool(createFakePiHost(luneAskQuestion), "ask_user_questions");
+            const stages: unknown[] = [
+                {},
+                { questions: [{}] },
+                { questions: [{ question: "Which data" }] },
+                { questions: [{ header: "Storage", question: "Which database?" }, {}] },
+            ];
+
+            const expected = [
+                "ask_user_questions 0 questions",
+                "ask_user_questions 1 question",
+                "ask_user_questions 1 question\nWhich data",
+                "ask_user_questions 2 questions\nWhich database?",
+            ];
+            const actual = stages.map((args) => stripTerminalSequences(
+                tool.renderCall!(args, createFakeTheme(), {})
+                    .render(120)
+                    .map((line) => line.trimEnd())
+                    .join("\n"),
+            ));
+
+            assert.deepEqual(actual, expected);
         });
     });
 

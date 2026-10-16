@@ -27,15 +27,18 @@ export class QuestionDock {
         }
 
         const pending = questionManager.getPendingRequests();
-        const next = questionManager.nextPendingRequest();
 
         if (pending.length === 0) {
             this.ctx.ui.setWidget(WIDGET_ID, undefined);
             return;
         }
 
+        const next = questionManager.nextPendingRequest();
         const theme = this.ctx.ui.theme;
-        const count = `${pending.length} pending ${pending.length === 1 ? "question" : "questions"}`;
+        // The row names questions, so it counts them: one request can hold several. The Lune
+        // Dock item counts requests instead, and the two are never shown together.
+        const questions = pending.reduce((total, request) => total + request.questions.length, 0);
+        const count = `${questions} pending ${questions === 1 ? "question" : "questions"}`;
         // The question the panel would show next, so the hint and `/question` agree.
         const summary = summarizeText(next?.questions[0]?.question ?? "", SUMMARY_MAX_WIDTH);
 

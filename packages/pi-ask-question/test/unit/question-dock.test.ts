@@ -72,6 +72,18 @@ describe("question dock", () => {
         });
     });
 
+    it("counts the questions inside each pending request", () => {
+        questionManager.create([{ question: "Which database?" }, { question: "Which port?" }, { question: "Which region?" }]);
+        questionManager.create([{ question: "Anything else?" }]);
+
+        render();
+
+        const expected = "4 pending questions";
+        const actual = line().split(" · ")[0];
+
+        assert.equal(actual, expected);
+    });
+
     it("counts several pending requests and previews the next one", () => {
         questionManager.create([{ question: "First question" }]);
         questionManager.create([{ question: "Second question" }]);

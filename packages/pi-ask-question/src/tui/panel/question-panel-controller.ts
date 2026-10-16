@@ -60,6 +60,12 @@ export function areAllAnswered(
     return questions.every((_, index) => draft.answers[index] !== undefined);
 }
 
+/** The read-only part of the controller that the renderer draws from. */
+export type QuestionPanelView = Pick<
+    QuestionPanelController,
+    "draft" | "questions" | "isMultiQuestion" | "isSubmitTab" | "currentQuestion" | "allAnswered"
+>;
+
 /** What a number key did, so the caller knows whether advancing has to follow. */
 export type PickOptionResult = "answer" | "toggle" | "ignored";
 

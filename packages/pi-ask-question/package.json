@@ -5,7 +5,7 @@
     "type": "module",
     "files": [
         "src",
-        "docs",
+        "docs/question-panel.png",
         "README.md",
         "CHANGELOG.md",
         "LICENSE"

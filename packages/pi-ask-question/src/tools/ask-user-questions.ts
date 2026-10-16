@@ -28,17 +28,19 @@ export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
     return defineTool({
         name: "ask_user_questions",
         label: "Ask User Questions",
+        // Each rule lives in one place: when and how to ask in the guidelines, what a field holds
+        // in its schema description. All of it is sent with every request.
         description:
-            "Ask the user structured questions when their answer is needed to choose what to do next. Use this for user-owned decisions or meaningful tradeoffs that cannot be resolved from the conversation or workspace. The panel opens immediately and answers arrive later as a follow-up message.",
+            "Ask the user structured questions about user-owned decisions or meaningful tradeoffs. The panel opens immediately and answers arrive later as a follow-up message.",
 
         promptSnippet:
             "Ask for user-owned decisions; discover facts and use reasonable defaults yourself.",
 
         promptGuidelines: [
-            "Ask only when the answer materially changes what you should do next; inspect the conversation and workspace first, and use reasonable defaults for low-impact choices.",
-            "Ask the smallest set of questions needed. After calling the tool, continue independent work and stop only when further progress depends on the answers.",
-            "Use option previews for concrete alternatives that benefit from visual comparison - code, configuration, structured text, or UI mockups - and do not add previews to simple preference questions. The pane is titled with the option label, so a preview must not repeat it; anything shared by every option belongs in displayText instead.",
-            "Give every question a short header naming its subject ('Storage', 'Auth', 'Timeouts'); the panel shows it as the tab label. The header is required, so never number questions yourself or repeat the question text.",
+            "Ask only when the answer materially changes what you do next; inspect the conversation and workspace first, and use reasonable defaults for low-impact choices.",
+            "After calling the tool, continue independent work and stop only when further progress depends on the answers.",
+            "Add option previews only for concrete alternatives worth comparing - code, configuration, structured text or UI mockups - not for simple preferences. The pane is titled with the option label, so do not repeat it; content shared by every option belongs in displayText.",
+            "Give every question a short header naming its subject ('Storage', 'Auth', 'Timeouts'); it is the tab label, so never number questions or repeat the question text.",
         ],
         parameters: askUserQuestionsSchema,
         // The panel is a user interaction, not a nested-tool capability, and shared
@@ -81,12 +83,15 @@ export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
         },
 
         renderCall(args, theme, _context) {
-            const count = args.questions.length;
+            // Pi renders the call while the model still streams its arguments, so any field can
+            // be missing yet. A throw here would swap the card for pi's raw-argument fallback.
+            const questions = Array.isArray(args.questions) ? args.questions : [];
+            const count = questions.length;
             const label = `${count} question${count === 1 ? "" : "s"}`;
 
-            const lines = args.questions.map(
-                (question) => theme.fg("text", summarizeText(question.question, 60)),
-            );
+            const lines = questions
+                .filter((question) => typeof question?.question === "string")
+                .map((question) => theme.fg("text", summarizeText(question.question, 60)));
 
             return new Text(
                 theme.fg("toolTitle", theme.bold("ask_user_questions ")) + theme.fg("muted", label) +
@@ -118,20 +123,19 @@ const askUserQuestionsSchema = Type.Object({
         Type.Object({
             question: Type.String({
                 description:
-                    "A single-sentence, atomic decision prompt shown to the user. Ask exactly one thing and include enough context to answer without reading surrounding prose.",
+                    "One atomic decision prompt in a single sentence, with enough context to answer without reading surrounding prose.",
             }),
 
             header: Type.String({
                 minLength: 1,
                 maxLength: 16,
-                description:
-                    "Short label naming this question's subject ('Storage', 'Auth', 'Timeouts'), shown as the tab label in the panel. Always provide it, keep it to a word or two, and never number the questions.",
+                description: "Tab label naming the question's subject in a word or two.",
             }),
 
             displayText: Type.Optional(
                 Type.String({
                     description:
-                        "Optional Markdown shown above the answer controls, the same for every option: the context or evidence the whole question needs, such as a diff, an excerpt, or the current values. It is not for generic explanation that belongs in the question or option descriptions, and anything that changes with the focused option belongs in that option's preview instead.",
+                        "Markdown shown above the options, the same for every option: context or evidence the whole question needs, such as a diff, an excerpt or the current values.",
                 }),
             ),
 
@@ -140,28 +144,26 @@ const askUserQuestionsSchema = Type.Object({
                     Type.Object({
                         label: Type.String({
                             description:
-                                "Short, scannable user-visible choice label, preferably 1-5 words. If an option is clearly preferred, place it first and suffix the label with '(Recommended)'.",
+                                "Short, scannable choice label, preferably 1-5 words. Put a clearly preferred option first and suffix its label with '(Recommended)'.",
                         }),
 
                         description: Type.Optional(
                             Type.String({
-                                description:
-                                    "One short sentence explaining the consequence, tradeoff, or meaning of selecting this option.",
+                                description: "One short sentence on the consequence or tradeoff of this option.",
                             }),
                         ),
 
                         preview: Type.Optional(
                             Type.String({
                                 description:
-                                    "Optional Markdown artifact for this one option, shown in a pane beside the options while it is focused and titled with its label. Use it when the choice is worth comparing rather than describing - a mockup, a code or config snippet, a concrete before/after - and keep it to roughly a dozen lines.",
+                                    "Markdown for this option only, shown beside the options while it is focused. Keep it to about a dozen lines.",
                             }),
                         ),
                     }),
                     {
                         minItems: 2,
                         maxItems: 4,
-                        description:
-                            "Two to four meaningful, mutually distinct choices. Omit the entire field for genuinely free-form input.",
+                        description: "Two to four distinct choices. Omit for free-form input.",
                     },
                 ),
             ),
@@ -169,8 +171,7 @@ const askUserQuestionsSchema = Type.Object({
             multiSelect: Type.Optional(
                 Type.Boolean({
                     default: false,
-                    description:
-                        "Whether multiple predefined options can validly apply at the same time. Keep false for mutually exclusive choices.",
+                    description: "True when several options can apply at once; keep false for mutually exclusive choices.",
                 }),
             ),
         }),
@@ -178,7 +179,7 @@ const askUserQuestionsSchema = Type.Object({
             minItems: 1,
             maxItems: 4,
             description:
-                "Questions presented together in one panel. Prefer one question; batch up to four only when the decisions are independent and already known to be necessary.",
+                "Questions shown together in one panel. Prefer one; batch up to four only when the decisions are independent and already known to be necessary.",
         },
     ),
 });

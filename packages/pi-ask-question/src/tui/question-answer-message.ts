@@ -3,7 +3,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 
 import { formatAnswer, questionHeaderPrefix, summarizeText } from "../core/question-format.ts";
-import type { AnswerMessageQuestion, AskQuestionAnswer } from "../core/questionManager.ts";
+import type { AnswerMessageQuestion, AskQuestionAnswer } from "../core/question-types.ts";
 
 export interface AskQuestionAnswerMessageDetails {
     requestId?: string;

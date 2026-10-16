@@ -1,8 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { registerQuestionCommand } from "./commands/question.ts";
-import { reconcileQuestionDeliveries } from "./core/question-delivery.ts";
-import { ASK_QUESTION_ANSWER_MESSAGE, registerQuestionAnswerNotifications } from "./core/question-notification.ts";
+import {
+    ASK_QUESTION_ANSWER_MESSAGE,
+    reconcileQuestionDeliveries,
+    registerQuestionAnswerNotifications,
+    releaseDeliveredQuestions,
+    type QuestionDeliveryOptions,
+} from "./core/question-delivery.ts";
 import { questionManager } from "./core/questionManager.ts";
 import { askUserQuestions } from "./tools/ask-user-questions.ts";
 import {
@@ -37,22 +42,28 @@ export default function (pi: ExtensionAPI): void {
     let unsubscribeManager: (() => void) | undefined;
     let unsubscribeNotifications: (() => void) | undefined;
 
-    /** Report a delivery attempt that pi rejected synchronously; the outbox keeps the request. */
-    const reportDeliveryFailure = (ctx: ExtensionContext, error: unknown): void => {
-        ctx.ui.notify(
-            `Question answers could not be delivered: ${error instanceof Error ? error.message : String(error)}`,
-            "error",
-        );
+    const unsubscribe = (): void => {
+        unsubscribeManager?.();
+        unsubscribeManager = undefined;
+        unsubscribeNotifications?.();
+        unsubscribeNotifications = undefined;
     };
+
+    /** Report a delivery attempt that pi rejected synchronously; the outbox keeps the request. */
+    const deliveryOptions = (ctx: ExtensionContext): QuestionDeliveryOptions => ({
+        onError: (error) => {
+            ctx.ui.notify(
+                `Question answers could not be delivered: ${error instanceof Error ? error.message : String(error)}`,
+                "error",
+            );
+        },
+    });
 
     pi.on("session_start", (_event, ctx) => {
         // The previous session's listeners close over its ctx and a duplicate subscription
         // would render and persist twice per event, so they go first - before the state
         // changes below would wake them.
-        unsubscribeManager?.();
-        unsubscribeManager = undefined;
-        unsubscribeNotifications?.();
-        unsubscribeNotifications = undefined;
+        unsubscribe();
         dock.detach({ retired: true });
 
         // Module state may survive extension reloads, so a session starts from its own
@@ -88,26 +99,24 @@ export default function (pi: ExtensionAPI): void {
 
         // Registered after the persist listener: the snapshot has to exist before the
         // answer message resumes the model.
-        unsubscribeNotifications = registerQuestionAnswerNotifications(pi, {
-            onError: (error) => reportDeliveryFailure(ctx, error),
-        });
+        unsubscribeNotifications = registerQuestionAnswerNotifications(pi, deliveryOptions(ctx));
 
         // A session can start with settled answers whose message never reached the previous
         // one; the outbox is durable, so reconcile it against this branch. Confirmed answers
         // are released (and persisted), the rest are attempted again.
-        reconcileQuestionDeliveries(pi, ctx, {
-            onError: (error) => reportDeliveryFailure(ctx, error),
-        });
+        reconcileQuestionDeliveries(pi, ctx, deliveryOptions(ctx));
+    });
 
+    // A settled run has appended every answer message it accepted, so the confirmed ones leave
+    // the outbox here instead of riding along in every snapshot until the next session start.
+    pi.on("agent_settled", (_event, ctx) => {
+        releaseDeliveredQuestions(ctx);
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
         // Drafts change without a manager event, so the final snapshot is written here.
         persist(ctx);
-        unsubscribeManager?.();
-        unsubscribeManager = undefined;
-        unsubscribeNotifications?.();
-        unsubscribeNotifications = undefined;
+        unsubscribe();
         dock.detach();
         questionManager.clearAll();
     });
@@ -125,9 +134,7 @@ export default function (pi: ExtensionAPI): void {
 
         // Reconciliation reads the branch that is active now, never the one being left:
         // branch A's undelivered answers must not be sent into branch B.
-        reconcileQuestionDeliveries(pi, ctx, {
-            onError: (error) => reportDeliveryFailure(ctx, error),
-        });
+        reconcileQuestionDeliveries(pi, ctx, deliveryOptions(ctx));
 
         dock.refresh();
     });
