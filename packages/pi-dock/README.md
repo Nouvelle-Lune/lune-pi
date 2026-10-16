@@ -29,7 +29,7 @@ Dock starts enabled with the `ruled` style. Lune Shell Inspector and Lune Ask Qu
 - **Brings Lune's signals together.** Shell Inspector shows job activity; Ask Question shows pending requests. Each module opens its existing panel directly.
 - **Gets you there from the keyboard.** Press Down in an empty editor, choose a module with Left/Right, and press Enter. Closing the panel returns focus to the dock.
 - **Keeps the session in view.** The model and thinking level sit beside the modules. The next row carries the working directory, branch, tokens, cache, cost and context use.
-- **Holds the numbers steady.** Usage counters occupy fixed-width slots, so changing values do not shuffle neighboring statistics.
+- **Holds the numbers steady.** Usage statistics sit on a fixed grid, so new or changing values never move a bar or a label, and the model lines up with the bars below it.
 - **Fits the space you have.** Narrow terminals shorten the directory and drop whole statistic slots. A crowded module row scrolls around your selection.
 - **Lets you choose the density.** Pick a style, adjust module detail, hide modules or change their order. Settings apply immediately and persist across sessions.
 

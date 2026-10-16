@@ -215,14 +215,19 @@ export function renderModelSegment(status: DockStatus, theme: Theme, width: numb
     return visibleWidth(withProvider) <= width ? withProvider : truncateToWidth(bare, width);
 }
 
-/** Right-aligned, so a growing number extends leftwards into its own padding and nothing else moves. */
-function field(text: string, width: number): string {
+/**
+ * Left-aligned, so a label stays one column after its bar and a growing number spends only the
+ * padding behind it.
+ */
+function padEnd(text: string, width: number): string {
     const gap = width - visibleWidth(text);
-    return gap >= 0 ? " ".repeat(gap) + text : truncateToWidth(text, width);
+    return gap >= 0 ? text + " ".repeat(gap) : truncateToWidth(text, width);
 }
 
-function value(theme: Theme, text: string, width: number): string {
-    return field(theme.fg("muted", text), width);
+/** Right-aligned, for the numerator of a fraction, so its slash never moves. */
+function padStart(text: string, width: number): string {
+    const gap = width - visibleWidth(text);
+    return gap >= 0 ? " ".repeat(gap) + text : truncateToWidth(text, width);
 }
 
 const CONTEXT_JOINER = " · ";
@@ -234,11 +239,11 @@ const CONTEXT_WIDTH = COUNT_WIDTH + 1 + COUNT_WIDTH + visibleWidth(CONTEXT_JOINE
  */
 export function renderContextCell(status: DockStatus, theme: Theme): string {
     const { tokens, percent, window } = status.context;
-    const used = field(tokens === null ? "?" : formatTokens(tokens), COUNT_WIDTH);
-    const share = field(percent === null ? "?" : formatPercent(percent), PERCENT_WIDTH);
+    const used = padStart(tokens === null ? "?" : formatTokens(tokens), COUNT_WIDTH);
+    const share = percent === null ? "?" : formatPercent(percent);
     return theme.fg(
         (percent ?? 0) > 90 ? "error" : (percent ?? 0) > 70 ? "warning" : "muted",
-        field(`${used}/${formatTokens(window)}${CONTEXT_JOINER}${share}`, CONTEXT_WIDTH),
+        padEnd(`${used}/${formatTokens(window)}${CONTEXT_JOINER}${share}`, CONTEXT_WIDTH),
     );
 }
 
@@ -247,61 +252,70 @@ interface StatSlot {
     keep: number;
     /** Columns reserved for the slot with every part present, whatever the values are. */
     width: number;
-    /** Nothing is drawn for a slot without data, and `render` leaves out any part that has none. */
+    /** A slot without data keeps its columns but draws neither its bar nor any text. */
     hasData(status: DockStatus): boolean;
     render(status: DockStatus, theme: Theme): string;
 }
 
-/** A counter that is still zero is left out, so a provider that never reports it shows no gap. */
+/**
+ * Each counter keeps its own columns, so one that is still zero is blank rather than absent and the
+ * counter after it never moves.
+ */
 function counters(theme: Theme, ...parts: [label: string, count: number][]): string {
     return parts
-        .filter(([, count]) => count > 0)
-        .map(
-            ([label, count]) =>
-                theme.fg("muted", label) + value(theme, formatTokens(count), COUNT_WIDTH),
+        .map(([label, count]) =>
+            padEnd(count > 0 ? theme.fg("muted", label + formatTokens(count)) : "", 1 + COUNT_WIDTH),
         )
         .join(" ");
+}
+
+/** A single counter with a slot to itself, drawn only once it is above zero. */
+function counterSlot(keep: number, label: string, count: (usage: DockUsage) => number): StatSlot {
+    return {
+        keep,
+        width: 1 + COUNT_WIDTH,
+        hasData: ({ usage }) => count(usage) > 0,
+        render: ({ usage }, theme) => theme.fg("muted", label + formatTokens(count(usage))),
+    };
 }
 
 /**
  * Which slots exist depends on the session, never on the numbers: auto-compaction is a setting
  * read once per session, so (auto) only claims its columns when it will be shown. Whether a slot
  * is drawn is a separate question, answered by `hasData`.
+ *
+ * Slots run from the one most likely to stay empty to the ones always drawn, which is also the order
+ * a narrow row drops them in, except that (auto) goes before context. Blank slots therefore gather
+ * on the left, where they read as part of the gap after the directory, not as a hole between numbers.
  */
 function statSlots(status: DockStatus): StatSlot[] {
-    const counterWidth = 2 * (1 + COUNT_WIDTH) + 1;
     const slots: StatSlot[] = [
+        // Cache writes come first: many providers never report them, and their slot then stays blank.
+        counterSlot(1, "W", (usage) => usage.cacheWrite),
+        counterSlot(2, "R", (usage) => usage.cacheRead),
         {
             keep: 3,
-            width: counterWidth,
-            hasData: ({ usage }) => usage.input > 0 || usage.output > 0,
-            render: ({ usage }, theme) => counters(theme, ["↑", usage.input], ["↓", usage.output]),
-        },
-        {
-            keep: 1,
-            width: counterWidth,
-            hasData: ({ usage }) => usage.cacheRead > 0 || usage.cacheWrite > 0,
-            render: ({ usage }, theme) =>
-                counters(theme, ["R", usage.cacheRead], ["W", usage.cacheWrite]),
-        },
-        {
-            keep: 2,
-            width: 2 + PERCENT_WIDTH,
+            width: 3 + PERCENT_WIDTH,
             // A provider that reports no cache traffic has no hit rate worth quoting.
             hasData: ({ usage }) =>
                 (usage.cacheRead > 0 || usage.cacheWrite > 0) && usage.cacheHitRate !== undefined,
             render: ({ usage }, theme) =>
-                theme.fg("muted", "CH") +
-                value(theme, formatPercent(usage.cacheHitRate ?? 0), PERCENT_WIDTH),
+                theme.fg("muted", `CH ${formatPercent(usage.cacheHitRate ?? 0)}`),
         },
         {
             keep: 4,
-            width: COST_WIDTH,
-            hasData: ({ usage }) => usage.cost > 0,
-            render: ({ usage }, theme) => value(theme, formatCost(usage.cost), COST_WIDTH),
+            width: 2 * (1 + COUNT_WIDTH) + 1,
+            hasData: ({ usage }) => usage.input > 0 || usage.output > 0,
+            render: ({ usage }, theme) => counters(theme, ["↑", usage.input], ["↓", usage.output]),
         },
         {
-            keep: 6,
+            keep: 5,
+            width: COST_WIDTH,
+            hasData: ({ usage }) => usage.cost > 0,
+            render: ({ usage }, theme) => theme.fg("muted", formatCost(usage.cost)),
+        },
+        {
+            keep: 7,
             width: CONTEXT_WIDTH,
             hasData: () => true,
             render: (current, theme) => renderContextCell(current, theme),
@@ -309,7 +323,7 @@ function statSlots(status: DockStatus): StatSlot[] {
     ];
     if (status.autoCompact) {
         slots.push({
-            keep: 5,
+            keep: 6,
             width: 6,
             hasData: () => true,
             render: (_current, theme) => theme.fg("accent", "(auto)"),
@@ -318,8 +332,9 @@ function statSlots(status: DockStatus): StatSlot[] {
     return slots;
 }
 
+/** Every slot spends one separator, before it: the first one divides the statistics from the directory. */
 function slotsWidth(slots: readonly StatSlot[]): number {
-    return slots.reduce((sum, slot) => sum + slot.width, 0) + SEPARATOR_WIDTH * (slots.length - 1);
+    return slots.reduce((sum, slot) => sum + SEPARATOR_WIDTH + slot.width, 0);
 }
 
 /**
@@ -357,10 +372,23 @@ export interface InfoRowParts {
  */
 const MIN_WORKSPACE_WIDTH = 40;
 
+function reserveSlots(status: DockStatus, width: number, workspace: boolean): StatSlot[] {
+    return fitSlots(statSlots(status), width - (workspace ? MIN_WORKSPACE_WIDTH : 0));
+}
+
 /**
- * Working directory and branch on the left, usage statistics right-aligned in reserved slots.
- * The slots reserved follow from the terminal width alone, and a slot with no data yet is simply
- * not drawn. Changing numbers only ever rewrite the padding inside their own slot.
+ * Where the info row draws the bar before each reserved slot, counted in columns from the right
+ * edge, leftmost first. The dock row puts the model on one of these so both rows share a bar.
+ */
+export function statColumns(status: DockStatus, width: number, workspace: boolean): number[] {
+    const slots = reserveSlots(status, width, workspace);
+    return slots.map((_slot, index) => slotsWidth(slots.slice(index)));
+}
+
+/**
+ * Working directory and branch on the left, usage statistics on a grid of reserved slots against
+ * the right edge. The grid follows from the terminal width alone and every slot keeps its columns
+ * whether or not it has data, so arriving or changing numbers never move a bar or a label.
  */
 export function renderInfoRow(
     status: DockStatus,
@@ -372,26 +400,27 @@ export function renderInfoRow(
     const session = status.sessionName ? ` • ${status.sessionName}` : "";
     const fixedWidth = visibleWidth(` ${FOLDER_ICON}  ${branch}${session}`);
 
-    const bar = parts.workspace ? theme.fg("dim", CELL_SEPARATOR) : "";
-    const budget = width - (parts.workspace ? MIN_WORKSPACE_WIDTH + visibleWidth(bar) : 0);
-    const reserved = parts.usage ? fitSlots(statSlots(status), budget) : [];
-    const slots = reserved.filter((slot) => slot.hasData(status));
-    // The right block is right-aligned, so a slot gaining data never moves the slots to its right;
-    // the directory is shortened against the full reservation so it does not move either.
-    const reservedWidth = reserved.length > 0 ? visibleWidth(bar) + slotsWidth(reserved) : 0;
+    const reserved = parts.usage ? reserveSlots(status, width, parts.workspace) : [];
+    const reservedWidth = slotsWidth(reserved);
+    const firstDrawn = reserved.findIndex((slot) => slot.hasData(status));
+    const grid = reserved
+        .map((slot, index) => {
+            if (!slot.hasData(status)) return " ".repeat(SEPARATOR_WIDTH + slot.width);
+            // With no directory beside it, the leftmost bar would divide the statistics from nothing.
+            const bar =
+                index === firstDrawn && !parts.workspace
+                    ? " ".repeat(SEPARATOR_WIDTH)
+                    : theme.fg("dim", CELL_SEPARATOR);
+            return bar + padEnd(slot.render(status, theme), slot.width);
+        })
+        .join("");
+    // Only the context slot is left once even it overflows; its blank leading columns give way first.
     const right =
-        slots.length > 0
-            ? truncateToWidth(
-                  bar +
-                      slots
-                          .map((slot) => slot.render(status, theme))
-                          .join(theme.fg("dim", CELL_SEPARATOR)),
-                  width,
-              )
-            : "";
+        firstDrawn < 0 ? "" : visibleWidth(grid) > width ? truncateToWidth(grid.trimStart(), width) : grid;
 
     let left = "";
     if (parts.workspace) {
+        // Shortened against the whole grid, not the drawn slots, so the directory does not move either.
         const cwd = shortenPath(status.cwd, width - reservedWidth - fixedWidth);
         left =
             ` ${theme.fg("muted", `${FOLDER_ICON}  ${cwd}`)}` +

@@ -31,6 +31,17 @@ function render(width: number, overrides: Partial<DockFooterInput> = {}): string
 
 const rule = (width: number) => "─".repeat(width);
 
+/** The terminal column of every bar, so a model that does not sit on a statistics bar shows as a missing column. */
+function barColumns(row: string): number[] {
+    const columns: number[] = [];
+    let column = 0;
+    for (const char of row) {
+        if (char === "│") columns.push(column);
+        column += visibleWidth(char);
+    }
+    return columns;
+}
+
 describe("dock footer", () => {
     it("rules off the dock row, the info row and the block", () => {
         const lines = render(80);
@@ -43,18 +54,54 @@ describe("dock footer", () => {
         assert.equal(lines[4], rule(80));
     });
 
-    it("right-aligns the model on the dock row to the full width", () => {
-        const [, dockRow] = render(80);
+    it("starts the model on a bar of the info row, so the two rows share it", () => {
+        // The model lands on the cost slot, whose bar is drawn once there is a cost.
+        const [, dockRow, , infoRow] = render(80, { status: createStatus({ usage: { cost: 0.12 } }) });
+
+        const modelBar = barColumns(dockRow!).at(-1)!;
 
         assert.equal(visibleWidth(dockRow!), 80);
-        assert.match(dockRow!, / │ claude-test • high$/);
+        assert.match(dockRow!, / │ claude-test • high +$/);
+        assert.ok(barColumns(infoRow!).includes(modelBar), `no info row bar at column ${modelBar}`);
+    });
+
+    it("takes the rightmost bar that leaves room for the whole model", () => {
+        const status = createStatus({ autoCompact: true });
+        const withProvider = createStatus({ autoCompact: true, showProvider: true });
+
+        const bare = barColumns(render(120, { status })[1]!).at(-1);
+        const named = barColumns(render(120, { status: withProvider })[1]!).at(-1);
+
+        // Context and (auto) span 29 columns, the cost 10 more; "claude-test • high" fits the first,
+        // and the provider moves it one bar left instead of being dropped.
+        assert.deepEqual([bare, named], [120 - 29 + 1, 120 - 39 + 1]);
+    });
+
+    it("keeps the model where it is as usage arrives", () => {
+        const fresh = render(120, { status: createStatus({ autoCompact: true }) })[1];
+        const used = render(120, {
+            status: createStatus({
+                autoCompact: true,
+                usage: { input: 1500, output: 20, cacheRead: 3000, cacheWrite: 400, cost: 0.12, cacheHitRate: 50 },
+            }),
+        })[1];
+
+        assert.equal(used, fresh);
+    });
+
+    it("drops the provider before it leaves the bars, once the named model fits no bar within half the row", () => {
+        // At 80 columns the widest bar within half the row spans 27 columns: the bare model fits, the named one does not.
+        const [, dockRow] = render(80, { status: createStatus({ showProvider: true }) });
+
+        assert.match(dockRow!, / │ claude-test • high +$/);
+        assert.doesNotMatch(dockRow!, /anthropic/);
     });
 
     it("names the provider only when Pi names it", () => {
         const withProvider = render(100, { status: createStatus({ showProvider: true }) })[1]!;
         const without = render(100, { status: createStatus({ showProvider: false }) })[1]!;
 
-        assert.match(withProvider, /\(anthropic\) claude-test • high$/);
+        assert.match(withProvider, /\(anthropic\) claude-test • high *$/);
         assert.doesNotMatch(without, /anthropic/);
     });
 
@@ -109,7 +156,7 @@ describe("dock footer", () => {
     it("keeps the info row when there is no model at all", () => {
         const lines = render(80, { entries: [], status: createStatus({ model: undefined }) });
 
-        assert.match(lines[1]!, /no-model$/);
+        assert.match(lines[1]!, /no-model *$/);
         assert.match(lines[3]!, /\/work\/project/);
     });
 
@@ -325,12 +372,13 @@ describe("dock footer styles", () => {
     describe("boxed", () => {
         it("frames every row in a rounded box exactly as wide as the terminal", () => {
             const lines = renderStyle("boxed", 80, {
-                status: createStatus({ extensionStatuses: ["alpha"] }),
+                status: createStatus({ extensionStatuses: ["alpha"], usage: { cost: 0.12 } }),
             });
 
             assert.equal(lines.length, 6);
             assert.match(lines[0]!, /^╭─+╮$/);
-            assert.match(lines[1]!, /^│ shells │ questions .* │ claude-test • high │$/);
+            assert.match(lines[1]!, /^│ shells │ questions .* │ claude-test • high +│$/);
+            assert.ok(barColumns(lines[3]!).includes(barColumns(lines[1]!).at(-2)!), "the model bar continues an info row bar");
             assert.match(lines[2]!, /^├─+┤$/);
             assert.match(lines[3]!, /^│ .*\/work\/project.* │$/);
             assert.match(lines[4]!, /^│ alpha +│$/);
@@ -406,10 +454,10 @@ describe("dock footer styles", () => {
 
     describe("compact", () => {
         it("draws the cells and the info row without any frame", () => {
-            const lines = renderStyle("compact", 80);
+            const lines = renderStyle("compact", 100);
 
             assert.equal(lines.length, 2);
-            assert.match(lines[0]!, /^ shells │ questions .* │ \(anthropic\) claude-test • high$/);
+            assert.match(lines[0]!, /^ shells │ questions .* │ \(anthropic\) claude-test • high *$/);
             assert.match(lines[1]!, /\/work\/project/);
             assert.doesNotMatch(lines.join("\n"), /[─╭╰├]/);
         });
@@ -534,11 +582,11 @@ describe("dock footer styles", () => {
             assert.deepEqual(
                 rows.map((row) => row.slice(-17)),
                 [
-                    " 25k/256k ·  9.9%",
+                    " 25k/256k · 9.9% ",
                     " 25k/256k · 12.3%",
-                    " 25k/256k ·  100%",
-                    " 25k/256k ·  100%",
-                    " 25k/256k ·     ?",
+                    " 25k/256k · 100% ",
+                    " 25k/256k · 100% ",
+                    " 25k/256k · ?    ",
                 ],
             );
         });
