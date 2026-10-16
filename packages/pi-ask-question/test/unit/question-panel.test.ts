@@ -23,6 +23,8 @@ const ENTER = "\r";
 const ESCAPE = "\x1b";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
+const LEFT = "\x1b[D";
+const RIGHT = "\x1b[C";
 const TAB = "\t";
 const SHIFT_TAB = "\x1b[Z";
 const SPACE = " ";
@@ -1078,6 +1080,113 @@ describe("question panel", () => {
                 /Which database should the service use\?/,
                 "the reader's own scroll position outranks following the editor",
             );
+        });
+    });
+
+    describe("tab keys in the answer editor", () => {
+        const FREE_FORM: AskQuestion[] = [{ question: "Name one?" }, { question: "Name two?" }];
+
+        it("leaves a free-form editor with Tab and Shift+Tab", () => {
+            const { panel, request } = createFixture(FREE_FORM);
+
+            panel.handleInput(TAB);
+            assert.equal(request.draft.currentIndex, 1);
+
+            panel.handleInput(SHIFT_TAB);
+            assert.equal(request.draft.currentIndex, 0);
+        });
+
+        it("wraps through the submit tab", () => {
+            const { panel, request } = createFixture(FREE_FORM);
+
+            panel.handleInput(TAB);
+            panel.handleInput(TAB);
+            assert.equal(request.draft.currentIndex, 2);
+
+            panel.handleInput(TAB);
+            assert.equal(request.draft.currentIndex, 0);
+        });
+
+        it("switches with Left and Right while the editor is empty", () => {
+            const { panel, request } = createFixture(FREE_FORM);
+
+            panel.handleInput(RIGHT);
+            assert.equal(request.draft.currentIndex, 1);
+
+            panel.handleInput(LEFT);
+            assert.equal(request.draft.currentIndex, 0);
+        });
+
+        it("moves the editor cursor with Left and Right while it holds text", () => {
+            const { panel, request } = createFixture(FREE_FORM);
+
+            type(panel, "ac");
+            panel.handleInput(LEFT);
+            type(panel, "b");
+            panel.handleInput(RIGHT);
+
+            assert.equal(request.draft.currentIndex, 0);
+
+            panel.handleInput(TAB);
+
+            assert.equal(request.draft.customDrafts[0], "abc");
+        });
+
+        it("keeps the typed draft across Tab and restores it in the editor", () => {
+            const { panel, request } = createFixture(FREE_FORM);
+
+            type(panel, "ab");
+            panel.handleInput(TAB);
+
+            assert.equal(request.draft.currentIndex, 1);
+            assert.equal(request.draft.customDrafts[0], "ab");
+
+            panel.handleInput(SHIFT_TAB);
+            type(panel, "c");
+            panel.handleInput(TAB);
+
+            assert.equal(request.draft.customDrafts[0], "abc");
+        });
+
+        it("leaves the editor opened on the custom row of an option question", () => {
+            const { panel, request } = createFixture([
+                { question: "First", options: [{ label: "A" }, { label: "B" }] },
+                { question: "Second", options: [{ label: "C" }, { label: "D" }] },
+            ]);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "mine");
+            panel.handleInput(TAB);
+
+            assert.equal(request.draft.currentIndex, 1);
+            assert.equal(request.draft.customDrafts[0], "mine");
+            assert.equal(renderText(panel).includes("Your answer:"), false);
+        });
+
+        it("leaves every key to the editor in a single-question request", () => {
+            const { panel, request, counts } = createFixture([{ question: "Name one?" }]);
+
+            panel.handleInput(TAB);
+            panel.handleInput(SHIFT_TAB);
+            panel.handleInput(RIGHT);
+            panel.handleInput(LEFT);
+
+            assert.equal(request.draft.currentIndex, 0);
+            assert.equal(counts.closed, 0);
+            assert.match(renderText(panel), /Your answer:/);
+        });
+
+        it("advertises Tab switch in the editor footer only for several questions", () => {
+            const several = createFixture(FREE_FORM);
+            const single = createFixture([{ question: "Name one?" }]);
+
+            const severalFooter = innerLines(several.panel).at(-1)!;
+            const singleFooter = innerLines(single.panel).at(-1)!;
+
+            assert.match(severalFooter, /Enter submit · Tab switch · Esc back to options/);
+            assert.match(singleFooter, /Enter submit · Esc back to options/);
+            assert.equal(singleFooter.includes("Tab switch"), false);
         });
     });
 

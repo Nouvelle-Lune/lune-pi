@@ -40,6 +40,8 @@
 
 - **Image paste in the answer editor.** pi's paste key (`Ctrl+V`, `Alt+V` on Windows and WSL) now works in the `Type something` editor as it does in pi's editor: an image is saved to a temporary file and pasted as its path, so the model can read it. A paste on the focused `Type something` row opens the editor first. The clipboard is read through pi-tui's native helper, so on Linux it needs an X11 display.
 
+- **Tab and the arrow keys leave a free-form question.** A question without options opens its editor by itself, and the editor took `Tab`, `⇧Tab`, `←` and `→`, so the other questions could only be reached after `Esc`. While the editor is open, `Tab` and `⇧Tab` now switch questions and keep the draft; `←` and `→` switch while the editor is empty and move the cursor once it holds text.
+
 ### Refactored
 
 - **Panel and delivery cleanup.** The renderer reads question state through the controller, answer notifications live in `question-delivery.ts`, and the row, label and text helpers are shared instead of repeated.
