@@ -41,7 +41,8 @@ pi
 | `Space` | Toggle the focused option in a multi-select question |
 | `1`–`9` | Pick an option by number |
 | `Tab`, `⇧Tab`, `←` `→` | Switch question tabs and the `✓ Submit` tab |
-| Any printable key except `⇧S` on `Type something` | Open the answer editor with that key |
+| Any printable key except `⇧S`, or a paste, on `Type something` | Open the answer editor with that key or paste |
+| `Ctrl+V` in the editor (`Alt+V` on Windows and WSL) | Paste from the clipboard as in pi's editor: an image becomes the path of a temporary file, copied files become their paths, and other content is pasted as text |
 | `Enter` in the editor | Submit the written answer |
 | `Esc` in the editor | Back to the options, keeping the draft |
 | `Esc` | Close the panel and leave the request pending |
