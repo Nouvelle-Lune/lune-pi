@@ -605,9 +605,8 @@ class ToolCard implements Component {
         const context = this.context;
         const inner = Math.max(1, width - 3);
         if (this.composite) {
-            const statuses = (this.calls().length ? this.calls() : [{ status }]).map(
-                (call) => call.status,
-            );
+            // Only nested calls count; the parent's own status still sets the heading mark.
+            const statuses = this.calls().map((call) => call.status);
             return open
                 ? framedRow(
                       theme,
