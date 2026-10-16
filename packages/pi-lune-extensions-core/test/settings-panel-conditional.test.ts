@@ -26,6 +26,8 @@ const keys = {
     escape: "\x1b",
     up: "\x1b[A",
     down: "\x1b[B",
+    left: "\x1b[D",
+    right: "\x1b[C",
     scope: "\x07",
     reset: "\x12",
     space: " ",
@@ -573,6 +575,16 @@ describe("custom editors in the panel", () => {
         await ui.settled();
         assert.deepEqual(sets, []);
         assert.equal(ui.title(), "Custom · global");
+    });
+
+    test("forwards Left and Right to the open editor", (t) => {
+        const editor = probeEditor();
+        const { ui } = open(t, [{ id: "Custom", customEditor: editor.customEditor }]);
+        ui.press(keys.enter);
+        ui.press(keys.left, keys.right);
+        assert.deepEqual(editor.last().inputs, [keys.left, keys.right]);
+        assert.equal(ui.title(), "Custom · global");
+        assert.match(ui.text(), /EDITOR BODY/);
     });
 
     test("Escape closes without saving, disposes once and returns to the list", (t) => {

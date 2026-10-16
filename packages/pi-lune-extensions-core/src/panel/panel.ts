@@ -545,6 +545,7 @@ class SettingsPanel implements Component, Focusable {
      * Route input to exactly one mode; persistence suppresses further actions.
      * Ctrl+G changes persistence scope only in navigation. Inside a selector, Tab
      * changes its candidate range and Ctrl+R refreshes discovery rather than reset.
+     * Left/Right switch sections only in navigation; open inputs and editors keep them.
      */
     handleInput(data: string): void {
         // Key-release events would otherwise repeat the action on terminals that report them.
@@ -577,9 +578,11 @@ class SettingsPanel implements Component, Focusable {
                 this.error = "";
                 this.updatePreview();
             }
-        } else if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+        } else if (
+            (["tab", "shift+tab", "left", "right"] as const).some((key) => matchesKey(data, key))
+        ) {
             if (this.sections.length) {
-                const delta = matchesKey(data, "shift+tab") ? -1 : 1;
+                const delta = matchesKey(data, "shift+tab") || matchesKey(data, "left") ? -1 : 1;
                 this.activeSection =
                     (this.activeSection + delta + this.sections.length) % this.sections.length;
                 this.list = undefined;
@@ -732,8 +735,8 @@ class SettingsPanel implements Component, Focusable {
                           : this.input
                             ? "Enter save · Ctrl+S save/reload · Esc back"
                             : this.section?.unavailable !== undefined
-                              ? "Tab section · Ctrl+S retry · Esc close"
-                              : "↑↓ select · Enter change · Tab section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · Esc close"),
+                              ? "Tab/←→ section · Ctrl+S retry · Esc close"
+                              : "↑↓ select · Enter change · Tab/←→ section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · Esc close"),
             ),
             rule,
         ].map((line) => truncateToWidth(line, width));

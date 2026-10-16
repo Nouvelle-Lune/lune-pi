@@ -125,9 +125,11 @@ Equal labels are ordered by section ID using the same comparison. Membership cha
 reapply this order while preserving the selected section if it remains registered.
 The registry itself still returns registration order.
 
-- Main list: Tab/Shift+Tab switch sections; Ctrl+G switches global/project;
+- Main list: Tab/Shift+Tab or Right/Left switch sections; Ctrl+G switches global/project;
   Ctrl+R resets the selected override; Ctrl+S reloads the active section (or retries one that failed to load).
 - Editor: Enter saves; Ctrl+S saves and then reloads; Escape discards the candidate.
+  Text inputs, choice lists and custom editors keep Left/Right, so arrows do not switch
+  sections while one is open.
 - Choice list: type to search; Tab switches candidate ranges; Ctrl+R explicitly refreshes
   supported sources; Space toggles multiple selections.
 - Preview choices render unsaved candidates; persistence occurs only on confirmation.
