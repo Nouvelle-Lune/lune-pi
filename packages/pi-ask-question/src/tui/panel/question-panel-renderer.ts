@@ -266,7 +266,7 @@ export class QuestionPanelRenderer {
         if (inputMode) {
             // Shift+S belongs to the editor while it owns the keys, so the footer must not
             // advertise skip here; Esc leaves the editor and skips from the options.
-            hints = "Enter submit · Esc back to options";
+            hints = `Enter submit${this.view.isMultiQuestion ? " · Tab switch" : ""} · Esc back to options`;
         } else if (this.view.isSubmitTab) {
             hints = `${this.view.isMultiQuestion ? "Tab/←→ switch · " : ""}Enter submit · ⇧S skip · Esc close`;
         } else if (question?.multiSelect === true) {

@@ -299,6 +299,14 @@ export class QuestionPanel implements Component, Focusable {
                 return;
             }
 
+            const step = this.editorTabStep(data);
+
+            if (step !== 0) {
+                this.leaveEditorForTab();
+                this.moveTab(step);
+                return;
+            }
+
             this.editor.handleInput(data);
             this.requestRender();
             return;
@@ -532,7 +540,36 @@ export class QuestionPanel implements Component, Focusable {
         return { handled: true, focus: true };
     }
 
-    /** Moving away by mouse must keep what was typed, as `Esc` does. */
+    /**
+     * Tab step while the editor owns the keys. A free-form question opens its editor by itself,
+     * so without this the tabs could not be left by key. Tab has no other use in this editor,
+     * while the arrows move its cursor and only switch while there is no text to move through.
+     */
+    private editorTabStep(data: string): number {
+        if (!this.controller.isMultiQuestion) {
+            return 0;
+        }
+
+        if (matchesKey(data, Key.tab)) {
+            return 1;
+        }
+
+        if (matchesKey(data, Key.shift("tab"))) {
+            return -1;
+        }
+
+        if (this.editor.getText().length > 0) {
+            return 0;
+        }
+
+        if (matchesKey(data, Key.right)) {
+            return 1;
+        }
+
+        return matchesKey(data, Key.left) ? -1 : 0;
+    }
+
+    /** Moving away from the editor must keep what was typed, as `Esc` does. */
     private leaveEditorForTab(): void {
         if (this.inputMode) {
             this.captureEditorDraft();
