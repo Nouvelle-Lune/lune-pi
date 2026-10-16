@@ -1,0 +1,35 @@
+{
+    "name": "lune-pi",
+    "private": true,
+    "description": "The Lune family of Pi extensions",
+    "type": "module",
+    "workspaces": [
+        "packages/pi-lune-extensions-core",
+        "packages/pi-core-theme",
+        "packages/pi-dock",
+        "packages/pi-ask-question",
+        "packages/pi-shell-inspector",
+        "packages/pi-compaction",
+        "packages/pi-recap"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "packageManager": "npm@11.6.2",
+    "scripts": {
+        "build": "npm run build --workspace=@lune_99/pi-lune-extensions-core && npm run build --workspace=@lune_99/pi-recap",
+        "typecheck": "npm run build && npm run typecheck --workspaces",
+        "test": "npm run build && npm test --workspaces",
+        "pack:check": "npm pack --workspaces --dry-run --ignore-scripts",
+        "check": "npm run typecheck && npm test && npm run pack:check",
+        "docs:previews": "node tools/make-readme-previews.mjs"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Nouvelle-Lune/lune-pi.git"
+    },
+    "license": "MIT",
+    "devDependencies": {
+        "@xterm/headless": "6.0.0"
+    }
+}

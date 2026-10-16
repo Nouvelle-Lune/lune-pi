@@ -1,0 +1,124 @@
+import Type from "typebox";
+
+import {
+    createLocalBashOperations,
+    type AgentToolResult,
+    type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+
+import { shellManager } from "../shell/shell-manager.ts";
+
+export const backgroundStartOutputSchema = Type.Object({
+    background: Type.Literal(true),
+    shell_job_id: Type.String(),
+    command: Type.String(),
+});
+
+// pi's own local execution backend, so a background shell behaves like a built-in bash call
+// (shell config, process-tree kill on abort/timeout) without pi's output sanitizing.
+const backgroundOps = createLocalBashOperations();
+
+/**
+ * Start a managed background shell and return before the command finishes.
+ *
+ * The tool call answers immediately; the detached execution below appends output to the job and
+ * settles it once the process ends - completed only on exit code 0, failed with the code and reason
+ * on any other exit - or the execution itself fails.
+ */
+export function startBackgroundShell(input: {
+    toolCallId: string;
+    command: string;
+    label?: string;
+    timeout?: number;
+    ctx: ExtensionContext;
+}): AgentToolResult {
+    const { toolCallId, command, ctx, timeout } = input;
+
+    // The job owns this controller so a kill can abort the running process tree.
+    const controller = new AbortController();
+
+    shellManager.startJob({
+        id: toolCallId,
+        command,
+        label: normalizeLabel(input.label),
+        cwd: ctx.cwd,
+        controller: controller,
+    });
+
+    void backgroundOps
+        .exec(command, ctx.cwd, {
+            signal: controller.signal,
+            timeout,
+
+            onData(data) {
+                // prevent appending output after the shutdown kills the job
+                if (shellManager.getJob(toolCallId)?.status !== "running") {
+                    return;
+                }
+                // Retention (bounded tail plus the full-output file) is enforced by appendOutput.
+                shellManager.appendOutput(toolCallId, data.toString("utf8"));
+            },
+        })
+        .then(({ exitCode }) => {
+            if (exitCode === 0) {
+                shellManager.settleJob(toolCallId, {
+                    type: "completed",
+                    exitCode: exitCode ?? undefined,
+                });
+                return;
+            }
+            const errorMessage = `Background shell exited with code ${exitCode ?? "unknown"}`;
+            shellManager.settleJob(toolCallId, {
+                type: "failed",
+                exitCode: exitCode ?? undefined,
+                error: errorMessage,
+            });
+            return;
+        })
+        .catch((error: Error) => {
+            // An aborted signal means the job was killed (session teardown or an explicit kill);
+            // any other error (timeout, missing cwd, spawn failure) is an execution failure.
+            // settleJob is idempotent, so a job that was already settled or cleared is ignored.
+            if (controller.signal.aborted) {
+                shellManager.settleJob(toolCallId, {
+                    type: "killed",
+                    error: error.message,
+                });
+                return;
+            }
+
+            shellManager.settleJob(toolCallId, {
+                type: "failed",
+                error: error.message,
+            });
+        });
+
+    return {
+        content: [
+            {
+                type: "text" as const,
+                text: `Background shell started with ID ${toolCallId}: ${command}`,
+            },
+        ],
+        details: {
+            shellJobId: toolCallId,
+            background: true,
+        },
+        structuredContent: {
+            background: true,
+            shell_job_id: toolCallId,
+            command,
+        },
+    };
+}
+
+/** Strict JSON-schema providers can send `null` for an optional param, so nothing is assumed. */
+function normalizeLabel(label: unknown): string | undefined {
+    if (typeof label !== "string") {
+        return undefined;
+    }
+
+    const trimmed = label.trim();
+
+    return trimmed.length > 0 ? trimmed : undefined;
+}

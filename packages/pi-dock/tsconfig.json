@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "lib": ["ES2023"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "types": ["node"],
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "skipLibCheck": true,
+        "allowJs": true,
+        "checkJs": true,
+        "noEmit": true
+    },
+    "include": ["src/**/*.ts", "test/**/*.ts"]
+}

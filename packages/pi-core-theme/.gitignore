@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+.DS_Store
+npm-debug.log*
+*.tgz
+
+# .scratch
+.scratch/
+
+# zed
+.zed/
+
+# claude code
+.claude/

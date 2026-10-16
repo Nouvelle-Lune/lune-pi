@@ -1,0 +1,62 @@
+{
+    "name": "@lune_99/pi-compaction",
+    "version": "0.1.0",
+    "description": "Model-selectable native Pi compaction with classifier-reviewed tool history",
+    "type": "module",
+    "files": [
+        "src",
+        "docs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ],
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "node --experimental-strip-types --test 'test/**/*.test.ts'",
+        "prepublishOnly": "npm run typecheck && npm test",
+        "docs:images": "node --experimental-strip-types tools/make-doc-images.mjs"
+    },
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "keywords": [
+        "pi-package",
+        "pi",
+        "pi-coding-agent"
+    ],
+    "license": "MIT",
+    "author": "Nouvelle-Lune",
+    "peerDependencies": {
+        "@earendil-works/pi-agent-core": ">=1.0.4",
+        "@earendil-works/pi-ai": ">=1.0.4",
+        "@earendil-works/pi-coding-agent": ">=1.0.4"
+    },
+    "devDependencies": {
+        "@earendil-works/pi-agent-core": "1.3.0",
+        "@earendil-works/pi-ai": "1.3.0",
+        "@earendil-works/pi-coding-agent": "1.3.0",
+        "@types/node": "^22.20.2",
+        "typescript": "5.9.3"
+    },
+    "dependencies": {
+        "@lune_99/pi-lune-extensions-core": "^0.1.0"
+    },
+    "pi": {
+        "extensions": [
+            "./src/extension.ts"
+        ],
+        "image": "./docs/compaction-settings.png"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Nouvelle-Lune/lune-pi.git",
+        "directory": "packages/pi-compaction"
+    },
+    "homepage": "https://github.com/Nouvelle-Lune/lune-pi/tree/main/packages/pi-compaction#readme",
+    "bugs": {
+        "url": "https://github.com/Nouvelle-Lune/lune-pi/issues"
+    }
+}

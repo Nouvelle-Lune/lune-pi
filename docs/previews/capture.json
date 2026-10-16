@@ -1,0 +1,188 @@
+{
+  "method": "Native Ghostty window: PNG via macOS screencapture, MP4 via ScreenCaptureKit",
+  "model": "Scripted offline provider; real Pi agent loop and plugin runtimes",
+  "terminal": {
+    "columns": 131,
+    "rows": 45,
+    "font": "Menlo",
+    "fontSize": 12
+  },
+  "themes": [
+    "pi-core-dark",
+    "pi-core-light",
+    "pi-core-aurora",
+    "pi-core-eclipse",
+    "pi-core-nebula",
+    "pi-core-dawn",
+    "pi-core-mist"
+  ],
+  "sources": {
+    "pi-lune-extensions-core": {
+      "version": "0.1.0",
+      "entrySha256": "3a4c791b6958cb5f32ad0b9409944d239045d4a3439c106d6da10ff22cef9435"
+    },
+    "pi-core-theme": {
+      "version": "0.1.0",
+      "entrySha256": "30c3353cdf56cc0950b35fcf4eb6eb3d553b5912d203e0bae76c2cb5216aad98"
+    },
+    "pi-dock": {
+      "version": "0.1.0",
+      "entrySha256": "cf3fb79659a51e4a60f415e98fcfb6c67cbb7952bc55ce46e9d5addb50c02808"
+    },
+    "pi-ask-question": {
+      "version": "0.1.0",
+      "entrySha256": "f90e997d4bd19da00dcce24e34efce219cc152c89ceb4c4f9368a8ebb2f58af1"
+    },
+    "pi-shell-inspector": {
+      "version": "1.2.0",
+      "entrySha256": "42a9cfbb3b70db44149e195f90fbe8449fa3d2f2ede3cda09fe94ee1feaf84af"
+    },
+    "pi-compaction": {
+      "version": "0.1.0",
+      "entrySha256": "abdb0315a49e799dd882bb778303e807f51c44004b8db717e146aff917c2f5ef"
+    },
+    "pi-recap": {
+      "version": "0.1.0",
+      "entrySha256": "54ca3bbc131809c06962e645093bc865dafa949443d33cba8945a4a5bdfbb416"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "startup.png",
+      "time": 0.49
+    },
+    {
+      "path": "workspace-dark.png",
+      "time": 3.702
+    },
+    {
+      "path": "tools-expanded.png",
+      "time": 4.857
+    },
+    {
+      "path": "ask-question.png",
+      "time": 7.882
+    },
+    {
+      "path": "ask-question-alternative.png",
+      "time": 9.186
+    },
+    {
+      "path": "ask-question-next.png",
+      "time": 10.463
+    },
+    {
+      "path": "ask-question-submit.png",
+      "time": 11.566
+    },
+    {
+      "path": "question-answered.png",
+      "time": 12.57
+    },
+    {
+      "path": "dock-focus.png",
+      "time": 15.344
+    },
+    {
+      "path": "shell-inspector.png",
+      "time": 16.55
+    },
+    {
+      "path": "shell-inspector-next.png",
+      "time": 17.8
+    },
+    {
+      "path": "shell-inspector-scroll.png",
+      "time": 18.806
+    },
+    {
+      "path": "theme-settings.png",
+      "time": 26.345
+    },
+    {
+      "path": "dock-styles.png",
+      "time": 28.383
+    },
+    {
+      "path": "compaction.png",
+      "time": 30.419
+    },
+    {
+      "path": "recap-settings.png",
+      "time": 32.454
+    },
+    {
+      "path": "recap.png",
+      "time": 36.797
+    },
+    {
+      "path": "compaction-result.png",
+      "time": 38.715
+    }
+  ],
+  "paletteCaptures": {
+    "pi-core-dark": {
+      "path": "pi-core-dark.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-light": {
+      "path": "pi-core-light.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-aurora": {
+      "path": "pi-core-aurora.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-eclipse": {
+      "path": "pi-core-eclipse.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-nebula": {
+      "path": "pi-core-nebula.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-dawn": {
+      "path": "pi-core-dawn.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    },
+    "pi-core-mist": {
+      "path": "pi-core-mist.png",
+      "terminal": {
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+      }
+    }
+  }
+}

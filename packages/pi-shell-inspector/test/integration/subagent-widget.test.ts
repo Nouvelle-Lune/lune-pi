@@ -1,0 +1,311 @@
+/**
+ * Coexistence of the shell dock with the widgets pi-subagents mounts.
+ *
+ * pi keeps one widget per key in two placement buckets (`setExtensionWidget`), so extensions cannot
+ * overwrite each other - but they share the below-editor area, and re-setting a key removes and
+ * re-inserts it. pi-subagents registers `subagent-fleet-status` and `subagent-async` there while
+ * subagent runs exist; this file asserts that the shell dock survives that and stays independent:
+ * it only ever touches its own key, keeps rendering while another extension's widgets are mounted,
+ * and clearing it (no jobs left, session shutdown) removes nothing but itself.
+ *
+ * The dock is fed the way the extension feeds it in practice: background `bash` calls
+ * (`mode: "background"`) create the jobs. The fake UI models pi's registry, so these assertions
+ * describe what the extension asks pi to mount. Whether the composed area then *looks* right is a
+ * TUI question, observed through `test/tui` and the subagent scenario documented in
+ * `test/tui/README.md`.
+ */
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it } from "node:test";
+
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
+
+import { shellDock } from "../../src/shell/shell-dock.ts";
+import { shellManager } from "../../src/shell/shell-manager.ts";
+import {
+    createFakeUi,
+    createFakeContext,
+    createTempWorkDir,
+    openSession,
+    removeTempWorkDir,
+    startBackgroundBashCommand,
+    waitForJobSettled,
+    type ExtensionSession,
+    type FakeExtensionUi,
+    type WidgetContent,
+} from "../harness.ts";
+
+/** Widget key of the shell dock. */
+const SH_DOCK_KEY = "pi-shell-inspector";
+
+/** Widget keys pi-subagents uses for the async job list and the inline fleet surface. */
+const SUBAGENT_ASYNC_KEY = "subagent-async";
+const SUBAGENT_FLEET_KEY = "subagent-fleet-status";
+
+/** Start a shell job directly in the manager, the way the background runner does. */
+function startJob(id: string, command: string, cwd: string): void {
+    shellManager.startJob({ id, command, cwd, controller: new AbortController() });
+}
+
+/** One mounted pi-subagents widget: the real ones are component factories, not line arrays. */
+function subagentWidget(label: string): WidgetContent {
+    return () => ({
+        render: (): string[] => [`  ▸ ${label}`],
+        invalidate: (): void => {},
+    });
+}
+
+/** The dock line currently mounted below the editor, or undefined when it is not mounted. */
+function dockLine(ui: FakeExtensionUi): readonly string[] | undefined {
+    const content = ui.mountedWidget("belowEditor", SH_DOCK_KEY);
+    if (content === undefined) {
+        return undefined;
+    }
+    assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
+    return content;
+}
+
+/**
+ * Text of the single dock line mounted below the editor, or undefined when none is mounted.
+ *
+ * The summary embeds wall-clock elapsed seconds, so tests match the line as a pattern instead of
+ * pinning a value that depends on how fast the command ran.
+ */
+function dockText(ui: FakeExtensionUi): string | undefined {
+    const content = dockLine(ui);
+    assert.ok(content === undefined || content.length === 1, "the dock must stay a single line");
+    return content?.[0];
+}
+
+/** Every widget key touched by the extension, i.e. every call after the test's own mounts. */
+function keysTouchedSince(ui: FakeExtensionUi, index: number): Set<string> {
+    return new Set(ui.widgetCalls.slice(index).map((call) => call.key));
+}
+
+describe("shell dock next to pi-subagents widgets", () => {
+    beforeEach(() => {
+        shellManager.clearAllJobs();
+    });
+
+    afterEach(() => {
+        shellManager.clearAllJobs();
+    });
+
+    it("mounts the dock below the editor without disturbing the subagent widgets", async () => {
+        const workDir = createTempWorkDir("subagent-dock");
+        const session = await openSession(workDir);
+        try {
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            const asyncWidget = subagentWidget("async run · probe");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+            session.ui.setWidget(SUBAGENT_ASYNC_KEY, asyncWidget, { placement: "belowEditor" });
+            const extensionCallBaseline = session.ui.widgetCalls.length;
+
+            const { jobId } = await startBackgroundBashCommand(session.tool, {
+                command: "sleep 0.5; printf 'done\\n'",
+                ctx: session.ctx,
+                toolCallId: "call-with-subagent",
+            });
+            await waitForJobSettled(jobId);
+
+            assert.match(dockText(session.ui) ?? "", /^1 shell completed in \d+s · \/shell to open$/, "the settled job must show in the dock");
+
+            assert.equal(
+                session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY),
+                fleetWidget,
+                "the fleet widget must still be the exact object pi-subagents mounted",
+            );
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_ASYNC_KEY), asyncWidget, "the async widget must survive the dock render");
+            assert.deepEqual(
+                keysTouchedSince(session.ui, extensionCallBaseline),
+                new Set([SH_DOCK_KEY]),
+                "the dock must only ever touch its own key",
+            );
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("keeps the dock rendered and updated across the whole command", async () => {
+        // Contract: a background command appends many chunks, so the dock is re-mounted repeatedly.
+        // Every re-mount must target the dock key only, and the subagent widgets must survive all of
+        // them.
+        const workDir = createTempWorkDir("subagent-stream");
+        const session = await openSession(workDir);
+        try {
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+            const extensionCallBaseline = session.ui.widgetCalls.length;
+
+            const { jobId } = await startBackgroundBashCommand(session.tool, {
+                command: "for n in 1 2 3 4 5; do printf 'line %s\\n' \"$n\"; sleep 0.2; done",
+                ctx: session.ctx,
+                toolCallId: "call-stream-with-subagent",
+            });
+            const settled = await waitForJobSettled(jobId);
+
+            assert.equal(settled.output.content, "line 1\nline 2\nline 3\nline 4\nline 5\n", "the job must keep every streamed line");
+            assert.ok(
+                session.ui.widgetCalls.length - extensionCallBaseline > 2,
+                `expected more than 2 re-renders after streaming, got ${session.ui.widgetCalls.length - extensionCallBaseline}`,
+            );
+            assert.equal(
+                session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY),
+                fleetWidget,
+                "no shell update may replace the fleet widget",
+            );
+            assert.deepEqual(keysTouchedSince(session.ui, extensionCallBaseline), new Set([SH_DOCK_KEY]), "every re-render must target the dock key only");
+            assert.match(dockText(session.ui) ?? "", /^1 shell completed in \d+s · \/shell to open$/, "the dock must end on the completed summary");
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("keeps the dock to one line so the shared below-editor area stays bounded", async () => {
+        // Contract: pi caps an array widget at 10 lines, and below the editor that budget is shared
+        // with whatever pi-subagents draws; the dock must stay a single line no matter how many jobs
+        // are tracked.
+        const workDir = createTempWorkDir("subagent-one-line");
+        const session = await openSession(workDir);
+        try {
+            for (let index = 0; index < 12; index += 1) {
+                startJob(`job-${index}`, `sleep ${index}`, workDir);
+            }
+
+            const content = session.ui.mountedWidget("belowEditor", SH_DOCK_KEY);
+            assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
+            assert.equal(content.length, 1, "the dock must render exactly one line");
+            assert.match(content[0] ?? "", /^12 shells · 12 running · \/shell to open$/, "the summary must count every tracked shell");
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("re-inserts the dock at the end of the below-editor area on every render", async () => {
+        // Contract: pi removes and re-inserts a widget key on every setWidget, so the widget that was
+        // updated last is drawn last. A dock update therefore moves the shell line below any widget
+        // pi-subagents mounted before it; this is pi's ordering rule, and the dock must not try to
+        // work around it (for example by touching a neighbour) - the fleet line follows the same rule.
+        const workDir = createTempWorkDir("subagent-order");
+        const session = await openSession(workDir);
+        try {
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+
+            startJob("job-1", "sleep 30", workDir);
+            assert.deepEqual(session.ui.mountedKeys("belowEditor"), [SUBAGENT_FLEET_KEY, SH_DOCK_KEY], "the dock mount must follow the fleet widget");
+
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+            assert.deepEqual(session.ui.mountedKeys("belowEditor"), [SH_DOCK_KEY, SUBAGENT_FLEET_KEY], "the fleet refresh moved it after the dock");
+
+            shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+            assert.deepEqual(
+                session.ui.mountedKeys("belowEditor"),
+                [SUBAGENT_FLEET_KEY, SH_DOCK_KEY],
+                "the dock render must move the shell line back to the end",
+            );
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "the ordering rule must not disturb the fleet widget");
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("removes only the dock when the job list empties", async () => {
+        // Contract: with no jobs the dock clears its own key; widgets another extension owns stay
+        // mounted so subagent progress keeps showing.
+        const workDir = createTempWorkDir("subagent-clear");
+        const session = await openSession(workDir);
+        try {
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+
+            startJob("job-1", "sleep 30", workDir);
+            assert.ok(dockLine(session.ui), "the dock must be mounted while a job exists");
+
+            shellManager.clearAllJobs();
+
+            assert.equal(dockLine(session.ui), undefined, "the dock must be gone");
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "clearing the shells must not remove the fleet widget");
+
+            shellDock.render();
+            assert.equal(dockLine(session.ui), undefined, "rendering an empty job list must keep the dock cleared");
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "an empty render must not remove the fleet widget");
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("removes only the dock on session shutdown", async () => {
+        const workDir = createTempWorkDir("subagent-shutdown");
+        const session = await openSession(workDir);
+        try {
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+            startJob("job-1", "sleep 30", workDir);
+            assert.ok(dockLine(session.ui), "the dock must be mounted before shutdown");
+            const extensionCallBaseline = session.ui.widgetCalls.length;
+
+            await session.host.emit("session_shutdown", session.ctx);
+
+            assert.equal(dockLine(session.ui), undefined, "shutdown must clear the dock");
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "shutdown must not remove the fleet widget");
+            assert.deepEqual(keysTouchedSince(session.ui, extensionCallBaseline), new Set([SH_DOCK_KEY]), "shutdown must touch the dock key only");
+        } finally {
+            removeTempWorkDir(workDir);
+        }
+    });
+
+    it("leaves every widget alone when the session has no UI", async () => {
+        // Contract: the dock returns early without a UI, so a print-mode session (or an RPC context
+        // that has no widget surface) cannot drop the subagent widgets.
+        const ui = createFakeUi();
+        const fleetWidget = subagentWidget("subagent fleet · 1 running");
+        ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+        const ctx = createFakeContext("/work", { ui, hasUI: false });
+
+        shellDock.setCtx(ctx);
+        shellDock.render();
+        shellDock.clear();
+
+        assert.deepEqual(ui.widgetCalls.map((call) => call.key), [SUBAGENT_FLEET_KEY], "only the test's own mount may be recorded");
+        assert.equal(ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "a UI-less session must leave every widget alone");
+    });
+
+    it("survives a subagent widget being mounted while the command runs", async () => {
+        // Contract: pi-subagents mounts its widget when a subagent starts mid-command. The dock's next
+        // render must keep both widgets mounted, so the shell line is never sacrificed to the subagent
+        // surface (or the other way round).
+        const workDir = createTempWorkDir("subagent-mid-command");
+        const session = await openSession(workDir);
+        try {
+            const { jobId } = await startBackgroundBashCommand(session.tool, {
+                command: "for n in 1 2 3 4; do echo x; sleep 0.25; done",
+                ctx: session.ctx,
+                toolCallId: "call-subagent-starts",
+            });
+
+            assert.match(
+                stripTerminalSequences(dockText(session.ui) ?? ""),
+                /^1 running shell · for n in 1 2 3 4; d… · \d+s · \/shell to open$/,
+                "the running dock must show the truncated command",
+            );
+
+            const fleetWidget = subagentWidget("subagent fleet · 1 running");
+            session.ui.setWidget(SUBAGENT_FLEET_KEY, fleetWidget, { placement: "belowEditor" });
+            const extensionCallBaseline = session.ui.widgetCalls.length;
+
+            await waitForJobSettled(jobId);
+
+            assert.equal(session.ui.mountedWidget("belowEditor", SUBAGENT_FLEET_KEY), fleetWidget, "the mid-command mount must survive the settle");
+            assert.match(dockText(session.ui) ?? "", /^1 shell completed in \d+s · \/shell to open$/, "the dock must switch to the completed summary");
+            assert.deepEqual(keysTouchedSince(session.ui, extensionCallBaseline), new Set([SH_DOCK_KEY]), "the settle must re-render the dock key only");
+        } finally {
+            await session.host.emit("session_shutdown", session.ctx);
+            removeTempWorkDir(workDir);
+        }
+    });
+});

@@ -1,0 +1,76 @@
+{
+    "name": "@lune_99/pi-shell-inspector",
+    "version": "0.1.0",
+    "description": "Shell dock and /shell inspector for pi's background bash jobs",
+    "type": "module",
+    "files": [
+        "src",
+        "assets",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ],
+    "pi": {
+        "extensions": [
+            "./src/index.ts"
+        ],
+        "image": "./assets/preview.png"
+    },
+    "scripts": {
+        "test": "node --experimental-strip-types --test 'test/**/*.test.ts'",
+        "typecheck": "tsc --noEmit",
+        "tui:demo": "node --experimental-strip-types test/tui/launch.ts"
+    },
+    "keywords": [
+        "pi-package",
+        "pi",
+        "pi-coding-agent",
+        "shell",
+        "bash",
+        "background-shell",
+        "terminal",
+        "tui"
+    ],
+    "author": "Nouvelle-Lune",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Nouvelle-Lune/lune-pi.git",
+        "directory": "packages/pi-shell-inspector"
+    },
+    "homepage": "https://github.com/Nouvelle-Lune/lune-pi/tree/main/packages/pi-shell-inspector#readme",
+    "bugs": {
+        "url": "https://github.com/Nouvelle-Lune/lune-pi/issues"
+    },
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dependencies": {
+        "@lune_99/pi-lune-extensions-core": "^0.1.0",
+        "@xterm/headless": "^6.0.0"
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-coding-agent": ">=1.0.0",
+        "@earendil-works/pi-tui": ">=1.0.0",
+        "typebox": "*"
+    },
+    "peerDependenciesMeta": {
+        "@earendil-works/pi-coding-agent": {
+            "optional": true
+        },
+        "@earendil-works/pi-tui": {
+            "optional": true
+        },
+        "typebox": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@earendil-works/pi-ai": "1.3.0",
+        "@earendil-works/pi-coding-agent": "1.3.0",
+        "@earendil-works/pi-tui": "1.3.0",
+        "@types/node": "^22.20.2",
+        "typebox": "1.3.27",
+        "typescript": "5.9.3"
+    }
+}

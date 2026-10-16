@@ -1,0 +1,5 @@
+docs/design.md
+test/
+artifacts/
+.DS_Store
+.zed/

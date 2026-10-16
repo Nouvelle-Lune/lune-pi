@@ -1,0 +1,11 @@
+node_modules/
+docs/*
+!docs/compaction-settings.svg
+!docs/compaction-settings.png
+!docs/compaction-review.svg
+!docs/compaction-review.png
+artifacts/
+.DS_Store
+
+# zed
+.zed/

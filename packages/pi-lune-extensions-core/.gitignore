@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+npm-debug.log*
+
+# .scratch
+.scratch/
+
+# zed
+.zed/
+
+# Local agent guides
+AGENTS.md
+AGENTS_REPO_CONTRIBUTING.md
+
+# codebook
+codebook.toml
+
+# simplify
+SIMPLIFY.md
+
+# Local documentation
+.docs/
+
+# claude code
+.claude/

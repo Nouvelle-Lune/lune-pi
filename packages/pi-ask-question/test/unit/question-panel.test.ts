@@ -1,0 +1,1370 @@
+import assert from "node:assert/strict";
+import { beforeEach, describe, it } from "node:test";
+
+import { initTheme } from "@earendil-works/pi-coding-agent";
+import {
+    CURSOR_MARKER,
+    stripTerminalSequences,
+    visibleWidth,
+    type TuiMouseEvent,
+    type TuiMouseEventResult,
+    type TuiMouseEventType,
+} from "@earendil-works/pi-tui";
+
+import {
+    questionManager,
+    type AskQuestion,
+    type AskQuestionRequest,
+} from "../../src/core/questionManager.ts";
+import { QuestionPanel } from "../../src/tui/panel/question-panel.ts";
+import {
+    createFakeKeybindings,
+    createFakeTheme,
+    createFakeTui,
+} from "../harness.ts";
+
+const ENTER = "\r";
+const ESCAPE = "\x1b";
+const UP = "\x1b[A";
+const DOWN = "\x1b[B";
+const TAB = "\t";
+const SHIFT_TAB = "\x1b[Z";
+const SPACE = " ";
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
+// Kitty keyboard protocol: Shift+S with flag 1, and with flag 4 reporting the shifted key.
+const SHIFT_S = "\x1b[115;2u";
+const SHIFT_S_ALT_KEY = "\x1b[115:83;2u";
+
+// Markdown styles headings and code through pi's module-level theme; the real TUI
+// initializes it before any extension renders.
+initTheme();
+
+const OPTION_QUESTIONS: AskQuestion[] = [
+    {
+        question: "Which database?",
+        options: [
+            { label: "Postgres", description: "server" },
+            { label: "SQLite", preview: "file.db" },
+        ],
+    },
+];
+
+interface Fixture {
+    readonly request: AskQuestionRequest;
+    readonly panel: QuestionPanel;
+    readonly counts: { closed: number; deferred: number; reason: string | undefined };
+}
+
+function createFixture(questions: AskQuestion[], options: { rows?: number } = {}): Fixture {
+    const request = questionManager.create(questions);
+    const counts: Fixture["counts"] = { closed: 0, deferred: 0, reason: undefined };
+
+    const panel = new QuestionPanel({
+        request,
+        tui: createFakeTui(options.rows),
+        theme: createFakeTheme(),
+        keybindings: createFakeKeybindings(),
+        close: (reason) => {
+            counts.closed++;
+            counts.reason = reason;
+        },
+        onDeferred: () => {
+            counts.deferred++;
+        },
+    });
+
+    return { request, panel, counts };
+}
+
+function renderLines(panel: QuestionPanel, width = 80): string[] {
+    return panel.render(width).map((line) => stripTerminalSequences(line));
+}
+
+function renderText(panel: QuestionPanel, width = 80): string {
+    return renderLines(panel, width).join("\n");
+}
+
+/** Trimmed text of the framed body lines, with the borders taken off. */
+function innerLines(panel: QuestionPanel, width = 80): string[] {
+    return renderLines(panel, width)
+        .filter((line) => line.startsWith("│"))
+        .map((line) => line.replace(/^│/, "").replace(/│$/, "").trim());
+}
+
+/** The preview box is the only inner element that draws its own top border. */
+function hasPreviewBox(panel: QuestionPanel, width = 80): boolean {
+    return innerLines(panel, width).some((line) => line.includes("┌"));
+}
+
+function type(panel: QuestionPanel, text: string): void {
+    for (const character of text) {
+        panel.handleInput(character);
+    }
+}
+
+/** Panel-local cell of the first rendered occurrence of `text`, as the user sees it. */
+function locate(panel: QuestionPanel, text: string, width = 80): { x: number; y: number } {
+    const lines = renderLines(panel, width);
+
+    for (const [y, line] of lines.entries()) {
+        const index = line.indexOf(text);
+
+        if (index >= 0) {
+            return { x: visibleWidth(line.slice(0, index)), y };
+        }
+    }
+
+    assert.fail(`${JSON.stringify(text)} is not on screen: ${JSON.stringify(lines)}`);
+}
+
+function mouseEvent(
+    type: TuiMouseEventType,
+    at: { x: number; y: number },
+    extra: Partial<TuiMouseEvent> = {},
+): TuiMouseEvent {
+    return {
+        type,
+        button: type === "wheel" ? "none" : "left",
+        x: at.x,
+        y: at.y,
+        screenX: at.x,
+        screenY: at.y,
+        width: 80,
+        height: 40,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        ...extra,
+    };
+}
+
+function wheel(panel: QuestionPanel, at: { x: number; y: number }, delta: number) {
+    return panel.handleMouse(mouseEvent("wheel", at, { wheelDelta: delta }));
+}
+
+/** Feeds the press and the release click the TUI synthesizes for it; returns the press result. */
+function click(panel: QuestionPanel, at: { x: number; y: number }): TuiMouseEventResult | undefined {
+    const press = panel.handleMouse(mouseEvent("press", at));
+
+    panel.handleMouse(mouseEvent("click", at));
+
+    return press;
+}
+
+describe("question panel", () => {
+    beforeEach(() => {
+        questionManager.clearAll();
+    });
+
+    describe("render", () => {
+        it("shows the question, its options and the key hints", () => {
+            const { panel } = createFixture(OPTION_QUESTIONS);
+
+            const text = renderText(panel);
+
+            assert.match(text, /Questions/);
+            assert.match(text, /Which database\?/);
+            assert.match(text, /1\. Postgres/);
+            assert.match(text, /server/);
+            assert.match(text, /2\. SQLite/);
+            assert.match(text, /Type something/);
+            assert.match(text, /⇧S skip/);
+            assert.match(text, /Esc close/);
+        });
+
+        it("titles the preview box with the focused option", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which database?",
+                    options: [{ label: "Postgres", preview: "server" }, { label: "SQLite" }],
+                },
+            ]);
+
+            const inner = innerLines(panel, 120);
+
+            assert.equal(
+                inner.filter((line) => line.includes("┌─ Postgres ")).length,
+                1,
+                `the box carries the option name in its border: ${JSON.stringify(inner)}`,
+            );
+        });
+
+        it("renders the focused option's preview, not the others", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which database?",
+                    options: [
+                        { label: "Postgres", preview: "DATABASE_URL=postgres://localhost/app" },
+                        { label: "SQLite", preview: "file.db" },
+                    ],
+                },
+            ]);
+
+            const lines = innerLines(panel, 120);
+
+            assert.ok(
+                lines.some((line) => line.includes("DATABASE_URL=postgres://localhost/app")),
+                `the focused option's preview must render: ${JSON.stringify(lines)}`,
+            );
+            assert.equal(
+                lines.some((line) => line.includes("file.db")),
+                false,
+                "an unfocused option's preview is not rendered",
+            );
+        });
+
+        it("keeps every line inside the requested width", () => {
+            const { panel } = createFixture([
+                {
+                    question: `A very long question ${"x".repeat(120)}`,
+                    displayText: `A long preview\n${"y".repeat(200)}`,
+                    options: [
+                        {
+                            label: `Option ${"a".repeat(100)}`,
+                            description: "d".repeat(150),
+                            preview: "p".repeat(160),
+                        },
+                        { label: "B", preview: `preview ${"f".repeat(120)}` },
+                    ],
+                },
+            ]);
+
+            for (const width of [30, 40, 70, 120]) {
+                for (const line of panel.render(width)) {
+                    assert.ok(
+                        visibleWidth(line) <= width,
+                        `line exceeds ${width} columns: ${JSON.stringify(stripTerminalSequences(line))}`,
+                    );
+                }
+            }
+        });
+
+        it("does not number the questions", () => {
+            const single = renderText(createFixture(OPTION_QUESTIONS).panel);
+            const multi = renderText(createFixture([
+                { header: "Storage", question: "First", options: [{ label: "A" }, { label: "B" }] },
+                { header: "Auth", question: "Second", options: [{ label: "C" }, { label: "D" }] },
+            ]).panel);
+
+            for (const text of [single, multi]) {
+                assert.equal(/\bQ\d\b/.test(text), false, `questions must not carry an automatic number: ${text}`);
+            }
+
+            assert.match(multi, /First/);
+        });
+
+        it("labels the tabs with the question headers", () => {
+            const text = renderText(createFixture([
+                { header: "Storage", question: "First", options: [{ label: "A" }, { label: "B" }] },
+                { header: "Auth", question: "Second", options: [{ label: "C" }, { label: "D" }] },
+            ]).panel);
+
+            assert.match(text, /□ Storage/);
+            assert.match(text, /□ Auth/);
+            assert.match(text, /✓ Submit/);
+            assert.match(text, /Tab\/←→ switch/);
+        });
+
+        it("cuts a header that is too long for a tab", () => {
+            const text = renderText(createFixture([
+                { header: "A very long header that will not fit", question: "First", options: [{ label: "A" }] },
+                { header: "Auth", question: "Second", options: [{ label: "B" }] },
+            ]).panel);
+
+            assert.match(text, /□ A very long hea…/);
+            assert.equal(text.includes("that will not fit"), false, "the tab is a label, not a sentence");
+        });
+
+        it("keeps the tabs visible when the body has to scroll", () => {
+            const { panel } = createFixture([
+                {
+                    header: "Storage",
+                    question: "Which database?",
+                    displayText: Array.from({ length: 8 }, (_, index) => `line ${index}`).join("\n"),
+                    options: [{ label: "A" }, { label: "B" }],
+                },
+                { header: "Auth", question: "Which auth?", options: [{ label: "C" }] },
+            ], { rows: 20 });
+
+            const text = renderText(panel);
+
+            assert.match(text, /□ Storage/);
+            assert.match(text, /□ Auth/);
+            assert.match(text, /✓ Submit/);
+        });
+
+        it("ends the body right after the content instead of padding to a fixed height", () => {
+            const lines = renderLines(createFixture(OPTION_QUESTIONS).panel);
+            const body = lines.slice(3, -3);
+            const lastInner = body.at(-1)!.slice(1, -1).trim();
+
+            assert.notEqual(
+                lastInner.length,
+                0,
+                `the body ends on a content row, not padding: ${JSON.stringify(lines)}`,
+            );
+            assert.ok(lines.length < 24, `the panel shrank to its content: ${lines.length} rows`);
+        });
+
+        it("does not cap the panel height at a fixed number of rows", () => {
+            const lines = renderLines(createFixture([
+                {
+                    header: "Storage",
+                    question: "Which database?",
+                    displayText: Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n"),
+                    options: [{ label: "A" }, { label: "B" }],
+                },
+            ], { rows: 60 }).panel);
+
+            const body = lines.slice(3, -3);
+            const text = lines.join("\n");
+
+            assert.ok(body.length > 18, `the body must use the room the terminal has: ${body.length} rows`);
+            assert.match(text, /line 19/, "the whole request has to be on screen when the terminal has room");
+            assert.match(text, /write your own answer/, "and it still ends on the last content row");
+        });
+
+        it("grows with the content", () => {
+            const short = renderLines(createFixture(OPTION_QUESTIONS).panel).length;
+            const tall = renderLines(createFixture([
+                {
+                    question: "Which database?",
+                    displayText: Array.from({ length: 8 }, (_, index) => `line ${index}`).join("\n"),
+                    options: [{ label: "Postgres", description: "server" }, { label: "SQLite" }],
+                },
+            ]).panel).length;
+
+            assert.ok(tall > short, `more content must mean a taller panel: ${tall} vs ${short}`);
+        });
+    });
+
+    describe("option preview", () => {
+        const PREVIEW_QUESTIONS: AskQuestion[] = [
+            {
+                question: "Which database?",
+                options: [
+                    { label: "Postgres", description: "server", preview: "## Postgres\n\nJSONB support" },
+                    { label: "SQLite", description: "local file", preview: "## SQLite\n\nSingle file" },
+                ],
+            },
+        ];
+
+        const LONG_PREVIEW_QUESTIONS: AskQuestion[] = [
+            {
+                question: "Which database?",
+                displayText: "Pick the storage engine for the new service.",
+                options: [
+                    {
+                        label: "Postgres",
+                        description: "server",
+                        preview: Array.from({ length: 12 }, (_, index) => `- line ${index}`).join("\n"),
+                    },
+                    { label: "SQLite", description: "local file" },
+                ],
+            },
+        ];
+
+        it("renders the focused option's markdown in a box beside the options", () => {
+            const { panel } = createFixture(PREVIEW_QUESTIONS);
+
+            const lines = renderLines(panel, 120);
+            const labelLine = lines.find((line) => line.includes("1. Postgres"));
+
+            assert.ok(labelLine, "the focused option is rendered");
+            assert.match(labelLine, /┌/, "the preview box shares the row band with the option rows");
+
+            const text = renderText(panel, 120);
+            assert.match(text, /JSONB support/);
+            assert.equal(text.includes("Single file"), false, "the unfocused option's preview stays hidden");
+        });
+
+        it("swaps the preview when the focus moves", () => {
+            const { panel } = createFixture(PREVIEW_QUESTIONS);
+
+            panel.handleInput(DOWN);
+
+            const text = renderText(panel, 120);
+            assert.match(text, /Single file/);
+            assert.equal(text.includes("JSONB support"), false);
+        });
+
+        it("shows the preview for a multi-select question as well", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which checks?",
+                    multiSelect: true,
+                    options: [
+                        { label: "Unit", preview: "unit preview" },
+                        { label: "Integration", preview: "integration preview" },
+                    ],
+                },
+            ]);
+
+            assert.match(renderText(panel, 120), /unit preview/);
+
+            panel.handleInput(SPACE);
+            assert.match(renderText(panel, 120), /unit preview/, "toggling keeps the focused option's preview");
+
+            panel.handleInput(DOWN);
+            assert.match(renderText(panel, 120), /integration preview/);
+        });
+
+        it("keeps the box and explains an option without a preview", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which database?",
+                    options: [{ label: "Postgres", preview: "JSONB support" }, { label: "SQLite" }],
+                },
+            ]);
+
+            panel.handleInput(DOWN);
+
+            const text = renderText(panel, 120);
+            assert.match(text, /No preview available/);
+            assert.ok(hasPreviewBox(panel, 120), "the box stays while the focus moves");
+        });
+
+        it("does not open a preview column for a question without previews", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which database?",
+                    options: [
+                        { label: "Postgres", description: "d".repeat(60) },
+                        { label: "SQLite" },
+                    ],
+                },
+            ]);
+
+            const lines = renderLines(panel, 120);
+
+            assert.equal(hasPreviewBox(panel, 120), false);
+            assert.ok(
+                lines.some((line) => line.includes("d".repeat(60))),
+                "the descriptions keep the full panel width",
+            );
+        });
+
+        it("stacks the preview under the options when the panel is narrow", () => {
+            const { panel } = createFixture(PREVIEW_QUESTIONS);
+
+            const lines = innerLines(panel, 80);
+            const boxTop = lines.findIndex((line) => line.includes("┌"));
+            const customRow = lines.findIndex((line) => line.includes("Type something"));
+
+            assert.ok(boxTop >= 0, "the narrow layout keeps the preview");
+            assert.ok(boxTop > customRow, "the box follows the option rows instead of sitting beside them");
+        });
+
+        it("gives the option list the full width while the editor is open", () => {
+            const { panel } = createFixture(PREVIEW_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            assert.equal(
+                hasPreviewBox(panel, 120),
+                false,
+                "typing a custom answer needs the room more than the preview does",
+            );
+
+            panel.handleInput(ESCAPE);
+            assert.ok(hasPreviewBox(panel, 120), "the preview returns with the option list");
+        });
+
+        it("fits the preview block into a short panel body", () => {
+            const { panel } = createFixture(LONG_PREVIEW_QUESTIONS, { rows: 24 });
+
+            for (const width of [120, 80]) {
+                const inner = innerLines(panel, width);
+                const boxTop = inner.findIndex((line) => line.includes("┌"));
+                const boxBottom = inner.findIndex((line) => line.includes("└"));
+
+                assert.ok(boxTop >= 0, `the preview box is rendered at ${width} columns`);
+                assert.ok(
+                    boxBottom > boxTop,
+                    `the bottom border survives the window at ${width} columns: ${JSON.stringify(inner)}`,
+                );
+                assert.match(
+                    inner[boxBottom]!,
+                    /lines hidden/,
+                    "the rows that no longer fit are reported instead of clipped silently",
+                );
+            }
+        });
+
+        it("drops the preview when the body cannot hold a box", () => {
+            const { panel } = createFixture(LONG_PREVIEW_QUESTIONS, { rows: 16 });
+
+            const inner = innerLines(panel, 80);
+
+            assert.equal(hasPreviewBox(panel, 80), false);
+            assert.ok(
+                inner.some((line) => line.includes("1. Postgres")),
+                "the options still render, just without the preview column",
+            );
+        });
+
+        it("recomputes the layout for the current width on every render", () => {
+            const { panel } = createFixture(PREVIEW_QUESTIONS);
+
+            const wide = renderLines(panel, 160);
+            assert.ok(
+                wide.some((line) => line.includes("1. Postgres") && line.includes("┌")),
+                "side by side at 160 columns",
+            );
+
+            const narrow = innerLines(panel, 80);
+            const boxTop = narrow.findIndex((line) => line.includes("┌"));
+            const customRow = narrow.findIndex((line) => line.includes("Type something"));
+            assert.ok(boxTop > customRow, `stacked after the resize: ${JSON.stringify(narrow)}`);
+
+            assert.deepEqual(renderLines(panel, 160), wide, "back to the original layout after resizing back");
+        });
+
+        it("never leaves a preview box without its bottom border", () => {
+            for (const rows of [16, 18, 20, 22, 24, 28]) {
+                for (const width of [140, 100, 80]) {
+                    const { panel } = createFixture(LONG_PREVIEW_QUESTIONS, { rows });
+                    const inner = innerLines(panel, width);
+                    const boxTop = inner.findIndex((line) => line.includes("┌"));
+
+                    if (boxTop < 0) {
+                        continue;
+                    }
+
+                    assert.ok(
+                        inner.findIndex((line) => line.includes("└")) > boxTop,
+                        `clipped preview box at ${rows} rows / ${width} columns: ${JSON.stringify(inner)}`,
+                    );
+                }
+            }
+        });
+    });
+
+    describe("single select", () => {
+        it("answers the focused option and settles a single-question request", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [0] }]);
+            assert.equal(request.status, "answered");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("moves the focus with the arrow keys before answering", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(DOWN);
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [1] }]);
+        });
+
+        it("wraps the focus at both ends", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            // Rows are option 0, option 1, custom; one step up from the first crosses to the
+            // custom row, one step down from it comes back.
+            panel.handleInput(UP);
+            assert.equal(request.draft.optionIndex, 2);
+
+            panel.handleInput(DOWN);
+            assert.equal(request.draft.optionIndex, 0);
+        });
+
+        it("selects an option by its number key", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput("2");
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [1] }]);
+        });
+    });
+
+    describe("multi select", () => {
+        const questions: AskQuestion[] = [
+            {
+                question: "Which checks?",
+                multiSelect: true,
+                options: [{ label: "Unit" }, { label: "Integration" }],
+            },
+        ];
+
+        it("toggles checkboxes with space and confirms from the next row", () => {
+            const { panel, request, counts } = createFixture(questions);
+
+            panel.handleInput(SPACE);
+            panel.handleInput(DOWN);
+            panel.handleInput(SPACE);
+
+            assert.deepEqual(request.answers, undefined);
+
+            // option 1 -> custom -> next
+            panel.handleInput(DOWN);
+            panel.handleInput(DOWN);
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [0, 1] }]);
+            assert.equal(request.status, "answered");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("untoggles a selected option", () => {
+            const { panel, request } = createFixture(questions);
+
+            panel.handleInput(SPACE);
+            panel.handleInput(SPACE);
+
+            assert.deepEqual(request.answers, undefined);
+        });
+
+        it("shows the checkbox state and the next row", () => {
+            const { panel } = createFixture(questions);
+
+            panel.handleInput(SPACE);
+
+            const text = renderText(panel);
+
+            assert.match(text, /\[x\] 1\. Unit/);
+            assert.match(text, /\[ \] 2\. Integration/);
+            assert.match(text, /Next/);
+            assert.match(text, /Space\/Enter toggle/);
+        });
+    });
+
+    describe("several questions", () => {
+        const questions: AskQuestion[] = [
+            { header: "Storage", question: "First", options: [{ label: "A" }, { label: "B" }] },
+            { header: "Auth", question: "Second", options: [{ label: "C" }, { label: "D" }] },
+        ];
+
+        it("advances to the next question, then to the submit tab", () => {
+            const { panel, request, counts } = createFixture(questions);
+
+            panel.handleInput(ENTER);
+            assert.equal(request.draft.currentIndex, 1);
+            assert.deepEqual(request.answers?.[0], undefined);
+
+            panel.handleInput(ENTER);
+            assert.equal(request.draft.currentIndex, 2);
+            assert.match(renderText(panel), /Ready to submit/);
+
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [
+                { selectedIndexes: [0] },
+                { selectedIndexes: [0] },
+            ]);
+            assert.equal(request.status, "answered");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("switches tabs with Tab and Shift+Tab", () => {
+            const { panel, request } = createFixture(questions);
+
+            panel.handleInput(TAB);
+            assert.equal(request.draft.currentIndex, 1);
+            panel.handleInput(SHIFT_TAB);
+            assert.equal(request.draft.currentIndex, 0);
+        });
+
+        it("jumps to the first unanswered question instead of submitting", () => {
+            const { panel, request, counts } = createFixture(questions);
+
+            panel.handleInput(TAB);
+            panel.handleInput(TAB);
+            assert.equal(request.draft.currentIndex, 2);
+
+            panel.handleInput(ENTER);
+
+            assert.equal(request.draft.currentIndex, 0);
+            assert.equal(counts.closed, 0);
+            assert.equal(request.status, "pending");
+
+            panel.handleInput(TAB);
+            panel.handleInput(TAB);
+            assert.match(renderText(panel), /Unanswered: Storage, Auth/);
+        });
+    });
+
+    describe("custom answers", () => {
+        const TWO_QUESTIONS: AskQuestion[] = [
+            { question: "First", options: [{ label: "A" }, { label: "B" }] },
+            { question: "Second", options: [{ label: "C" }, { label: "D" }] },
+        ];
+
+        /** A question whose body is taller than the panel's row budget, so the window scrolls. */
+        const TALL_QUESTIONS: AskQuestion[] = [
+            {
+                header: "Storage",
+                question: "Which database should the service use?",
+                displayText: Array.from({ length: 14 }, (_, index) => `context line ${index}`).join("\n"),
+                options: [
+                    { label: "Postgres", description: "Managed server" },
+                    { label: "SQLite" },
+                    { label: "DuckDB" },
+                    { label: "Redis" },
+                ],
+            },
+        ];
+
+        /** The `✎` row is what the user picks to write an answer instead of choosing an option. */
+        function customRow(panel: QuestionPanel): string {
+            const row = innerLines(panel).find((line) => line.includes("✎"));
+
+            assert.ok(row, "the custom row must render");
+
+            return row;
+        }
+
+        it("writes an answer on the custom row", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            // option 0 -> custom is one row up
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            assert.match(renderText(panel), /Your answer:/);
+
+            type(panel, "mysql");
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [], customText: "mysql" }]);
+            assert.equal(counts.closed, 1);
+        });
+
+        it("opens the editor immediately for a free-form question", () => {
+            const { panel, request } = createFixture([{ question: "Name the service?" }]);
+
+            assert.match(renderText(panel), /Your answer:/);
+
+            type(panel, "billing");
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [], customText: "billing" }]);
+        });
+
+        it("ignores an empty custom answer and stays in the editor", () => {
+            const { panel, request, counts } = createFixture([{ question: "Name the service?" }]);
+
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, undefined);
+            assert.equal(counts.closed, 0);
+        });
+
+        it("replaces a selected option when the user writes an answer", () => {
+            const { panel, request } = createFixture([
+                { question: "First", options: [{ label: "A" }, { label: "B" }] },
+                { question: "Second", options: [{ label: "C" }, { label: "D" }] },
+            ]);
+
+            panel.handleInput(ENTER);
+            assert.deepEqual(request.draft.answers[0], { selectedIndexes: [0] });
+
+            panel.handleInput(SHIFT_TAB);
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "mysql");
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.draft.answers[0], { selectedIndexes: [], customText: "mysql" });
+        });
+
+        it("keeps the custom row on the placeholder while the answer is being typed", () => {
+            const { panel } = createFixture(OPTION_QUESTIONS);
+
+            // option 0 -> custom is one row up, Enter opens the editor
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "mysql");
+
+            assert.match(customRow(panel), /Type something/);
+            assert.equal(customRow(panel).includes("mysql"), false, "typing must not rewrite the row");
+
+            // The text is not lost - it lives in the editor under the options.
+            const lines = innerLines(panel);
+            const editor = lines.findIndex((line) => line.includes("Your answer:"));
+
+            assert.ok(
+                lines.slice(editor).some((line) => line.includes("mysql")),
+                `the editor still shows what is typed: ${JSON.stringify(lines)}`,
+            );
+        });
+
+        it("shows the written answer once it is committed", () => {
+            const { panel } = createFixture(TWO_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "mysql");
+            panel.handleInput(ENTER);
+            panel.handleInput(SHIFT_TAB);
+
+            assert.match(customRow(panel), /mysql/);
+            assert.equal(customRow(panel).includes("Type something"), false);
+        });
+
+        it("starts typing on the custom row without pressing Enter", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            type(panel, "mysql");
+
+            assert.equal(request.draft.customDrafts[0], "mysql");
+            assert.deepEqual(request.draft.answers, [undefined], "typing alone does not answer the question");
+
+            const lines = innerLines(panel);
+            const editor = lines.findIndex((line) => line.includes("Your answer:"));
+
+            assert.ok(
+                lines.slice(editor).some((line) => line.includes("mysql")),
+                `the editor shows what was typed: ${JSON.stringify(lines)}`,
+            );
+        });
+
+        it("treats s, digits, j/k and space as text on the custom row", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            type(panel, "s2j ");
+
+            assert.equal(request.status, "pending", "a printable key on the custom row starts the answer");
+            assert.equal(request.draft.customDrafts[0], "s2j ");
+        });
+
+        it("skips from the custom row with Shift+S", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput("S");
+
+            assert.equal(request.status, "skipped");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("keeps a large paste when the draft is captured", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+            const pasted = Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n");
+
+            // option 0 -> custom row, then the editor
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            panel.handleInput(`${PASTE_START}${pasted}${PASTE_END}`);
+
+            // The editor holds a paste this large behind a marker; the draft has to keep the text.
+            panel.handleInput(ESCAPE);
+
+            assert.equal(request.draft.customDrafts[0], pasted);
+
+            const reopened = new QuestionPanel({
+                request,
+                tui: createFakeTui(),
+                theme: createFakeTheme(),
+                keybindings: createFakeKeybindings(),
+                close: () => undefined,
+            });
+
+            reopened.handleInput(ENTER);
+
+            assert.match(renderText(reopened), /line 11/, "the pasted lines are back in the editor");
+        });
+
+        it("does not mirror edits to an answer that was already written", () => {
+            const { panel } = createFixture(TWO_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "mysql");
+            panel.handleInput(ENTER);
+            panel.handleInput(SHIFT_TAB);
+
+            // Reopen the editor on the written answer and keep typing.
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "-8");
+
+            assert.match(customRow(panel), /mysql/);
+            assert.equal(customRow(panel).includes("mysql-8"), false, "the row must not follow the edit");
+        });
+
+        it("keeps the input box and its cursor in view while the answer grows", () => {
+            const { panel } = createFixture(TALL_QUESTIONS, { rows: 30 });
+
+            // Four options down to the custom row, then an answer taller than the window.
+            for (let step = 0; step < 4; step++) {
+                panel.handleInput(DOWN);
+            }
+
+            type(panel, "answer ".repeat(120));
+
+            // The TUI is what focuses an overlay; the marker only exists while it owns the keys.
+            panel.focused = true;
+            const raw = panel.render(80);
+            const lines = raw.map((line) => stripTerminalSequences(line));
+
+            assert.ok(
+                raw.some((line) => line.includes(CURSOR_MARKER)),
+                `the newest line and its cursor must stay in view: ${JSON.stringify(lines)}`,
+            );
+            const frameRows = lines.filter(
+                // The top border carries a `↑ N more` notice, so count dash rows inside the frame.
+                (line) => line.startsWith("│") && line.endsWith("│") && line.includes("─".repeat(20)),
+            );
+
+            assert.equal(frameRows.length, 2, `the editor frame must stay whole: ${JSON.stringify(lines)}`);
+            assert.match(
+                lines.join("\n"),
+                /Enter to submit · Esc to go back/,
+                "the hint under the editor belongs to the input box",
+            );
+        });
+
+        it("keeps a free-form answer visible on a short terminal", () => {
+            const { panel } = createFixture(
+                [{ header: "Notes", question: "Anything else worth knowing?" }],
+                { rows: 20 },
+            );
+
+            panel.focused = true;
+            type(panel, "x".repeat(400));
+
+            const raw = panel.render(70);
+            const lines = raw.map((line) => stripTerminalSequences(line));
+
+            assert.ok(
+                raw.some((line) => line.includes(CURSOR_MARKER)),
+                `a short terminal must not cut the cursor off: ${JSON.stringify(lines)}`,
+            );
+        });
+
+        it("does not pull a wheel scroll back to the editor", () => {
+            const { panel } = createFixture(TALL_QUESTIONS, { rows: 30 });
+
+            for (let step = 0; step < 4; step++) {
+                panel.handleInput(DOWN);
+            }
+
+            type(panel, "answer ".repeat(120));
+
+            const at = locate(panel, "Your answer:");
+
+            for (let step = 0; step < 40; step++) {
+                wheel(panel, at, -1);
+            }
+
+            assert.match(
+                renderText(panel),
+                /Which database should the service use\?/,
+                "the reader's own scroll position outranks following the editor",
+            );
+        });
+    });
+
+    describe("defer and skip", () => {
+        it("defers on Esc without settling and keeps focus and draft", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(DOWN);
+            panel.handleInput(ESCAPE);
+
+            assert.equal(request.status, "pending");
+            assert.equal(counts.closed, 1);
+            assert.equal(counts.deferred, 1);
+            assert.equal(request.draft.optionIndex, 1);
+            assert.deepEqual(request.draft.answers, [undefined]);
+        });
+
+        it("returns from the editor to the options first, then defers", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "half typed");
+            panel.handleInput(ESCAPE);
+
+            assert.equal(counts.closed, 0, "the first Esc only closes the editor");
+            assert.equal(request.draft.customDrafts[0], "half typed");
+            assert.deepEqual(request.draft.answers, [undefined]);
+
+            panel.handleInput(ESCAPE);
+
+            assert.equal(counts.closed, 1);
+            assert.equal(counts.deferred, 1);
+        });
+
+        it("keeps the written draft for the editor when the panel reopens", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "half typed");
+            panel.handleInput(ESCAPE);
+            panel.handleInput(ESCAPE);
+
+            assert.equal(counts.closed, 1);
+
+            const reopened = new QuestionPanel({
+                request,
+                tui: createFakeTui(),
+                theme: createFakeTheme(),
+                keybindings: createFakeKeybindings(),
+                close: () => undefined,
+            });
+
+            assert.equal(request.draft.customDrafts[0], "half typed");
+            assert.equal(request.draft.optionIndex, 2, "the custom row keeps the focus");
+            assert.equal(
+                renderText(reopened).includes("half typed"),
+                false,
+                "the draft is not echoed until the editor is opened again",
+            );
+
+            reopened.handleInput(ENTER);
+
+            assert.match(renderText(reopened), /half typed/);
+        });
+
+        it("reports why the panel closed", () => {
+            const answered = createFixture(OPTION_QUESTIONS);
+            answered.panel.handleInput(ENTER);
+            assert.equal(answered.counts.reason, "settled");
+
+            const skipped = createFixture(OPTION_QUESTIONS);
+            skipped.panel.handleInput("S");
+            assert.equal(skipped.counts.reason, "settled");
+
+            const deferred = createFixture(OPTION_QUESTIONS);
+            deferred.panel.handleInput(ESCAPE);
+            assert.equal(deferred.counts.reason, "deferred");
+        });
+
+        it("skips the whole request with Shift+S", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput("S");
+
+            assert.equal(request.status, "skipped");
+            assert.equal(request.answers, undefined);
+            assert.equal(counts.closed, 1);
+            assert.equal(counts.deferred, 0);
+        });
+
+        it("skips on the Kitty-protocol spelling of Shift+S", () => {
+            for (const sequence of [SHIFT_S, SHIFT_S_ALT_KEY]) {
+                const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+                panel.handleInput(sequence);
+
+                assert.equal(request.status, "skipped", `${JSON.stringify(sequence)} is Shift+S`);
+                assert.equal(counts.closed, 1);
+            }
+        });
+
+        it("leaves a plain s to the text it belongs to", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput("s");
+
+            assert.equal(request.status, "pending", "skip is Shift+S, so a plain s is not a shortcut");
+            assert.equal(counts.closed, 0);
+        });
+
+        it("keeps s and S as text while the editor is open", () => {
+            const { panel, request, counts } = createFixture([{ question: "Name the service?" }]);
+
+            type(panel, "isS");
+            panel.handleInput(ENTER);
+
+            assert.deepEqual(request.answers, [{ selectedIndexes: [], customText: "isS" }]);
+            assert.equal(counts.closed, 1);
+        });
+
+        it("skips a free-form question after leaving its editor", () => {
+            const { panel, request, counts } = createFixture([{ question: "Name the service?" }]);
+
+            // A free-form question opens the editor itself, so Shift+S has to stay reachable
+            // through Esc instead of being a key the user can never press.
+            assert.match(renderText(panel), /Your answer:/);
+
+            panel.handleInput(ESCAPE);
+            assert.equal(renderText(panel).includes("Your answer:"), false, "the first Esc leaves the editor");
+
+            panel.handleInput("S");
+
+            assert.equal(request.status, "skipped");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("skips a free-form question on the Kitty-protocol Shift+S", () => {
+            const { panel, request, counts } = createFixture([{ question: "Name the service?" }]);
+
+            panel.handleInput(ESCAPE);
+            panel.handleInput(SHIFT_S_ALT_KEY);
+
+            assert.equal(request.status, "skipped", "the sequence is the only Shift+S a kitty terminal sends");
+            assert.equal(counts.closed, 1);
+        });
+
+        it("does not advertise skip while the editor owns the keys", () => {
+            const { panel } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+
+            const footer = innerLines(panel).at(-1)!;
+
+            assert.match(footer, /Esc back to options/);
+            assert.equal(footer.includes("⇧S skip"), false, "the editor turns S into text");
+        });
+
+        it("closes on Esc even when the deferred save throws", () => {
+            const request = questionManager.create(OPTION_QUESTIONS);
+            const counts: { closed: number; reason: string | undefined } = { closed: 0, reason: undefined };
+
+            const panel = new QuestionPanel({
+                request,
+                tui: createFakeTui(),
+                theme: createFakeTheme(),
+                keybindings: createFakeKeybindings(),
+                close: (reason) => {
+                    counts.closed++;
+                    counts.reason = reason;
+                },
+                onDeferred: () => {
+                    throw new Error("session is read-only");
+                },
+            });
+
+            panel.handleInput(ESCAPE);
+
+            assert.equal(counts.closed, 1, "the overlay must not be left stuck on screen");
+            assert.equal(counts.reason, "deferred");
+            assert.equal(request.status, "pending", "the request stays pending either way");
+        });
+    });
+
+    describe("mouse", () => {
+        const TWO_QUESTIONS: AskQuestion[] = [
+            { header: "Storage", question: "First", options: [{ label: "A" }, { label: "B" }] },
+            { header: "Auth", question: "Second", options: [{ label: "C" }, { label: "D" }] },
+        ];
+
+        /** A body several times taller than a 20-row terminal leaves room for the panel. */
+        const LONG_BODY: AskQuestion[] = [
+            {
+                question: "Which database?",
+                displayText: Array.from({ length: 30 }, (_, index) => `context line ${index}`).join("\n"),
+                options: [{ label: "Postgres" }, { label: "SQLite" }],
+            },
+        ];
+
+        const LONG_PREVIEW: AskQuestion[] = [
+            {
+                question: "Which database?",
+                options: [
+                    {
+                        label: "Postgres",
+                        preview: Array.from({ length: 30 }, (_, index) => `- preview line ${index}`).join("\n"),
+                    },
+                    { label: "SQLite", preview: "file.db" },
+                ],
+            },
+        ];
+
+        it("leaves a click on an option row to the text selection", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+            const at = locate(panel, "2. SQLite");
+
+            assert.equal(panel.handleMouse(mouseEvent("press", at)), undefined, "an unhandled press keeps pi's text selection");
+            assert.equal(panel.handleMouse(mouseEvent("click", at)), undefined);
+            assert.equal(request.draft.optionIndex, 0, "a click does not move the focus");
+            assert.equal(request.status, "pending");
+            assert.equal(counts.closed, 0);
+        });
+
+        it("neither focuses nor answers on a double click", () => {
+            const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
+            const at = locate(panel, "2. SQLite");
+
+            panel.handleMouse(mouseEvent("press", at));
+            panel.handleMouse(mouseEvent("click", at, { clickCount: 2 }));
+
+            assert.equal(request.draft.optionIndex, 0);
+            assert.equal(request.answers, undefined, "a double click must not answer");
+            assert.equal(counts.closed, 0);
+        });
+
+        it("does not open the editor from the custom row", () => {
+            const { panel } = createFixture(OPTION_QUESTIONS);
+
+            assert.equal(panel.handleMouse(mouseEvent("press", locate(panel, "Type something"))), undefined);
+            assert.doesNotMatch(renderText(panel), /Your answer:/);
+        });
+
+        it("switches questions from the tab strip", () => {
+            const { panel, request } = createFixture(TWO_QUESTIONS);
+
+            const tab = click(panel, locate(panel, "□ Auth"));
+
+            assert.equal(tab?.handled, true, "a tab press claims the mouse instead of selecting text");
+            assert.equal(request.draft.currentIndex, 1);
+            assert.match(renderText(panel), /Second/);
+
+            click(panel, locate(panel, "✓ Submit"));
+            assert.equal(request.draft.currentIndex, 2);
+
+            click(panel, locate(panel, "←"));
+            assert.equal(request.draft.currentIndex, 1, "the arrows step like ←/→");
+        });
+
+        it("keeps a free-form draft on its own question when another tab is clicked", () => {
+            const { panel, request } = createFixture([
+                { header: "Name", question: "Project name?" },
+                { header: "Auth", question: "Second", options: [{ label: "C" }, { label: "D" }] },
+            ]);
+
+            type(panel, "lune");
+            click(panel, locate(panel, "□ Auth"));
+
+            assert.equal(request.draft.currentIndex, 1);
+            assert.equal(request.draft.customDrafts[0], "lune");
+            assert.equal(request.draft.customDrafts[1], undefined);
+        });
+
+        it("leaves presses outside the tabs and the editor to the text selection", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            assert.equal(panel.handleMouse(mouseEvent("press", locate(panel, "Which database?"))), undefined);
+            assert.equal(panel.handleMouse(mouseEvent("press", locate(panel, "Esc close"))), undefined);
+            assert.equal(request.draft.optionIndex, 0);
+        });
+
+        it("ignores buttons other than the left one", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            const result = panel.handleMouse(mouseEvent("press", locate(panel, "2. SQLite"), { button: "right" }));
+
+            assert.equal(result, undefined);
+            assert.equal(request.draft.optionIndex, 0);
+        });
+
+        it("scrolls a body taller than the panel, including back to the question", () => {
+            const { panel, request } = createFixture(LONG_BODY, { rows: 20 });
+
+            // The window starts on the focused option, which pushes the question out of view.
+            assert.doesNotMatch(renderText(panel), /Which database\?/);
+
+            const at = locate(panel, "Postgres");
+            for (let step = 0; step < 40; step++) {
+                wheel(panel, at, -1);
+            }
+
+            assert.match(renderText(panel), /Which database\?/, "the wheel reaches the top of the body");
+            assert.equal(request.draft.optionIndex, 0, "scrolling does not move the focus");
+
+            for (let step = 0; step < 40; step++) {
+                wheel(panel, locate(panel, "context line"), 1);
+            }
+
+            assert.match(renderText(panel), /write your own answer/, "and back down to the last row");
+        });
+
+        it("claims the wheel even when there is nothing to scroll", () => {
+            const { panel } = createFixture(OPTION_QUESTIONS);
+            const before = renderText(panel);
+
+            const result = wheel(panel, locate(panel, "Postgres"), 3);
+
+            assert.equal(result?.handled, true, "an unhandled wheel would scroll the transcript behind");
+            assert.equal(renderText(panel), before);
+        });
+
+        it("returns the window to the focused row on the next key", () => {
+            const { panel } = createFixture(LONG_BODY, { rows: 20 });
+            const centered = renderText(panel);
+            const at = locate(panel, "Postgres");
+
+            for (let step = 0; step < 40; step++) {
+                wheel(panel, at, -1);
+            }
+
+            panel.handleInput(DOWN);
+            panel.handleInput(UP);
+
+            assert.equal(renderText(panel), centered);
+        });
+
+        it("scrolls a long preview on its own", () => {
+            const { panel, request } = createFixture(LONG_PREVIEW, { rows: 40 });
+            const width = 120;
+
+            assert.match(renderText(panel, width), /preview line 0\b/);
+            const inPreview = locate(panel, "preview line 0", width);
+
+            for (let step = 0; step < 60; step++) {
+                wheel(panel, inPreview, 1);
+            }
+
+            const scrolled = renderText(panel, width);
+            assert.match(scrolled, /preview line 29/, "the wheel reaches the end of the preview");
+            assert.doesNotMatch(scrolled, /preview line 0\b/);
+            assert.match(scrolled, /↑ \d+ hidden/, "the border reports what scrolled out above");
+            assert.equal(request.draft.optionIndex, 0, "scrolling the preview does not move the focus");
+        });
+
+        it("starts another option's preview at its top", () => {
+            const { panel } = createFixture(LONG_PREVIEW, { rows: 40 });
+            const width = 120;
+            const inPreview = locate(panel, "preview line 0", width);
+
+            for (let step = 0; step < 10; step++) {
+                wheel(panel, inPreview, 1);
+            }
+
+            panel.handleInput(DOWN);
+            panel.handleInput(UP);
+
+            assert.match(renderText(panel, width), /preview line 0\b/);
+        });
+
+        it("keeps the preview box width while it scrolls", () => {
+            const { panel } = createFixture([
+                {
+                    question: "Which database?",
+                    options: [
+                        {
+                            label: "Postgres",
+                            preview: ["x", ...Array.from({ length: 30 }, () => "short"), "y".repeat(60)].join("\n"),
+                        },
+                        { label: "SQLite" },
+                    ],
+                },
+            ], { rows: 40 });
+            const width = 140;
+            const topBorder = () => renderLines(panel, width).find((line) => line.includes("┌─ Postgres"));
+            const before = topBorder();
+
+            wheel(panel, locate(panel, "short", width), 5);
+
+            assert.equal(topBorder(), before);
+        });
+
+        it("routes clicks inside the open editor to it", () => {
+            const { panel, request } = createFixture(OPTION_QUESTIONS);
+
+            // option 0 -> custom is one row up
+            panel.handleInput(UP);
+            panel.handleInput(ENTER);
+            type(panel, "abc");
+
+            const at = locate(panel, "abc");
+            const result = panel.handleMouse(mouseEvent("click", { x: at.x + 1, y: at.y }));
+            type(panel, "X");
+            panel.handleInput(ENTER);
+
+            assert.equal(result?.handled, true);
+            assert.deepEqual(request.answers, [{ selectedIndexes: [], customText: "aXbc" }], "the click moved the cursor");
+        });
+    });
+});

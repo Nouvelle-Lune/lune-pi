@@ -1,0 +1,26 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                # The engines floor and the current LTS line.
+                node: ["22.19.0", "24"]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: npm
+            - run: npm ci
+            - run: npm run typecheck
+            # pretest builds dist first, so this also verifies the published build.
+            - run: npm test
+            - run: npm pack --dry-run --ignore-scripts

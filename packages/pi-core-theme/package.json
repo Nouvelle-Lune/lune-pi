@@ -1,0 +1,75 @@
+{
+    "name": "@lune_99/pi-core-theme",
+    "version": "0.1.0",
+    "description": "Opt-in Lune appearance for Pi: pixel-moon header, seven moonlit palettes and Lune tool cards",
+    "type": "module",
+    "files": [
+        "extension.ts",
+        "src",
+        "docs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ],
+    "pi": {
+        "extensions": [
+            "./extension.ts"
+        ],
+        "themes": [
+            "./src/palettes/pi-core-dark.json",
+            "./src/palettes/pi-core-light.json",
+            "./src/palettes/pi-core-aurora.json",
+            "./src/palettes/pi-core-eclipse.json",
+            "./src/palettes/pi-core-nebula.json",
+            "./src/palettes/pi-core-dawn.json",
+            "./src/palettes/pi-core-mist.json"
+        ],
+        "image": "./docs/theme-overview.png"
+    },
+    "scripts": {
+        "dev": "pi --no-extensions --extension ../pi-lune-extensions-core/extension.ts --extension ./extension.ts",
+        "test": "node --experimental-strip-types --test 'test/**/*.test.ts'",
+        "typecheck": "tsc --noEmit",
+        "docs:images": "node --experimental-strip-types tools/make-doc-images.mjs"
+    },
+    "keywords": [
+        "pi-package",
+        "pi",
+        "pi-coding-agent",
+        "lune",
+        "core-theme"
+    ],
+    "license": "MIT",
+    "author": "Nouvelle-Lune",
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dependencies": {
+        "@lune_99/pi-lune-extensions-core": "^0.1.0",
+        "@shikijs/cli": "^4.5.0",
+        "grok-mermaid": "^0.2.3"
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-ai": ">=1.0.4",
+        "@earendil-works/pi-coding-agent": ">=1.0.4",
+        "@earendil-works/pi-tui": ">=1.0.0",
+        "typebox": ">=1.3.27"
+    },
+    "devDependencies": {
+        "@earendil-works/pi-ai": "1.3.0",
+        "@earendil-works/pi-coding-agent": "1.3.0",
+        "@earendil-works/pi-tui": "1.3.0",
+        "@types/node": "^22.20.2",
+        "typebox": "1.3.27",
+        "typescript": "5.9.3"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Nouvelle-Lune/lune-pi.git",
+        "directory": "packages/pi-core-theme"
+    },
+    "homepage": "https://github.com/Nouvelle-Lune/lune-pi/tree/main/packages/pi-core-theme#readme",
+    "bugs": {
+        "url": "https://github.com/Nouvelle-Lune/lune-pi/issues"
+    }
+}

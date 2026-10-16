@@ -1,0 +1,120 @@
+{
+    "name": "@lune_99/pi-lune-extensions-core",
+    "version": "0.1.0",
+    "description": "Shared infrastructure for the Lune series of Pi extensions",
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./settings": {
+            "types": "./dist/settings/index.d.ts",
+            "default": "./dist/settings/index.js"
+        },
+        "./settings/backend": {
+            "types": "./dist/settings/backend.d.ts",
+            "default": "./dist/settings/backend.js"
+        },
+        "./dock": {
+            "types": "./dist/dock/index.d.ts",
+            "default": "./dist/dock/index.js"
+        },
+        "./dock/host": {
+            "types": "./dist/dock/host.d.ts",
+            "default": "./dist/dock/host.js"
+        },
+        "./panel": {
+            "types": "./dist/panel/index.d.ts",
+            "default": "./dist/panel/index.js"
+        },
+        "./panel/host": {
+            "types": "./dist/panel/host.d.ts",
+            "default": "./dist/panel/host.js"
+        },
+        "./panel/tui": {
+            "types": "./dist/panel/tui.d.ts",
+            "default": "./dist/panel/tui.js"
+        },
+        "./resources": {
+            "types": "./dist/resources/index.d.ts",
+            "default": "./dist/resources/index.js"
+        },
+        "./settings/advanced": {
+            "types": "./dist/settings/advanced.d.ts",
+            "default": "./dist/settings/advanced.js"
+        },
+        "./testing": {
+            "types": "./dist/testing/index.d.ts",
+            "default": "./dist/testing/index.js"
+        }
+    },
+    "files": [
+        "extension.ts",
+        "src",
+        "dist",
+        "docs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ],
+    "pi": {
+        "extensions": [
+            "./extension.ts"
+        ]
+    },
+    "scripts": {
+        "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+        "dev": "pi --extension ./extension.ts",
+        "tui:demo": "node --experimental-strip-types test/tui/launch.ts",
+        "prepack": "npm run build",
+        "pretest": "npm run build",
+        "test": "node --experimental-strip-types --test 'test/**/*.test.ts'",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [
+        "pi-package",
+        "pi",
+        "pi-coding-agent",
+        "lune",
+        "core"
+    ],
+    "license": "MIT",
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "peerDependencies": {
+        "@earendil-works/pi-ai": "^1.0.4",
+        "@earendil-works/pi-coding-agent": "^1.0.4",
+        "@earendil-works/pi-tui": "^1.0.0",
+        "typebox": "^1.3.27"
+    },
+    "peerDependenciesMeta": {
+        "@earendil-works/pi-ai": {
+            "optional": true
+        },
+        "@earendil-works/pi-coding-agent": {
+            "optional": true
+        },
+        "@earendil-works/pi-tui": {
+            "optional": true
+        }
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@earendil-works/pi-ai": "1.3.0",
+        "@earendil-works/pi-coding-agent": "1.3.0",
+        "@earendil-works/pi-tui": "1.3.0",
+        "@types/node": "^22.20.2",
+        "typescript": "5.9.3"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Nouvelle-Lune/lune-pi.git",
+        "directory": "packages/pi-lune-extensions-core"
+    },
+    "homepage": "https://github.com/Nouvelle-Lune/lune-pi/tree/main/packages/pi-lune-extensions-core#readme",
+    "bugs": {
+        "url": "https://github.com/Nouvelle-Lune/lune-pi/issues"
+    }
+}
