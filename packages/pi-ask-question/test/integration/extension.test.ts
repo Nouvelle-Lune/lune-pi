@@ -80,7 +80,12 @@ function answerFocusedOption(ui: FakeUi): void {
 }
 
 /** Create a request through the tool; the panel it opens stays open until it is driven. */
-async function ask(host: FakePiHost, ui: FakeUi, questions: AskQuestion[], callId: string): Promise<void> {
+async function ask(
+    host: FakePiHost,
+    ui: FakeUi,
+    questions: AskQuestion[],
+    callId: string,
+): Promise<void> {
     await requireTool(host, "ask_user_questions").execute(
         callId,
         { questions },
@@ -141,12 +146,15 @@ function commitAnswer(host: FakePiHost, requestId: string): void {
 }
 
 /** Answer messages the session branch holds for one request, matched by its stable identity. */
-function committedAnswers(entries: readonly FakeBranchEntry[], requestId: string): FakeCommittedMessageEntry[] {
+function committedAnswers(
+    entries: readonly FakeBranchEntry[],
+    requestId: string,
+): FakeCommittedMessageEntry[] {
     return entries.filter(
         (entry): entry is FakeCommittedMessageEntry =>
-            entry.type === "custom_message"
-            && entry.customType === ASK_QUESTION_ANSWER_MESSAGE
-            && (entry.details as { requestId?: unknown } | undefined)?.requestId === requestId,
+            entry.type === "custom_message" &&
+            entry.customType === ASK_QUESTION_ANSWER_MESSAGE &&
+            (entry.details as { requestId?: unknown } | undefined)?.requestId === requestId,
     );
 }
 
@@ -164,13 +172,19 @@ async function restart(session: Session): Promise<Session> {
 async function switchBranch(session: Session, next: FakeBranchEntry[]): Promise<void> {
     const previous = session.host.branch;
 
-    await session.host.fire("session_before_tree", createFakeContext({ ui: session.ui, branch: previous }));
+    await session.host.fire(
+        "session_before_tree",
+        createFakeContext({ ui: session.ui, branch: previous }),
+    );
     session.host.activateBranch(next);
     await session.host.fire("session_tree", createFakeContext({ ui: session.ui, branch: next }));
 }
 
 /** Answers the plugin still keeps durably for `requestId`, if any. */
-function durableAnswers(entries: readonly FakeBranchEntry[], requestId: string): AskQuestionAnswer[] | undefined {
+function durableAnswers(
+    entries: readonly FakeBranchEntry[],
+    requestId: string,
+): AskQuestionAnswer[] | undefined {
     // Only the newest entry of each kind counts, matching how the plugin restores state: an
     // older snapshot still holding the answer must not mask a newer one that dropped it.
     const newestByType = new Map<string, unknown>();
@@ -286,11 +300,15 @@ describe("pi-ask-question extension", () => {
             assert.equal((tool as { executionMode?: string }).executionMode, "sequential");
             assert.match(tool.description, /panel opens immediately/);
             assert.ok(
-                (tool as { promptGuidelines?: string[] }).promptGuidelines?.some((line) => /preview/i.test(line)),
+                (tool as { promptGuidelines?: string[] }).promptGuidelines?.some((line) =>
+                    /preview/i.test(line),
+                ),
                 "the model has to be told when a preview is worth adding",
             );
             assert.ok(
-                (tool as { promptGuidelines?: string[] }).promptGuidelines?.some((line) => /header/i.test(line)),
+                (tool as { promptGuidelines?: string[] }).promptGuidelines?.some((line) =>
+                    /header/i.test(line),
+                ),
                 "the tabs need a short header, and the model is what writes it",
             );
         });
@@ -302,10 +320,18 @@ describe("pi-ask-question extension", () => {
             const tool = requireTool(host, "ask_user_questions");
             const ctx = createFakeContext({ ui, branch: host.branch });
 
-            const result = await tool.execute("call-1", { questions: QUESTIONS }, undefined, undefined, ctx);
+            const result = await tool.execute(
+                "call-1",
+                { questions: QUESTIONS },
+                undefined,
+                undefined,
+                ctx,
+            );
 
             const requestId = questionManager.getPendingRequests()[0]!.id;
-            const pendingText = String(result.content[0]?.type === "text" ? result.content[0].text : "");
+            const pendingText = String(
+                result.content[0]?.type === "text" ? result.content[0].text : "",
+            );
 
             assert.equal(result.isError, undefined);
             assert.deepEqual(result.details, { status: "pending", requestId });
@@ -316,7 +342,11 @@ describe("pi-ask-question extension", () => {
                 false,
                 "the questions are already in the tool call arguments",
             );
-            assert.equal(pendingText.includes(requestId), false, "the request id is not model-facing");
+            assert.equal(
+                pendingText.includes(requestId),
+                false,
+                "the request id is not model-facing",
+            );
             assert.equal(ui.customCalls.length, 1);
             assert.equal(ui.customCalls[0]!.overlay, true);
             assert.equal(questionManager.getPendingRequests().length, 1);
@@ -333,11 +363,21 @@ describe("pi-ask-question extension", () => {
 
             await tool.execute("call-1", { questions: QUESTIONS }, undefined, undefined, ctx);
 
-            const persisted = host.appendEntryCalls.filter((call) => call.customType === QUESTION_STATE_ENTRY);
+            const persisted = host.appendEntryCalls.filter(
+                (call) => call.customType === QUESTION_STATE_ENTRY,
+            );
             const first = persisted[0]!.data as { requests: unknown[]; outbox: unknown[] };
 
-            assert.equal(persisted.length, 2, "creating and showing the request each write a snapshot");
-            assert.equal(first.requests.length, 1, "the request is in a snapshot before it is shown");
+            assert.equal(
+                persisted.length,
+                2,
+                "creating and showing the request each write a snapshot",
+            );
+            assert.equal(
+                first.requests.length,
+                1,
+                "the request is in a snapshot before it is shown",
+            );
             assert.deepEqual(first.outbox, [], "and nothing is waiting for delivery yet");
         });
 
@@ -346,7 +386,13 @@ describe("pi-ask-question extension", () => {
             const tool = requireTool(host, "ask_user_questions");
             const ctx = createFakeContext({ ui, mode: "print", branch: host.branch });
 
-            const result = await tool.execute("call-1", { questions: QUESTIONS }, undefined, undefined, ctx);
+            const result = await tool.execute(
+                "call-1",
+                { questions: QUESTIONS },
+                undefined,
+                undefined,
+                ctx,
+            );
 
             assert.equal(result.isError, true);
             assert.deepEqual(result.details, { status: "unavailable" });
@@ -371,7 +417,11 @@ describe("pi-ask-question extension", () => {
             assert.deepEqual(call.options, { triggerTurn: true, deliverAs: "steer" });
             assert.match(String(call.message.content), /The user answered these questions\./);
             assert.match(String(call.message.content), /Which database\?/);
-            assert.equal(String(call.message.content).includes("Q1"), false, "the answer must not invent a question number");
+            assert.equal(
+                String(call.message.content).includes("Q1"),
+                false,
+                "the answer must not invent a question number",
+            );
             assert.match(String(call.message.content), /answer: selected: 1\. Postgres/);
 
             const details = call.message.details as { status: string; answers: unknown[] };
@@ -392,7 +442,10 @@ describe("pi-ask-question extension", () => {
                             header: "Storage",
                             question: "Which database?",
                             displayText: "DISPLAY_SENTINEL",
-                            options: [{ label: "Postgres", preview: "PREVIEW_SENTINEL" }, { label: "SQLite" }],
+                            options: [
+                                { label: "Postgres", preview: "PREVIEW_SENTINEL" },
+                                { label: "SQLite" },
+                            ],
                         },
                     ],
                 },
@@ -410,10 +463,24 @@ describe("pi-ask-question extension", () => {
             );
 
             const details = JSON.stringify(call.message.details);
-            assert.equal(details.includes("PREVIEW_SENTINEL"), false, "a preview must not enter the session transcript");
-            assert.equal(details.includes("DISPLAY_SENTINEL"), false, "neither must the display text");
-            assert.equal(details.includes("Postgres"), true, "the answer row still names the options");
-            assert.deepEqual((call.message.details as { answers: unknown[] }).answers, [{ selectedIndexes: [0] }]);
+            assert.equal(
+                details.includes("PREVIEW_SENTINEL"),
+                false,
+                "a preview must not enter the session transcript",
+            );
+            assert.equal(
+                details.includes("DISPLAY_SENTINEL"),
+                false,
+                "neither must the display text",
+            );
+            assert.equal(
+                details.includes("Postgres"),
+                true,
+                "the answer row still names the options",
+            );
+            assert.deepEqual((call.message.details as { answers: unknown[] }).answers, [
+                { selectedIndexes: [0] },
+            ]);
         });
 
         it("attempts delivery of a skip as a follow-up message", async () => {
@@ -425,7 +492,10 @@ describe("pi-ask-question extension", () => {
             ui.panel!.handleInput?.("S");
 
             assert.equal(host.sendMessageCalls.length, 1);
-            assert.match(String(host.sendMessageCalls[0]!.message.content), /skipped these questions/);
+            assert.match(
+                String(host.sendMessageCalls[0]!.message.content),
+                /skipped these questions/,
+            );
         });
 
         it("attempts delivery of a settled answer exactly once", async () => {
@@ -438,7 +508,10 @@ describe("pi-ask-question extension", () => {
             ui.panel!.handleInput?.("S");
 
             assert.equal(host.sendMessageCalls.length, 1);
-            assert.equal((host.sendMessageCalls[0]!.message.details as { status: string }).status, "answered");
+            assert.equal(
+                (host.sendMessageCalls[0]!.message.details as { status: string }).status,
+                "answered",
+            );
         });
 
         it("attempts to deliver a settled answer, and reports a delivery that throws", async () => {
@@ -458,7 +531,9 @@ describe("pi-ask-question extension", () => {
 
             assert.equal(questionManager.getPendingRequests().length, 0);
             assert.ok(
-                ui.notifyCalls.some((call) => call.type === "error" && /could not be delivered/.test(call.message)),
+                ui.notifyCalls.some(
+                    (call) => call.type === "error" && /could not be delivered/.test(call.message),
+                ),
                 `expected a delivery error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
         });
@@ -499,7 +574,11 @@ describe("pi-ask-question extension", () => {
      */
     describe("durable answer delivery", () => {
         const SECOND: AskQuestion[] = [
-            { header: "Port", question: "Which port?", options: [{ label: "8080" }, { label: "9090" }] },
+            {
+                header: "Port",
+                question: "Which port?",
+                options: [{ label: "8080" }, { label: "9090" }],
+            },
         ];
 
         it("keeps an answered request durable until delivery is acknowledged", async () => {
@@ -520,13 +599,21 @@ describe("pi-ask-question extension", () => {
 
             answerFocusedOption(ui);
 
-            assert.deepEqual(durableAtAttempt, [{ selectedIndexes: [0] }], "the answer is durable before the attempt");
+            assert.deepEqual(
+                durableAtAttempt,
+                [{ selectedIndexes: [0] }],
+                "the answer is durable before the attempt",
+            );
             assert.deepEqual(
                 durableAnswers(host.branch, requestId),
                 [{ selectedIndexes: [0] }],
                 "and it stays durable while the delivery is unacknowledged",
             );
-            assert.equal(questionManager.getPendingRequests().length, 0, "the request is settled, not pending");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "the request is settled, not pending",
+            );
         });
 
         it("does not treat a sendMessage call as a delivery acknowledgement", async () => {
@@ -536,7 +623,11 @@ describe("pi-ask-question extension", () => {
             const requestId = questionManager.getPendingRequests()[0]!.id;
             answerFocusedOption(ui);
 
-            assert.equal(deliveryAttempts(host, requestId).length, 1, "the extension asked pi to deliver");
+            assert.equal(
+                deliveryAttempts(host, requestId).length,
+                1,
+                "the extension asked pi to deliver",
+            );
             assert.equal(host.committedMessages.length, 0, "but pi never accepted the message");
             assert.deepEqual(
                 durableAnswers(host.branch, requestId),
@@ -564,9 +655,21 @@ describe("pi-ask-question extension", () => {
             // The branch now carries the message; re-reading it must mark the answer delivered.
             await host.fire("session_tree", createFakeContext({ ui, branch: host.branch }));
 
-            assert.equal(durableAnswers(host.branch, requestId), undefined, "the acknowledged answer may be released");
-            assert.equal(deliveryAttempts(host, requestId).length, 1, "and is not sent a second time");
-            assert.equal(questionManager.getPendingRequests().length, 0, "delivered is not pending");
+            assert.equal(
+                durableAnswers(host.branch, requestId),
+                undefined,
+                "the acknowledged answer may be released",
+            );
+            assert.equal(
+                deliveryAttempts(host, requestId).length,
+                1,
+                "and is not sent a second time",
+            );
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "delivered is not pending",
+            );
         });
 
         it("releases a committed answer when the run settles, without sending it again", async () => {
@@ -579,8 +682,16 @@ describe("pi-ask-question extension", () => {
 
             await host.fire("agent_settled", createFakeContext({ ui, branch: host.branch }));
 
-            assert.equal(durableAnswers(host.branch, requestId), undefined, "the confirmed answer leaves the outbox");
-            assert.equal(deliveryAttempts(host, requestId).length, 1, "and is not sent a second time");
+            assert.equal(
+                durableAnswers(host.branch, requestId),
+                undefined,
+                "the confirmed answer leaves the outbox",
+            );
+            assert.equal(
+                deliveryAttempts(host, requestId).length,
+                1,
+                "and is not sent a second time",
+            );
         });
 
         it("keeps an uncommitted answer when the run settles, without sending it again", async () => {
@@ -593,8 +704,16 @@ describe("pi-ask-question extension", () => {
             // An abort can clear pi's queue; a send here would restart the run the user stopped.
             await host.fire("agent_settled", createFakeContext({ ui, branch: host.branch }));
 
-            assert.deepEqual(durableAnswers(host.branch, requestId), [{ selectedIndexes: [0] }], "the answer stays durable");
-            assert.equal(deliveryAttempts(host, requestId).length, 1, "and waits for the next session start or tree move");
+            assert.deepEqual(
+                durableAnswers(host.branch, requestId),
+                [{ selectedIndexes: [0] }],
+                "the answer stays durable",
+            );
+            assert.equal(
+                deliveryAttempts(host, requestId).length,
+                1,
+                "and waits for the next session start or tree move",
+            );
         });
 
         it("restores an answered-but-undelivered request without reopening the question", async () => {
@@ -607,17 +726,30 @@ describe("pi-ask-question extension", () => {
 
             const second = await restart(first);
 
-            assert.deepEqual(durableAnswers(branch, requestId), [{ selectedIndexes: [0] }], "the answers survived");
-            assert.equal(questionManager.getPendingRequests().length, 0, "the user is not asked again");
+            assert.deepEqual(
+                durableAnswers(branch, requestId),
+                [{ selectedIndexes: [0] }],
+                "the answers survived",
+            );
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "the user is not asked again",
+            );
             assert.equal(questionManager.nextPendingRequest(), undefined);
-            assert.equal(second.ui.mountedWidget("belowEditor", WIDGET_KEY), undefined, "the dock stays quiet");
-
-            await second.host.commands.get("question")!.handler(
-                "",
-                createFakeContext({ ui: second.ui, branch }),
+            assert.equal(
+                second.ui.mountedWidget("belowEditor", WIDGET_KEY),
+                undefined,
+                "the dock stays quiet",
             );
 
-            assert.deepEqual(second.ui.notifyCalls, [{ message: "No pending questions", type: "info" }]);
+            await second.host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui: second.ui, branch }));
+
+            assert.deepEqual(second.ui.notifyCalls, [
+                { message: "No pending questions", type: "info" },
+            ]);
             assert.equal(second.ui.customCalls.length, 0, "and no panel reopens");
         });
 
@@ -629,20 +761,36 @@ describe("pi-ask-question extension", () => {
             const requestId = questionManager.getPendingRequests()[0]!.id;
             answerFocusedOption(first.ui);
 
-            assert.equal(deliveryAttempts(first.host, requestId).length, 1, "the first attempt is made");
+            assert.equal(
+                deliveryAttempts(first.host, requestId).length,
+                1,
+                "the first attempt is made",
+            );
             assert.equal(first.host.committedMessages.length, 0, "and never accepted");
 
             const second = await restart(first);
             const retries = deliveryAttempts(second.host, requestId);
 
-            assert.equal(retries.length, 1, "restoring a durable answer with no committed message retries it");
-            assert.equal(retries[0]!.message.customType, ASK_QUESTION_ANSWER_MESSAGE, "as the same kind of message");
+            assert.equal(
+                retries.length,
+                1,
+                "restoring a durable answer with no committed message retries it",
+            );
+            assert.equal(
+                retries[0]!.message.customType,
+                ASK_QUESTION_ANSWER_MESSAGE,
+                "as the same kind of message",
+            );
             assert.deepEqual(
                 (retries[0]!.message.details as { answers: unknown }).answers,
                 [{ selectedIndexes: [0] }],
                 "with the same answers under the same requestId",
             );
-            assert.equal(questionManager.getPendingRequests().length, 0, "without reopening the question");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "without reopening the question",
+            );
         });
 
         it("keeps a skipped request durable and retries it after a restore", async () => {
@@ -653,8 +801,16 @@ describe("pi-ask-question extension", () => {
             const requestId = questionManager.getPendingRequests()[0]!.id;
             first.ui.panel!.handleInput?.("S");
 
-            assert.equal(deliveryAttempts(first.host, requestId).length, 1, "the skip is attempted");
-            assert.equal(questionManager.getPendingRequests().length, 0, "the skip is settled, not pending");
+            assert.equal(
+                deliveryAttempts(first.host, requestId).length,
+                1,
+                "the skip is attempted",
+            );
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "the skip is settled, not pending",
+            );
 
             const second = await restart(first);
             const retries = deliveryAttempts(second.host, requestId);
@@ -662,7 +818,11 @@ describe("pi-ask-question extension", () => {
             assert.equal(retries.length, 1, "a skip takes the same durable path as an answer");
             assert.equal((retries[0]!.message.details as { status: unknown }).status, "skipped");
             assert.match(String(retries[0]!.message.content), /skipped these questions/);
-            assert.equal(questionManager.getPendingRequests().length, 0, "without reopening the question");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "without reopening the question",
+            );
         });
 
         it("does not redeliver an answer already committed to the session", async () => {
@@ -682,15 +842,31 @@ describe("pi-ask-question extension", () => {
 
             const second = await restart(first);
 
-            assert.equal(deliveryAttempts(second.host, requestId).length, 0, "the committed answer is not sent again");
-            assert.equal(durableAnswers(branch, requestId), undefined, "and its durable copy is released");
-            assert.equal(questionManager.getPendingRequests().length, 0, "a delivered answer is not a pending question");
+            assert.equal(
+                deliveryAttempts(second.host, requestId).length,
+                0,
+                "the committed answer is not sent again",
+            );
+            assert.equal(
+                durableAnswers(branch, requestId),
+                undefined,
+                "and its durable copy is released",
+            );
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "a delivered answer is not a pending question",
+            );
 
             // Reconciliation is idempotent: a second pass must not produce another message either.
             await second.host.fire("session_tree", createFakeContext({ ui: second.ui, branch }));
 
             assert.equal(deliveryAttempts(second.host, requestId).length, 0);
-            assert.equal(committedAnswers(branch, requestId).length, 1, "the session holds exactly one answer message");
+            assert.equal(
+                committedAnswers(branch, requestId).length,
+                1,
+                "the session holds exactly one answer message",
+            );
         });
 
         it("matches the acknowledgement by requestId instead of message order", async () => {
@@ -702,7 +878,10 @@ describe("pi-ask-question extension", () => {
 
             answerFocusedOption(first.ui);
             const firstId = attemptedRequestId(first.host.sendMessageCalls[0]!)!;
-            assert.ok(await waitUntil(() => first.ui.customCalls.length === 2), "the second request surfaces to be answered");
+            assert.ok(
+                await waitUntil(() => first.ui.customCalls.length === 2),
+                "the second request surfaces to be answered",
+            );
             answerFocusedOption(first.ui);
             const secondId = attemptedRequestId(first.host.sendMessageCalls[1]!)!;
             assert.notEqual(firstId, secondId);
@@ -712,10 +891,26 @@ describe("pi-ask-question extension", () => {
 
             const second = await restart(first);
 
-            assert.equal(deliveryAttempts(second.host, secondId).length, 0, "the committed answer is not retried");
-            assert.equal(deliveryAttempts(second.host, firstId).length, 1, "the uncommitted one is");
-            assert.deepEqual(durableAnswers(branch, firstId), [{ selectedIndexes: [0] }], "the uncommitted answer stays durable");
-            assert.equal(durableAnswers(branch, secondId), undefined, "the committed answer is released");
+            assert.equal(
+                deliveryAttempts(second.host, secondId).length,
+                0,
+                "the committed answer is not retried",
+            );
+            assert.equal(
+                deliveryAttempts(second.host, firstId).length,
+                1,
+                "the uncommitted one is",
+            );
+            assert.deepEqual(
+                durableAnswers(branch, firstId),
+                [{ selectedIndexes: [0] }],
+                "the uncommitted answer stays durable",
+            );
+            assert.equal(
+                durableAnswers(branch, secondId),
+                undefined,
+                "the committed answer is released",
+            );
         });
 
         it("keeps an answer durable when the delivery attempt throws", async () => {
@@ -738,7 +933,9 @@ describe("pi-ask-question extension", () => {
                 "and stays durable so a retry can still deliver it",
             );
             assert.ok(
-                ui.notifyCalls.some((call) => call.type === "error" && /could not be delivered/.test(call.message)),
+                ui.notifyCalls.some(
+                    (call) => call.type === "error" && /could not be delivered/.test(call.message),
+                ),
                 `expected a delivery error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
         });
@@ -750,15 +947,32 @@ describe("pi-ask-question extension", () => {
             const requestId = questionManager.getPendingRequests()[0]!.id;
             answerFocusedOption(ui);
 
-            assert.deepEqual(durableAnswers(host.branch, requestId), [{ selectedIndexes: [0] }], "the answer is undelivered");
+            assert.deepEqual(
+                durableAnswers(host.branch, requestId),
+                [{ selectedIndexes: [0] }],
+                "the answer is undelivered",
+            );
             assert.equal(questionManager.getPendingRequests().length, 0);
             assert.equal(questionManager.nextPendingRequest(), undefined);
-            assert.equal(ui.mountedWidget("belowEditor", WIDGET_KEY), undefined, "the dock does not offer it");
+            assert.equal(
+                ui.mountedWidget("belowEditor", WIDGET_KEY),
+                undefined,
+                "the dock does not offer it",
+            );
 
-            await host.commands.get("question")!.handler("", createFakeContext({ ui, branch: host.branch }));
+            await host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui, branch: host.branch }));
 
-            assert.deepEqual(ui.notifyCalls.at(-1), { message: "No pending questions", type: "info" });
-            assert.equal(ui.customCalls.length, 1, "the panel that was answered is the only one that opened");
+            assert.deepEqual(ui.notifyCalls.at(-1), {
+                message: "No pending questions",
+                type: "info",
+            });
+            assert.equal(
+                ui.customCalls.length,
+                1,
+                "the panel that was answered is the only one that opened",
+            );
         });
 
         it("keeps delivery state isolated across a branch restore", async () => {
@@ -770,26 +984,62 @@ describe("pi-ask-question extension", () => {
             const requestId = questionManager.getPendingRequests()[0]!.id;
             answerFocusedOption(session.ui);
 
-            assert.deepEqual(durableAnswers(branchA, requestId), [{ selectedIndexes: [0] }], "branch A holds the undelivered answer");
+            assert.deepEqual(
+                durableAnswers(branchA, requestId),
+                [{ selectedIndexes: [0] }],
+                "branch A holds the undelivered answer",
+            );
             assert.equal(deliveryAttempts(session.host, requestId).length, 1);
 
             await switchBranch(session, branchB);
 
-            assert.equal(deliveryAttempts(session.host, requestId).length, 1, "branch B must not deliver A's answer");
+            assert.equal(
+                deliveryAttempts(session.host, requestId).length,
+                1,
+                "branch B must not deliver A's answer",
+            );
             assert.equal(questionManager.getPendingRequests().length, 0);
-            assert.deepEqual(durableAnswers(branchA, requestId), [{ selectedIndexes: [0] }], "and must not clear it from A");
+            assert.deepEqual(
+                durableAnswers(branchA, requestId),
+                [{ selectedIndexes: [0] }],
+                "and must not clear it from A",
+            );
 
             await switchBranch(session, branchA);
 
-            assert.deepEqual(durableAnswers(branchA, requestId), [{ selectedIndexes: [0] }], "A still holds its answer");
-            assert.equal(deliveryAttempts(session.host, requestId).length, 2, "and retries it on return");
-            assert.equal(questionManager.getPendingRequests().length, 0, "without asking the user again");
+            assert.deepEqual(
+                durableAnswers(branchA, requestId),
+                [{ selectedIndexes: [0] }],
+                "A still holds its answer",
+            );
+            assert.equal(
+                deliveryAttempts(session.host, requestId).length,
+                2,
+                "and retries it on return",
+            );
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "without asking the user again",
+            );
         });
     });
 
     describe("multiple pending requests", () => {
-        const SECOND: AskQuestion[] = [{ header: "Port", question: "Which port?", options: [{ label: "8080" }, { label: "9090" }] }];
-        const THIRD: AskQuestion[] = [{ header: "Host", question: "Which host?", options: [{ label: "local" }, { label: "remote" }] }];
+        const SECOND: AskQuestion[] = [
+            {
+                header: "Port",
+                question: "Which port?",
+                options: [{ label: "8080" }, { label: "9090" }],
+            },
+        ];
+        const THIRD: AskQuestion[] = [
+            {
+                header: "Host",
+                question: "Which host?",
+                options: [{ label: "local" }, { label: "remote" }],
+            },
+        ];
 
         it("surfaces the next request once the current one is answered", async () => {
             const { host, ui } = await startSession();
@@ -801,7 +1051,10 @@ describe("pi-ask-question extension", () => {
             assert.equal(ui.customCalls.length, 1, "one panel at a time");
 
             answerFocusedOption(ui);
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the queued request surfaces without /question");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the queued request surfaces without /question",
+            );
             assert.match(panelText(ui), /Which port\?/);
         });
 
@@ -820,12 +1073,21 @@ describe("pi-ask-question extension", () => {
             assert.match(panelText(ui), /Which database\?/, "the first call owns the panel");
             assert.equal(questionManager.getPendingRequests().length, 2);
             // The dock names the question the panel would show next, which is the queued one.
-            assert.match(String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]), /2 pending questions · Which port\?/);
+            assert.match(
+                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
+                /2 pending questions · Which port\?/,
+            );
 
             answerFocusedOption(ui);
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the queued call surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the queued call surfaces",
+            );
             assert.match(panelText(ui), /Which port\?/);
-            assert.match(String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]), /1 pending question · Which port\?/);
+            assert.match(
+                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
+                /1 pending question · Which port\?/,
+            );
         });
 
         it("walks through three pending requests in order", async () => {
@@ -836,11 +1098,17 @@ describe("pi-ask-question extension", () => {
             await ask(host, ui, THIRD, "call-3");
 
             answerFocusedOption(ui);
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the second request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the second request surfaces",
+            );
             assert.match(panelText(ui), /Which port\?/);
 
             answerFocusedOption(ui);
-            assert.ok(await waitUntil(() => ui.customCalls.length === 3), "the third request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 3),
+                "the third request surfaces",
+            );
             assert.match(panelText(ui), /Which host\?/);
 
             answerFocusedOption(ui);
@@ -860,9 +1128,16 @@ describe("pi-ask-question extension", () => {
 
             await ask(host, ui, SECOND, "call-2");
 
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the new request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the new request surfaces",
+            );
             assert.match(panelText(ui), /Which port\?/);
-            assert.equal(questionManager.getPendingRequests().length, 2, "the deferred request stays pending");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                2,
+                "the deferred request stays pending",
+            );
         });
 
         it("stops auto-surfacing after a defer and keeps the request pending", async () => {
@@ -877,8 +1152,13 @@ describe("pi-ask-question extension", () => {
             assert.equal(questionManager.getPendingRequests().length, 1);
 
             // The explicit command is what brings the panel back.
-            void host.commands.get("question")!.handler("", createFakeContext({ ui, branch: host.branch }));
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "/question reopens the request");
+            void host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui, branch: host.branch }));
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "/question reopens the request",
+            );
             assert.match(panelText(ui), /Which database\?/);
         });
 
@@ -892,7 +1172,10 @@ describe("pi-ask-question extension", () => {
             await drain();
 
             await ask(host, ui, SECOND, "call-2");
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the new request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the new request surfaces",
+            );
             assert.match(panelText(ui), /Which port\?/);
 
             ui.panel!.handleInput?.("\x1b");
@@ -902,8 +1185,13 @@ describe("pi-ask-question extension", () => {
             assert.equal(questionManager.getPendingRequests().length, 2);
 
             // Nothing is unseen any more, so `/question` returns to the least recently shown one.
-            void host.commands.get("question")!.handler("", createFakeContext({ ui, branch: host.branch }));
-            assert.ok(await waitUntil(() => ui.customCalls.length === 3), "/question reopens a pending request");
+            void host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui, branch: host.branch }));
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 3),
+                "/question reopens a pending request",
+            );
             assert.match(panelText(ui), /Which database\?/);
         });
 
@@ -922,11 +1210,18 @@ describe("pi-ask-question extension", () => {
 
             await ask(host, ui, withPreview("second preview"), "call-2");
             answerFocusedOption(ui);
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the second request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the second request surfaces",
+            );
 
             const rendered = panelText(ui, 140);
             assert.match(rendered, /second preview/);
-            assert.equal(rendered.includes("first preview"), false, "a new panel must not reuse the old cache");
+            assert.equal(
+                rendered.includes("first preview"),
+                false,
+                "a new panel must not reuse the old cache",
+            );
         });
 
         it("keeps the dock on the request /question would reopen", async () => {
@@ -938,7 +1233,10 @@ describe("pi-ask-question extension", () => {
             await drain();
 
             await ask(host, ui, SECOND, "call-2");
-            assert.ok(await waitUntil(() => ui.customCalls.length === 2), "the new request surfaces");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 2),
+                "the new request surfaces",
+            );
 
             // Showing the second request moved it behind the deferred first one, and the dock
             // has to say so while the second panel is still up.
@@ -956,9 +1254,14 @@ describe("pi-ask-question extension", () => {
                 /2 pending questions · Which database\?/,
             );
 
-            void host.commands.get("question")!.handler("", createFakeContext({ ui, branch: host.branch }));
+            void host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui, branch: host.branch }));
 
-            assert.ok(await waitUntil(() => ui.customCalls.length === 3), "/question opens the request the dock names");
+            assert.ok(
+                await waitUntil(() => ui.customCalls.length === 3),
+                "/question opens the request the dock names",
+            );
             assert.match(panelText(ui), /Which database\?/);
         });
     });
@@ -994,7 +1297,9 @@ describe("pi-ask-question extension", () => {
             void host.commands.get("question")!.handler("", ctx);
 
             assert.equal(ui.customCalls.length, 2);
-            assert.ok(questionManager.getPendingRequest(questionManager.getPendingRequests()[0]!.id));
+            assert.ok(
+                questionManager.getPendingRequest(questionManager.getPendingRequests()[0]!.id),
+            );
 
             ui.panel!.handleInput?.("\x1b");
             await ui.panelClosed;
@@ -1032,17 +1337,22 @@ describe("pi-ask-question extension", () => {
                 "1 pending question · Which database? · /question to answer",
             );
 
-            void second.host.commands.get("question")!.handler(
-                "",
-                createFakeContext({ ui: second.ui, branch }),
-            );
+            void second.host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui: second.ui, branch }));
             assert.ok(second.ui.panel, "the restored question must be answerable");
         });
 
         it("clears the dock and the pending list on shutdown", async () => {
             const { host, ui, branch } = await startSession();
             const tool = requireTool(host, "ask_user_questions");
-            await tool.execute("call-1", { questions: QUESTIONS }, undefined, undefined, createFakeContext({ ui, branch }));
+            await tool.execute(
+                "call-1",
+                { questions: QUESTIONS },
+                undefined,
+                undefined,
+                createFakeContext({ ui, branch }),
+            );
 
             await host.fire("session_shutdown", createFakeContext({ ui, branch }));
 
@@ -1062,7 +1372,10 @@ describe("pi-ask-question extension", () => {
                 undefined,
                 createFakeContext({ ui: first.ui, branch }),
             );
-            await first.host.fire("session_before_tree", createFakeContext({ ui: first.ui, branch }));
+            await first.host.fire(
+                "session_before_tree",
+                createFakeContext({ ui: first.ui, branch }),
+            );
 
             // The new branch is the same array in this fake, so the snapshot is found again.
             await first.host.fire("session_tree", createFakeContext({ ui: first.ui, branch }));
@@ -1074,9 +1387,14 @@ describe("pi-ask-question extension", () => {
             const session = await startSession();
 
             await switchBranch(session, session.host.branch);
-            await session.host.fire("session_shutdown", createFakeContext({ ui: session.ui, branch: session.host.branch }));
+            await session.host.fire(
+                "session_shutdown",
+                createFakeContext({ ui: session.ui, branch: session.host.branch }),
+            );
 
-            const writes = session.host.appendEntryCalls.filter((call) => call.customType === QUESTION_STATE_ENTRY);
+            const writes = session.host.appendEntryCalls.filter(
+                (call) => call.customType === QUESTION_STATE_ENTRY,
+            );
 
             assert.equal(writes.length, 0);
         });
@@ -1090,8 +1408,16 @@ describe("pi-ask-question extension", () => {
             // The fake jumps back onto the same branch, which already records this state.
             await switchBranch(session, session.host.branch);
 
-            assert.equal(questionManager.getPendingRequests().length, 1, "the request is restored from the branch");
-            assert.equal(session.host.appendEntryCalls.length, writesBefore, "and the same state is not written again");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                1,
+                "the request is restored from the branch",
+            );
+            assert.equal(
+                session.host.appendEntryCalls.length,
+                writesBefore,
+                "and the same state is not written again",
+            );
         });
 
         it("does not let a stale overlay release the panel of the session that replaced it", async () => {
@@ -1103,11 +1429,19 @@ describe("pi-ask-question extension", () => {
             // The session is replaced while the first overlay is still up.
             const replacement = createFakeUi();
             const replacementQuestions: AskQuestion[] = [
-                { header: "Port", question: "Which port?", options: [{ label: "8080" }, { label: "9090" }] },
+                {
+                    header: "Port",
+                    question: "Which port?",
+                    options: [{ label: "8080" }, { label: "9090" }],
+                },
             ];
             await host.fire("session_start", createFakeContext({ ui: replacement, branch: [] }));
             await ask(host, replacement, replacementQuestions, "call-2");
-            assert.equal(replacement.customCalls.length, 1, "the replacement session owns its own panel");
+            assert.equal(
+                replacement.customCalls.length,
+                1,
+                "the replacement session owns its own panel",
+            );
 
             // A disposed overlay can still resolve late: it must neither continue into the new
             // session's queue nor release the ownership of the panel that is up.
@@ -1134,7 +1468,11 @@ describe("pi-ask-question extension", () => {
             // instance, which is what a reload looks like from the module's side.
             await host.fire("session_start", createFakeContext({ ui: replacement, branch: [] }));
 
-            assert.equal(ui.widgetCalls.length, writesToFirst, "the replaced session's ui must not be written to");
+            assert.equal(
+                ui.widgetCalls.length,
+                writesToFirst,
+                "the replaced session's ui must not be written to",
+            );
             assert.equal(
                 replacement.mountedWidget("belowEditor", WIDGET_KEY),
                 undefined,
@@ -1151,7 +1489,11 @@ describe("pi-ask-question extension", () => {
             // The overlay never resolves while the branch changes under it.
             await host.fire("session_tree", createFakeContext({ ui, branch }));
 
-            assert.equal(questionManager.getPendingRequests().length, 1, "the branch still holds the request");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                1,
+                "the branch still holds the request",
+            );
 
             void host.commands.get("question")!.handler("", createFakeContext({ ui, branch }));
 
@@ -1169,7 +1511,9 @@ describe("pi-ask-question extension", () => {
 
             assert.ok(ui.panel, "the question is still askable");
             assert.ok(
-                ui.notifyCalls.some((call) => call.type === "error" && /could not be saved/.test(call.message)),
+                ui.notifyCalls.some(
+                    (call) => call.type === "error" && /could not be saved/.test(call.message),
+                ),
                 `expected a snapshot error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
         });
@@ -1189,14 +1533,22 @@ describe("pi-ask-question extension", () => {
             await drain();
 
             assert.ok(
-                ui.notifyCalls.some((call) => call.type === "error" && /could not be saved/.test(call.message)),
+                ui.notifyCalls.some(
+                    (call) => call.type === "error" && /could not be saved/.test(call.message),
+                ),
                 `expected a snapshot error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
-            assert.equal(questionManager.getPendingRequests().length, 1, "the request stays pending");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                1,
+                "the request stays pending",
+            );
             assert.equal(ui.customCalls.length, 1, "a defer is quiet");
 
             // The overlay released its ownership instead of sticking on screen.
-            void host.commands.get("question")!.handler("", createFakeContext({ ui, branch: host.branch }));
+            void host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui, branch: host.branch }));
 
             assert.equal(ui.customCalls.length, 2, "/question can open the deferred request again");
         });
@@ -1214,10 +1566,16 @@ describe("pi-ask-question extension", () => {
 
             await host.fire("session_shutdown", createFakeContext({ ui, branch }));
 
-            assert.equal(questionManager.getPendingRequests().length, 0, "shutdown still clears the state");
+            assert.equal(
+                questionManager.getPendingRequests().length,
+                0,
+                "shutdown still clears the state",
+            );
             assert.equal(ui.mountedWidget("belowEditor", WIDGET_KEY), undefined, "and the dock");
             assert.ok(
-                ui.notifyCalls.some((call) => call.type === "error" && /could not be saved/.test(call.message)),
+                ui.notifyCalls.some(
+                    (call) => call.type === "error" && /could not be saved/.test(call.message),
+                ),
                 `expected a snapshot error notice, got ${JSON.stringify(ui.notifyCalls)}`,
             );
         });
@@ -1239,12 +1597,14 @@ describe("pi-ask-question extension", () => {
                 "ask_user_questions 1 question\nWhich data",
                 "ask_user_questions 2 questions\nWhich database?",
             ];
-            const actual = stages.map((args) => stripTerminalSequences(
-                tool.renderCall!(args, createFakeTheme(), {})
-                    .render(120)
-                    .map((line) => line.trimEnd())
-                    .join("\n"),
-            ));
+            const actual = stages.map((args) =>
+                stripTerminalSequences(
+                    tool.renderCall!(args, createFakeTheme(), {})
+                        .render(120)
+                        .map((line) => line.trimEnd())
+                        .join("\n"),
+                ),
+            );
 
             assert.deepEqual(actual, expected);
         });
@@ -1276,7 +1636,11 @@ describe("pi-ask-question extension", () => {
             const text = stripTerminalSequences(component!.render(120).join("\n"));
             assert.match(text, /Questions answered/);
             assert.match(text, /Which database\?/);
-            assert.equal(text.includes("Q1"), false, "the answer must not invent a question number");
+            assert.equal(
+                text.includes("Q1"),
+                false,
+                "the answer must not invent a question number",
+            );
             assert.match(text, /selected: 2\. SQLite/);
         });
     });

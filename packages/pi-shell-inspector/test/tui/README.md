@@ -4,22 +4,22 @@
 what a caller observes. This directory adds the other half: the same extension in a real interactive
 pi session, driven by a scripted model. Nothing is asserted here - the human watching the TUI decides.
 
-| | real | scripted |
-| --- | --- | --- |
-| session | pi itself: interactive TUI, agent loop, tool-result plumbing | the model: pi-ai's `fauxProvider()`, answering from this directory's scripts |
-| extension | `src/index.ts` loaded with `-e`: delegates foreground calls, starts background jobs | — |
-| execution | pi's built-in `bash` tool spawns and streams the fixture command (or the local bash operations stream into a shell job) | — |
-| rendering | pi's own TUI; the wrapper delegates foreground rows to the built-in bash renderers and draws background rows empty | — |
-| network | nothing: `--offline`, no API key, no provider request | — |
+|           | real                                                                                                                    | scripted                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| session   | pi itself: interactive TUI, agent loop, tool-result plumbing                                                            | the model: pi-ai's `fauxProvider()`, answering from this directory's scripts |
+| extension | `src/index.ts` loaded with `-e`: delegates foreground calls, starts background jobs                                     | —                                                                            |
+| execution | pi's built-in `bash` tool spawns and streams the fixture command (or the local bash operations stream into a shell job) | —                                                                            |
+| rendering | pi's own TUI; the wrapper delegates foreground rows to the built-in bash renderers and draws background rows empty      | —                                                                            |
+| network   | nothing: `--offline`, no API key, no provider request                                                                   | —                                                                            |
 
 ## Scenarios
 
-| scenario | command | shows |
-| --- | --- | --- |
-| `selection` (default) | `npm run tui:demo` | the existing foreground/background mode walkthrough, then a multi-line shell with `/shell` opened automatically |
-| `fixture` | `npm run tui:demo -- <fixture-id>` | one scripted `bash` call: the row for a foreground call, the dock for a background one (`LUNE_SHELL_INSPECTOR_MODE=background`) |
-| `shelldocksum` | `npm run tui:demo -- shelldocksum` | every dock summary shape in one run, plus the `/shell` inspector scroll demo |
-| `subagent` | `npm run tui:demo -- subagent` | a background `bash` call and a foreground subagent running together: shell dock + pi-subagents widget side by side |
+| scenario              | command                            | shows                                                                                                                           |
+| --------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `selection` (default) | `npm run tui:demo`                 | the existing foreground/background mode walkthrough, then a multi-line shell with `/shell` opened automatically                 |
+| `fixture`             | `npm run tui:demo -- <fixture-id>` | one scripted `bash` call: the row for a foreground call, the dock for a background one (`LUNE_SHELL_INSPECTOR_MODE=background`) |
+| `shelldocksum`        | `npm run tui:demo -- shelldocksum` | every dock summary shape in one run, plus the `/shell` inspector scroll demo                                                    |
+| `subagent`            | `npm run tui:demo -- subagent`     | a background `bash` call and a foreground subagent running together: shell dock + pi-subagents widget side by side              |
 
 - `bash-selection-scenario.ts` (`selection`, the default) first queues the existing foreground and
   background selection walkthrough plus its closing text. After it settles, the scenario starts a
@@ -35,21 +35,21 @@ pi session, driven by a scripted model. Nothing is asserted here - the human wat
   `LUNE_SHELL_INSPECTOR_COMMAND` and `LUNE_SHELL_INSPECTOR_TIMEOUT` change that original background
   command; the final multi-line reproduction command is fixed.
 - `scripted-provider.ts` (`fixture`) queues exactly two responses: a `fauxToolCall("bash", {
-  command[, timeout][, mode] })` with `stopReason: "toolUse"`, then `fixture finished`. The default
+command[, timeout][, mode] })` with `stopReason: "toolUse"`, then `fixture finished`. The default
   mode is foreground, so the row streams; `LUNE_SHELL_INSPECTOR_MODE=background` turns the same call into a
   managed shell job and moves the observation to the dock and `/shell`.
-- `shelldock-summary-scenario.ts` (`shelldocksum`) queues four turns of *background* bash calls - the
+- `shelldock-summary-scenario.ts` (`shelldocksum`) queues four turns of _background_ bash calls - the
   `long-output` fixture alone (200 streaming lines, longer than the inspector's pane), a long `sleep`
   next to a `sleep` that a two-second timeout fails, then two settling sleeps - walking the dock
   through one running, one completed, mixed counts and a failed shell. It notifies `press /shell to
-  scroll this output (⇧↑/⇧↓, Home/End)` when the long fixture starts. The sequence is fixed; observer
+scroll this output (⇧↑/⇧↓, Home/End)` when the long fixture starts. The sequence is fixed; observer
   variables do not change it.
 - `subagent-scenario.ts` (`subagent`) registers the same faux provider plus, at `session_start`, the
   offline probe agent `pi-shell-inspector-probe` (through `pi-subagents:runtime-agent-register:v1`). One
   response factory tells parent from probe by a marker in the probe's system prompt, so interleaving
   does not matter: parent turn 1 asks for sibling background `bash` and foreground
   `subagent({ async: false })` calls, the probe runs its own long foreground `bash` then `probe
-  finished`, parent turn 2 closes with `fixture finished`.
+finished`, parent turn 2 closes with `fixture finished`.
 - `launch.ts` starts `pi` with the scenario's extensions loaded and stdio inherited, so the TUI draws
   in your terminal (or the pty you capture); it forwards the `LUNE_SHELL_INSPECTOR_*` variables and the
   child's exit code, validates the fixture id and resolves pi-subagents before launching.
@@ -101,7 +101,7 @@ The session stays interactive; quit with `Ctrl+D`, `Ctrl+C` or `/quit`.
 The scripted model picks the mode, so one run shows both paths in order:
 
 1. turn 1 - the model says it needs the result before continuing and sends the quick command
-   *without* a mode: the `$ <command>` row streams and settles like a plain bash call and the
+   _without_ a mode: the `$ <command>` row streams and settles like a plain bash call and the
    extension records nothing (no dock line, no `/shell` job).
 2. turn 2 - the model decides the long fixture may continue on its own and sends
    `mode: "background"`: the call leaves no transcript row at all (the tool answered before the

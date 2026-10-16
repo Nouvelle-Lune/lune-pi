@@ -89,7 +89,11 @@ export interface FakeUi {
     /** Resolves when the latest `custom()` interaction closes. */
     readonly panelClosed: Promise<void> | undefined;
     notify(message: string, type?: string): void;
-    setWidget(key: string, content: string[] | undefined, options?: { placement?: WidgetPlacement }): void;
+    setWidget(
+        key: string,
+        content: string[] | undefined,
+        options?: { placement?: WidgetPlacement },
+    ): void;
     custom<T>(
         factory: (
             tui: TUI,
@@ -229,7 +233,13 @@ export type ExtensionHandler = (event: unknown, ctx: ExtensionContext) => unknow
 export interface FakePiHost {
     readonly api: ExtensionAPI;
     readonly tools: Map<string, unknown>;
-    readonly commands: Map<string, { description?: string; handler: (args: string, ctx: ExtensionContext) => Promise<void> | void }>;
+    readonly commands: Map<
+        string,
+        {
+            description?: string;
+            handler: (args: string, ctx: ExtensionContext) => Promise<void> | void;
+        }
+    >;
     readonly handlers: Map<string, ExtensionHandler[]>;
     readonly messageRenderers: Map<string, MessageRenderer<unknown>>;
     /** Delivery attempts: the extension asked pi to send these; pi has not accepted them. */
@@ -251,7 +261,13 @@ export function createFakePiHost(
     options: { branch?: FakeBranchEntry[] } = {},
 ): FakePiHost {
     const tools = new Map<string, unknown>();
-    const commands = new Map<string, { description?: string; handler: (args: string, ctx: ExtensionContext) => Promise<void> | void }>();
+    const commands = new Map<
+        string,
+        {
+            description?: string;
+            handler: (args: string, ctx: ExtensionContext) => Promise<void> | void;
+        }
+    >();
     const handlers = new Map<string, ExtensionHandler[]>();
     const messageRenderers = new Map<string, MessageRenderer<unknown>>();
     const sendMessageCalls: SendMessageCall[] = [];
@@ -278,7 +294,10 @@ export function createFakePiHost(
             tools.set(tool.name, tool);
         },
 
-        registerCommand(name: string, options: { handler: (args: string, ctx: ExtensionContext) => Promise<void> | void }) {
+        registerCommand(
+            name: string,
+            options: { handler: (args: string, ctx: ExtensionContext) => Promise<void> | void },
+        ) {
             commands.set(name, options);
         },
 

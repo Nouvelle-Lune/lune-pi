@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-    ExtensionAPI,
-    ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type {
     AnswerMessageQuestion,
@@ -45,7 +42,10 @@ export type QuestionManagerEvent =
     | { type: "requests-cleared" };
 
 export type QuestionManagerListener = (event: QuestionManagerEvent) => void;
-export type QuestionManagerListenerErrorHandler = (error: unknown, event: QuestionManagerEvent) => void;
+export type QuestionManagerListenerErrorHandler = (
+    error: unknown,
+    event: QuestionManagerEvent,
+) => void;
 
 export class QuestionManager {
     private readonly pending = new Map<string, AskQuestionRequest>();
@@ -57,7 +57,10 @@ export class QuestionManager {
      * out of the pending queue - until the branch really carries its message.
      */
     private readonly outbox = new Map<string, AskQuestionRequest>();
-    private readonly listeners = new Map<QuestionManagerListener, QuestionManagerListenerErrorHandler | undefined>();
+    private readonly listeners = new Map<
+        QuestionManagerListener,
+        QuestionManagerListenerErrorHandler | undefined
+    >();
     private shownSeqCounter = 0;
     /**
      * JSON of the state the active branch already records, or `undefined` when unknown.
@@ -88,8 +91,9 @@ export class QuestionManager {
 
     /** Pending requests oldest first; this is the order they were created in. */
     getPendingRequests(): readonly AskQuestionRequest[] {
-        return Array.from(this.pending.values())
-            .sort((left, right) => left.createdAt - right.createdAt);
+        return Array.from(this.pending.values()).sort(
+            (left, right) => left.createdAt - right.createdAt,
+        );
     }
 
     /**
@@ -172,8 +176,9 @@ export class QuestionManager {
 
     /** Settled requests whose answer message is not confirmed in the session yet. */
     getUndeliveredRequests(): readonly Readonly<AskQuestionRequest>[] {
-        return Array.from(this.outbox.values())
-            .sort((left, right) => left.createdAt - right.createdAt);
+        return Array.from(this.outbox.values()).sort(
+            (left, right) => left.createdAt - right.createdAt,
+        );
     }
 
     /**
@@ -250,7 +255,10 @@ export class QuestionManager {
      * the listener that writes the snapshot is also the one whose failure would silently
      * lose it, and the others must keep running either way.
      */
-    subscribe(listener: QuestionManagerListener, onError?: QuestionManagerListenerErrorHandler): () => void {
+    subscribe(
+        listener: QuestionManagerListener,
+        onError?: QuestionManagerListenerErrorHandler,
+    ): () => void {
         this.listeners.set(listener, onError);
 
         return () => {
@@ -364,15 +372,18 @@ export function toAnswerMessageQuestion(question: AskQuestion): AnswerMessageQue
 function copyAnswer(answer: AskQuestionAnswer): AskQuestionAnswer {
     return createAnswer(
         Array.isArray(answer.selectedIndexes) ? [...answer.selectedIndexes] : [],
-        typeof answer.customText === "string" && answer.customText.length > 0 ? answer.customText : undefined,
+        typeof answer.customText === "string" && answer.customText.length > 0
+            ? answer.customText
+            : undefined,
     );
 }
 
 /** Custom text is a separate kind of answer, so an unset one is omitted instead of `undefined`. */
-function createAnswer(selectedIndexes: number[], customText: string | undefined): AskQuestionAnswer {
-    return customText === undefined
-        ? { selectedIndexes }
-        : { selectedIndexes, customText };
+function createAnswer(
+    selectedIndexes: number[],
+    customText: string | undefined,
+): AskQuestionAnswer {
+    return customText === undefined ? { selectedIndexes } : { selectedIndexes, customText };
 }
 
 /** A stored answer can come from an older or hand-edited session entry, so it is validated. */
@@ -385,12 +396,14 @@ function normalizeAnswer(value: unknown): AskQuestionAnswer | undefined {
 
     const selectedIndexes = Array.isArray(candidate.selectedIndexes)
         ? candidate.selectedIndexes.filter(
-            (index): index is number => typeof index === "number" && Number.isInteger(index) && index >= 0,
-        )
+              (index): index is number =>
+                  typeof index === "number" && Number.isInteger(index) && index >= 0,
+          )
         : [];
-    const customText = typeof candidate.customText === "string" && candidate.customText.length > 0
-        ? candidate.customText
-        : undefined;
+    const customText =
+        typeof candidate.customText === "string" && candidate.customText.length > 0
+            ? candidate.customText
+            : undefined;
 
     if (selectedIndexes.length === 0 && customText === undefined) {
         return undefined;
@@ -412,7 +425,10 @@ function normalizePendingRequest(saved: AskQuestionRequest): AskQuestionRequest 
     return {
         id: saved.id,
         createdAt: typeof saved.createdAt === "number" ? saved.createdAt : Date.now(),
-        shownSeq: typeof saved.shownSeq === "number" && Number.isFinite(saved.shownSeq) ? saved.shownSeq : undefined,
+        shownSeq:
+            typeof saved.shownSeq === "number" && Number.isFinite(saved.shownSeq)
+                ? saved.shownSeq
+                : undefined,
         questions: saved.questions.map(copyQuestion),
         status: "pending",
         draft: normalizeDraft(saved.draft, saved.questions.length),
@@ -434,7 +450,9 @@ function normalizeSettledRequest(saved: AskQuestionRequest): AskQuestionRequest 
     const request: AskQuestionRequest = {
         id: saved.id,
         createdAt: typeof saved.createdAt === "number" ? saved.createdAt : Date.now(),
-        questions: saved.questions.map((question) => toAnswerMessageQuestion(copyQuestion(question))),
+        questions: saved.questions.map((question) =>
+            toAnswerMessageQuestion(copyQuestion(question)),
+        ),
         status: saved.status,
         draft: emptyDraft(saved.questions.length),
         settledAt: typeof saved.settledAt === "number" ? saved.settledAt : Date.now(),
@@ -461,7 +479,9 @@ function normalizeAnswers(saved: unknown): AskQuestionAnswer[] | undefined {
 
     const answers = saved.map((answer) => normalizeAnswer(answer));
 
-    return answers.every((answer): answer is AskQuestionAnswer => answer !== undefined) ? answers : undefined;
+    return answers.every((answer): answer is AskQuestionAnswer => answer !== undefined)
+        ? answers
+        : undefined;
 }
 
 /** Requests that were never shown sort before every shown one. */
@@ -469,7 +489,10 @@ function shownOrder(request: AskQuestionRequest): number {
     return request.shownSeq ?? -1;
 }
 
-function normalizeDraft(draft: AskQuestionDraft | undefined, questionCount: number): AskQuestionDraft {
+function normalizeDraft(
+    draft: AskQuestionDraft | undefined,
+    questionCount: number,
+): AskQuestionDraft {
     const normalized = emptyDraft(questionCount);
 
     if (!draft) {
@@ -478,7 +501,9 @@ function normalizeDraft(draft: AskQuestionDraft | undefined, questionCount: numb
 
     normalized.currentIndex = clampIndex(draft.currentIndex, questionCount);
     normalized.optionIndex = Math.max(0, draft.optionIndex ?? 0);
-    normalized.answers = normalized.answers.map((_, index) => normalizeAnswer(draft.answers?.[index]));
+    normalized.answers = normalized.answers.map((_, index) =>
+        normalizeAnswer(draft.answers?.[index]),
+    );
     normalized.customDrafts = normalized.customDrafts.map((_, index) => {
         const text = draft.customDrafts?.[index];
 
@@ -516,7 +541,7 @@ function newestSnapshot(ctx: ExtensionContext): AskQuestionStateSnapshot | undef
         const snapshot = entry.data as Partial<AskQuestionStateSnapshot> | undefined;
 
         return snapshot && Array.isArray(snapshot.requests) && Array.isArray(snapshot.outbox)
-            ? snapshot as AskQuestionStateSnapshot
+            ? (snapshot as AskQuestionStateSnapshot)
             : undefined;
     }
 

@@ -55,7 +55,7 @@ function createRenderContext(args: Record<string, unknown>, workDir: string): Re
         toolCallId: "call-render",
         durationMs: undefined,
         outputPad: 1,
-        invalidate: () => { },
+        invalidate: () => {},
         lastComponent: undefined,
         state: { startedAt: undefined, endedAt: undefined, interval: undefined },
         cwd: workDir,
@@ -105,7 +105,10 @@ describe("pi-shell-inspector registration", () => {
         );
 
         const registeredTool = registered.find((entry) => entry.name === "bash");
-        assert.ok(registeredTool, `expected the bash wrapper, got ${registered.map((entry) => entry.name).join(", ") || "no registered tools"}`);
+        assert.ok(
+            registeredTool,
+            `expected the bash wrapper, got ${registered.map((entry) => entry.name).join(", ") || "no registered tools"}`,
+        );
         const builtIn = createBuiltInBash(workDir);
 
         assert.equal(registeredTool.label, "bash", "the wrapper must keep the built-in label");
@@ -149,7 +152,10 @@ describe("pi-shell-inspector registration", () => {
 
         // pi 1.0 reports a declared tool result to codemode through outputSchema; without one a
         // script receives the model-facing text instead of the structured result fields.
-        assert.ok(registeredTool.outputSchema, `the bash wrapper must declare an output schema, got ${String(registeredTool.outputSchema)}`);
+        assert.ok(
+            registeredTool.outputSchema,
+            `the bash wrapper must declare an output schema, got ${String(registeredTool.outputSchema)}`,
+        );
     });
 
     it("registers background_shell with the jobs schema and its own prompt metadata", () => {
@@ -159,8 +165,16 @@ describe("pi-shell-inspector registration", () => {
         const schema = tool.parameters as TSchema;
 
         assert.equal(Value.Check(schema, {}), true, "omitting jobs must list every shell");
-        assert.equal(Value.Check(schema, { jobs: [] }), true, "an empty jobs array must list every shell");
-        assert.equal(Value.Check(schema, { jobs: [{ jobID: "call-1" }] }), true, "a jobs entry with just a jobID must be accepted");
+        assert.equal(
+            Value.Check(schema, { jobs: [] }),
+            true,
+            "an empty jobs array must list every shell",
+        );
+        assert.equal(
+            Value.Check(schema, { jobs: [{ jobID: "call-1" }] }),
+            true,
+            "a jobs entry with just a jobID must be accepted",
+        );
         assert.equal(
             Value.Check(schema, { jobs: [{ jobID: "call-1", includeOutput: true }] }),
             true,
@@ -171,11 +185,23 @@ describe("pi-shell-inspector registration", () => {
             false,
             "includeOutput must stay a boolean",
         );
-        assert.equal(Value.Check(schema, { jobs: [{}] }), false, "an entry without jobID must be rejected");
+        assert.equal(
+            Value.Check(schema, { jobs: [{}] }),
+            false,
+            "an entry without jobID must be rejected",
+        );
         assert.equal(Value.Check(schema, { jobs: "call-1" }), false, "jobs must be an array");
 
-        assert.match(tool.description, /background shells/i, "the tool description must say what it inspects");
-        assert.match(tool.promptSnippet ?? "", /background shells/i, "the tool must be advertised in the system prompt");
+        assert.match(
+            tool.description,
+            /background shells/i,
+            "the tool description must say what it inspects",
+        );
+        assert.match(
+            tool.promptSnippet ?? "",
+            /background shells/i,
+            "the tool must be advertised in the system prompt",
+        );
         assert.ok(
             (tool.promptGuidelines ?? []).some((line) => /intermediate output/i.test(line)),
             `the guidelines must explain when to pull intermediate output, got ${JSON.stringify(tool.promptGuidelines ?? [])}`,
@@ -190,11 +216,27 @@ describe("pi-shell-inspector registration", () => {
         const killTool = loadRegisteredTool(workDir, "kill_background_shell");
         const schema = killTool.parameters as TSchema;
 
-        assert.equal(killTool.name, "kill_background_shell", "the tool must keep its registration name");
-        assert.equal(Value.Check(schema, { jobID: "call-123" }), true, "a single managed job id must be accepted");
+        assert.equal(
+            killTool.name,
+            "kill_background_shell",
+            "the tool must keep its registration name",
+        );
+        assert.equal(
+            Value.Check(schema, { jobID: "call-123" }),
+            true,
+            "a single managed job id must be accepted",
+        );
         assert.equal(Value.Check(schema, {}), false, "a missing jobID must be rejected");
-        assert.equal(Value.Check(schema, { jobID: 123 }), false, "a non-string jobID must be rejected");
-        assert.equal(Value.Check(schema, { jobID: ["call-123"] }), false, "an array of ids must not be accepted");
+        assert.equal(
+            Value.Check(schema, { jobID: 123 }),
+            false,
+            "a non-string jobID must be rejected",
+        );
+        assert.equal(
+            Value.Check(schema, { jobID: ["call-123"] }),
+            false,
+            "an array of ids must not be accepted",
+        );
         assert.equal(
             Value.Check(schema, { jobs: [{ jobID: "call-123" }] }),
             false,
@@ -220,7 +262,11 @@ describe("pi-shell-inspector registration", () => {
         ];
         for (const args of foregroundArgs) {
             const call = tool.renderCall!(args, theme, createRenderContext(args, workDir));
-            const builtInCall = builtIn.renderCall!(args, theme, createRenderContext(args, workDir));
+            const builtInCall = builtIn.renderCall!(
+                args,
+                theme,
+                createRenderContext(args, workDir),
+            );
             assert.deepEqual(
                 call.render(RENDER_WIDTH),
                 builtInCall.render(RENDER_WIDTH),
@@ -232,14 +278,28 @@ describe("pi-shell-inspector registration", () => {
                 "guard: the built-in bash row must be the consulted reference",
             );
 
-            const resultRow = tool.renderResult!(result, options, theme, createRenderContext(args, workDir));
-            const builtInResultRow = builtIn.renderResult!(result, options, theme, createRenderContext(args, workDir));
+            const resultRow = tool.renderResult!(
+                result,
+                options,
+                theme,
+                createRenderContext(args, workDir),
+            );
+            const builtInResultRow = builtIn.renderResult!(
+                result,
+                options,
+                theme,
+                createRenderContext(args, workDir),
+            );
             assert.deepEqual(
                 resultRow.render(RENDER_WIDTH),
                 builtInResultRow.render(RENDER_WIDTH),
                 `mode ${JSON.stringify(args.mode)} must keep the built-in result row`,
             );
-            assert.match(plainText(resultRow.render(RENDER_WIDTH)), /hello/, "the built-in result row must show the command output");
+            assert.match(
+                plainText(resultRow.render(RENDER_WIDTH)),
+                /hello/,
+                "the built-in result row must show the command output",
+            );
         }
     });
 
@@ -257,7 +317,12 @@ describe("pi-shell-inspector registration", () => {
         assert.deepEqual(
             tool.renderResult!(
                 {
-                    content: [{ type: "text" as const, text: "Background shell started call-render: sleep 3600" }],
+                    content: [
+                        {
+                            type: "text" as const,
+                            text: "Background shell started call-render: sleep 3600",
+                        },
+                    ],
                     details: undefined,
                 },
                 { expanded: false, isPartial: false },
@@ -272,7 +337,9 @@ describe("pi-shell-inspector registration", () => {
         // come from the wrapper's suppression rather than from an empty result.
         const builtIn = createBuiltInBashDefinition(workDir);
         assert.notDeepEqual(
-            builtIn.renderCall!(args, theme, createRenderContext(args, workDir)).render(RENDER_WIDTH),
+            builtIn.renderCall!(args, theme, createRenderContext(args, workDir)).render(
+                RENDER_WIDTH,
+            ),
             [],
             "guard: the built-in renderer must draw a row for the same background arguments",
         );
@@ -284,8 +351,16 @@ describe("pi-shell-inspector registration", () => {
         // optional: omitting `mode` is what the extension treats as foreground.
         const schema = tool.parameters as TSchema;
 
-        assert.equal(Value.Check(schema, { command: "echo hello" }), true, "{command} must be accepted");
-        assert.equal(Value.Check(schema, { command: "sleep 1", timeout: 30 }), true, "{command, timeout} must be accepted");
+        assert.equal(
+            Value.Check(schema, { command: "echo hello" }),
+            true,
+            "{command} must be accepted",
+        );
+        assert.equal(
+            Value.Check(schema, { command: "sleep 1", timeout: 30 }),
+            true,
+            "{command, timeout} must be accepted",
+        );
         assert.equal(
             Value.Check(schema, { command: "sleep 1", mode: "foreground" }),
             true,
@@ -296,8 +371,16 @@ describe("pi-shell-inspector registration", () => {
             true,
             "the background mode must be accepted",
         );
-        assert.equal(Value.Check(schema, {}), false, "an argument object without command must be rejected");
-        assert.equal(Value.Check(schema, { timeout: 5 }), false, "a timeout without command must be rejected");
+        assert.equal(
+            Value.Check(schema, {}),
+            false,
+            "an argument object without command must be rejected",
+        );
+        assert.equal(
+            Value.Check(schema, { timeout: 5 }),
+            false,
+            "a timeout without command must be rejected",
+        );
         assert.equal(
             Value.Check(schema, { command: "sleep 1", mode: "later" }),
             false,

@@ -16,10 +16,10 @@ keyboard and press Enter to open its existing interface directly; there is no ac
 
 The dock **replaces Pi's built-in footer**, so every statistic it showed stays visible:
 
-| Row | Left | Right |
-| --- | --- | --- |
-| Dock | Module cells, one per contributing extension | `(provider) model • thinking level` |
-| Info | Working directory, git branch, session name | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
+| Row  | Left                                         | Right                                                                                                               |
+| ---- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Dock | Module cells, one per contributing extension | `(provider) model • thinking level`                                                                                 |
+| Info | Working directory, git branch, session name  | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
 
 Statuses set by other extensions through `ctx.ui.setStatus()` follow on a row of their own.
 The statistics sit on a fixed grid against the right edge. Every statistic owns a slot of fixed
@@ -55,13 +55,13 @@ folder and branch icons are Nerd Font glyphs.
 
 Choose a style in `/dock`; the panel previews it, focused, before you commit.
 
-| Style | Rows | Notes |
-| --- | --- | --- |
-| `ruled` (default) | Rule, dock + model, rule, directory + usage, rule | Key hints ride the rule under the cells |
-| `boxed` | The same rows in a rounded box | Key hints ride the box's middle rule |
-| `compact` | Dock + model, directory + usage | No frame; key hints replace the model while focused |
-| `minimal` | Cells + model + context use | One row, plus extension statuses when present |
-| `classic` | Cells only | Leaves Pi's own footer in place |
+| Style             | Rows                                              | Notes                                               |
+| ----------------- | ------------------------------------------------- | --------------------------------------------------- |
+| `ruled` (default) | Rule, dock + model, rule, directory + usage, rule | Key hints ride the rule under the cells             |
+| `boxed`           | The same rows in a rounded box                    | Key hints ride the box's middle rule                |
+| `compact`         | Dock + model, directory + usage                   | No frame; key hints replace the model while focused |
+| `minimal`         | Cells + model + context use                       | One row, plus extension statuses when present       |
+| `classic`         | Cells only                                        | Leaves Pi's own footer in place                     |
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
@@ -82,6 +82,7 @@ context use from the usage counters.
 
 Lune Dock and its contributor extensions use the Dock protocol from
 `@lune_99/pi-lune-extensions-core/dock`; Core also supplies the shared settings infrastructure.
+
 ```sh
 pi install npm:@lune_99/pi-dock
 ```
@@ -98,14 +99,14 @@ and Ctrl+R removes the selected override. Changes apply immediately, including t
 off, which removes the block and its keyboard listener and restores Pi's footer and each plugin's
 independent status bar; plugin panels and commands stay usable.
 
-| Setting | Values | Default |
-| --- | --- | --- |
-| `enabled` | on / off | on |
-| `style` | `ruled`, `boxed`, `compact`, `minimal`, `classic` | `ruled` |
-| `displayMode` | `base`, `detail`, `full` | `detail` |
-| `showModel`, `showWorkspace`, `showUsage` | on / off | on |
-| `hidden` | plugin ids left out of the dock | none |
-| `order` | plugin id → position, smaller first (missing counts as 0) | registration order |
+| Setting                                   | Values                                                    | Default            |
+| ----------------------------------------- | --------------------------------------------------------- | ------------------ |
+| `enabled`                                 | on / off                                                  | on                 |
+| `style`                                   | `ruled`, `boxed`, `compact`, `minimal`, `classic`         | `ruled`            |
+| `displayMode`                             | `base`, `detail`, `full`                                  | `detail`           |
+| `showModel`, `showWorkspace`, `showUsage` | on / off                                                  | on                 |
+| `hidden`                                  | plugin ids left out of the dock                           | none               |
+| `order`                                   | plugin id → position, smaller first (missing counts as 0) | registration order |
 
 Values live in `~/.pi/agent/lune-settings/pi-dock.json` (`PI_CODING_AGENT_DIR` moves the agent
 directory; project overrides are in `<project>/.pi/lune-settings/pi-dock.json`), and only
@@ -123,15 +124,15 @@ errors instead of silently resetting settings.
 
 ## Keyboard interaction
 
-| Context | Key | Result |
-| --- | --- | --- |
-| Main editor, empty and no autocomplete or overlay | Down | Focus the dock |
-| Main editor, no autocomplete or overlay | Super+Down | Focus without clearing the text |
-| Dock | Left / Right | Select previous / next module, wrapping at the ends |
-| Dock | Home / End | Select the first / last module |
-| Dock | Enter | Open the selected module directly |
-| Dock | Up / Esc | Return to the editor without forwarding the navigation key |
-| Dock | Typing, paste or an application shortcut | Return to the editor and deliver the input |
+| Context                                           | Key                                      | Result                                                     |
+| ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| Main editor, empty and no autocomplete or overlay | Down                                     | Focus the dock                                             |
+| Main editor, no autocomplete or overlay           | Super+Down                               | Focus without clearing the text                            |
+| Dock                                              | Left / Right                             | Select previous / next module, wrapping at the ends        |
+| Dock                                              | Home / End                               | Select the first / last module                             |
+| Dock                                              | Enter                                    | Open the selected module directly                          |
+| Dock                                              | Up / Esc                                 | Return to the editor without forwarding the navigation key |
+| Dock                                              | Typing, paste or an application shortcut | Return to the editor and deliver the input                 |
 
 `Super` is Command on macOS. Delivery depends on the terminal's keyboard protocol and its
 own shortcuts. Terminal key-release events are ignored, so releasing a key never hands focus

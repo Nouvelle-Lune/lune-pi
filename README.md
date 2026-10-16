@@ -31,12 +31,12 @@ See what the agent did, decide with context, keep long commands in reach, and pi
 
 Pi is the coding agent. Lune is a set of extensions for it. You keep Pi's agent loop, models and commands; Lune changes how the session looks and adds the parts that a long day of agent work needs.
 
-|  |  |
-| --- | --- |
-| **Read the work** | Each tool call is one compact line. Open it to see the arguments, output and a highlighted diff. |
-| **Decide with context** | The agent asks structured questions with options, previews and room for your own answer. |
+|                            |                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Read the work**          | Each tool call is one compact line. Open it to see the arguments, output and a highlighted diff.          |
+| **Decide with context**    | The agent asks structured questions with options, previews and room for your own answer.                  |
 | **Keep commands in reach** | Long shell jobs run in the background. Watch their live output, then let the result go back to the agent. |
-| **Return to the thread** | Choose how the context is compacted, and get a short recap of the goal and progress when you come back. |
+| **Return to the thread**   | Choose how the context is compacted, and get a short recap of the goal and progress when you come back.   |
 
 You can install all seven packages, or only the ones you want.
 
@@ -137,17 +137,17 @@ Core Theme is off by default. Run `/lune-core-settings core-theme`, enable **Cor
 
 ### Everyday controls
 
-| To do this | Use |
-| --- | --- |
-| Open all Lune settings | `/lune-core-settings` |
-| Expand or collapse tool output | `ctrl+o` |
-| Look at what is in the context | `/context` |
-| Open a pending question again | `/question` |
-| Inspect background shell jobs | `/shell` |
-| Change Dock style and modules | `/dock` |
-| Focus the Dock | Down in an empty editor, then Left/Right and Enter |
-| Compact the conversation | `/compact` |
-| Get a session recap | `/recap` |
+| To do this                     | Use                                                |
+| ------------------------------ | -------------------------------------------------- |
+| Open all Lune settings         | `/lune-core-settings`                              |
+| Expand or collapse tool output | `ctrl+o`                                           |
+| Look at what is in the context | `/context`                                         |
+| Open a pending question again  | `/question`                                        |
+| Inspect background shell jobs  | `/shell`                                           |
+| Change Dock style and modules  | `/dock`                                            |
+| Focus the Dock                 | Down in an empty editor, then Left/Right and Enter |
+| Compact the conversation       | `/compact`                                         |
+| Get a session recap            | `/recap`                                           |
 
 Compaction is on by default. Tool-history review and automatic recaps are off until you turn them on. A recap is a separate model request, so your provider can charge for it.
 
@@ -157,15 +157,15 @@ Compaction is on by default. Tool-history review and automatic recaps are off un
 
 Each package has its own README with all settings and behavior.
 
-| Package | What it gives you |
-| --- | --- |
-| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub> | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes. |
-| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub> | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles. |
-| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub> | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit. |
-| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent. |
-| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub> | Your choice of summary model and thinking level for `/compact`, with optional review of tool history. |
-| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub> | A short reminder above the editor with the goal, progress, blocker and next step. |
-| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub> | Shared settings, settings panels, lifecycle cleanup and Dock contracts. Other extension authors can use it too. |
+| Package                                                                                                  | What it gives you                                                                                                           |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes. |
+| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.   |
+| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.    |
+| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                       |
+| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                       |
+| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                           |
+| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup and Dock contracts. Other extension authors can use it too.             |
 
 <br>
 
@@ -173,12 +173,12 @@ Each package has its own README with all settings and behavior.
 
 Each palette is captured in a fresh Pi process. Click an image to see it at full size.
 
-| Dark | Light | Aurora | Eclipse |
-| :-: | :-: | :-: | :-: |
+|                                       Dark                                        |                                        Light                                         |                                         Aurora                                          |                                          Eclipse                                           |
+| :-------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------: |
 | [![Dark palette](docs/previews/pi-core-dark.png)](docs/previews/pi-core-dark.png) | [![Light palette](docs/previews/pi-core-light.png)](docs/previews/pi-core-light.png) | [![Aurora palette](docs/previews/pi-core-aurora.png)](docs/previews/pi-core-aurora.png) | [![Eclipse palette](docs/previews/pi-core-eclipse.png)](docs/previews/pi-core-eclipse.png) |
 
-| Nebula | Dawn | Mist |
-| :-: | :-: | :-: |
+|                                         Nebula                                          |                                       Dawn                                        |                                       Mist                                        |
+| :-------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------: |
 | [![Nebula palette](docs/previews/pi-core-nebula.png)](docs/previews/pi-core-nebula.png) | [![Dawn palette](docs/previews/pi-core-dawn.png)](docs/previews/pi-core-dawn.png) | [![Mist palette](docs/previews/pi-core-mist.png)](docs/previews/pi-core-mist.png) |
 
 <br>
@@ -195,16 +195,16 @@ npm run check
 <summary><b>All workspace commands</b></summary>
 <br>
 
-| Command | What it does |
-| --- | --- |
-| `npm run build` | Build Core, then Recap |
-| `npm run format` | Format source, configuration and documentation with Prettier |
-| `npm run format:check` | Check formatting without changing files |
-| `npm run lint` | Lint TypeScript and JavaScript with ESLint |
-| `npm run typecheck` | Build dependencies and typecheck every package |
-| `npm test` | Build dependencies and run every package's tests |
-| `npm run pack:check` | Inspect all seven npm tarballs without publishing |
-| `npm run check` | Run formatting, lint, typechecks, tests and package checks |
+| Command                 | What it does                                                     |
+| ----------------------- | ---------------------------------------------------------------- |
+| `npm run build`         | Build Core, then Recap                                           |
+| `npm run format`        | Format source, configuration and documentation with Prettier     |
+| `npm run format:check`  | Check formatting without changing files                          |
+| `npm run lint`          | Lint TypeScript and JavaScript with ESLint                       |
+| `npm run typecheck`     | Build dependencies and typecheck every package                   |
+| `npm test`              | Build dependencies and run every package's tests                 |
+| `npm run pack:check`    | Inspect all seven npm tarballs without publishing                |
+| `npm run check`         | Run formatting, lint, typechecks, tests and package checks       |
 | `npm run docs:previews` | Capture the README screenshots and recording in Ghostty on macOS |
 
 To run a command for one package, give its workspace name or path:

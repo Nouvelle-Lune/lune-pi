@@ -10,11 +10,7 @@
  * The renderer's own caches are render state, not session state: one `displayText` parser and
  * one preview renderer per question, both dropped by `invalidate()` when the theme changes.
  */
-import {
-    getMarkdownTheme,
-    type Theme,
-    type ThemeColor,
-} from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import {
     CURSOR_MARKER,
     Markdown,
@@ -30,10 +26,7 @@ import {
     questionTabLabel,
     summarizeText,
 } from "../../core/question-format.ts";
-import type {
-    AskQuestion,
-    AskQuestionAnswer,
-} from "../../core/question-types.ts";
+import type { AskQuestion, AskQuestionAnswer } from "../../core/question-types.ts";
 import {
     MIN_BLOCK_ROWS,
     STACKED_GAP_ROWS,
@@ -113,7 +106,14 @@ export interface QuestionPanelFrame {
 
 /** Body-relative positions collected while the body is built. */
 interface BodyMarks {
-    preview?: { line: number; height: number; start: number; width: number; offset: number; maxOffset: number };
+    preview?: {
+        line: number;
+        height: number;
+        start: number;
+        width: number;
+        offset: number;
+        maxOffset: number;
+    };
     editor?: { line: number; height: number; width: number };
 }
 
@@ -168,7 +168,10 @@ export class QuestionPanelRenderer {
             state.bodyScroll,
             body.keep,
         );
-        const visible = [...tabs.lines, ...body.lines.slice(window.offset, window.offset + bodyHeight)];
+        const visible = [
+            ...tabs.lines,
+            ...body.lines.slice(window.offset, window.offset + bodyHeight),
+        ];
 
         while (visible.length < tabs.lines.length + bodyHeight) {
             visible.push("");
@@ -186,7 +189,9 @@ export class QuestionPanelRenderer {
             this.frame(`┌${"─".repeat(innerWidth)}┐`),
             this.frame("│") + this.renderHeader(innerWidth) + this.frame("│"),
             this.frame(`├${"─".repeat(innerWidth)}┤`),
-            ...visible.map((line) => this.frame("│") + this.cell(line, innerWidth) + this.frame("│")),
+            ...visible.map(
+                (line) => this.frame("│") + this.cell(line, innerWidth) + this.frame("│"),
+            ),
             this.frame(`├${"─".repeat(innerWidth)}┤`),
             this.frame("│") + this.renderFooter(innerWidth, state.inputMode) + this.frame("│"),
             this.frame(`└${"─".repeat(innerWidth)}┘`),
@@ -207,7 +212,10 @@ export class QuestionPanelRenderer {
 
         if (marks.preview) {
             const top = Math.max(marks.preview.line, body.offset);
-            const bottom = Math.min(marks.preview.line + marks.preview.height, body.offset + body.height);
+            const bottom = Math.min(
+                marks.preview.line + marks.preview.height,
+                body.offset + body.height,
+            );
 
             if (bottom > top) {
                 layout.preview = {
@@ -303,7 +311,10 @@ export class QuestionPanelRenderer {
         if (question.displayText) {
             lines.push("");
 
-            for (const line of this.displayMarkdownFor(this.view.draft.currentIndex, question.displayText).render(contentWidth)) {
+            for (const line of this.displayMarkdownFor(
+                this.view.draft.currentIndex,
+                question.displayText,
+            ).render(contentWidth)) {
                 lines.push(line);
             }
         }
@@ -338,11 +349,18 @@ export class QuestionPanelRenderer {
             marks.editor = { line: lines.length, height: editorLines.length, width: editorWidth };
 
             for (const line of editorLines) {
-                lines.push(truncateToWidth(`${" ".repeat(EDITOR_INSET)}${line}`, contentWidth, "…", true));
+                lines.push(
+                    truncateToWidth(`${" ".repeat(EDITOR_INSET)}${line}`, contentWidth, "…", true),
+                );
             }
 
             lines.push("");
-            pushWrapped(lines, contentWidth, " ", this.theme.fg("dim", "Enter to submit · Esc to go back"));
+            pushWrapped(
+                lines,
+                contentWidth,
+                " ",
+                this.theme.fg("dim", "Enter to submit · Esc to go back"),
+            );
 
             // The editor owns the keys, so the window follows it instead of the focused option
             // row: the frame and the submit hint stay whole, and only the rows above scroll.
@@ -387,8 +405,8 @@ export class QuestionPanelRenderer {
         const columns = previewColumnWidths(contentWidth, leftWidth, mode);
         const rows = this.renderOptionRows(question, columns.leftWidth);
         const stackedGap = mode === "stacked" ? STACKED_GAP_ROWS : 0;
-        const rowsAboveBlock = rowsAboveRegion
-            + (mode === "stacked" ? rows.lines.length + stackedGap : 0);
+        const rowsAboveBlock =
+            rowsAboveRegion + (mode === "stacked" ? rows.lines.length + stackedGap : 0);
         const available = maxBodyHeight - rowsAboveBlock;
 
         // Too little room left for even a bordered placeholder: the option list keeps the full
@@ -456,7 +474,10 @@ export class QuestionPanelRenderer {
         return { lines, focusLine };
     }
 
-    private previewRendererFor(questionIndex: number, question: AskQuestion): QuestionPreviewRenderer {
+    private previewRendererFor(
+        questionIndex: number,
+        question: AskQuestion,
+    ): QuestionPreviewRenderer {
         const cached = this.previewRenderers.get(questionIndex);
 
         if (cached) {
@@ -479,7 +500,10 @@ export class QuestionPanelRenderer {
      *
      * The strip wraps between tabs, never inside one, so every tab stays one clickable span.
      */
-    private renderTabsBlock(contentWidth: number): { lines: string[]; spans: QuestionPanelLayout["tabs"] } {
+    private renderTabsBlock(contentWidth: number): {
+        lines: string[];
+        spans: QuestionPanelLayout["tabs"];
+    } {
         const lines: string[] = [];
         const spans: QuestionPanelLayout["tabs"] = [];
         let line = "";
@@ -518,7 +542,11 @@ export class QuestionPanelRenderer {
         return { lines, spans };
     }
 
-    private tabSegments(): Array<{ text: string; style: (text: string) => string; target?: TabTarget }> {
+    private tabSegments(): Array<{
+        text: string;
+        style: (text: string) => string;
+        target?: TabTarget;
+    }> {
         const plain = (text: string) => text;
         const segments: ReturnType<QuestionPanelRenderer["tabSegments"]> = [
             { text: "←", style: plain, target: { kind: "step", step: -1 } },
@@ -531,9 +559,10 @@ export class QuestionPanelRenderer {
 
             segments.push({
                 text: ` ${answered ? "■" : "□"} ${questionTabLabel(question)} `,
-                style: (text) => active
-                    ? this.theme.bg("selectedBg", this.theme.fg("text", text))
-                    : this.theme.fg(answered ? "success" : "muted", text),
+                style: (text) =>
+                    active
+                        ? this.theme.bg("selectedBg", this.theme.fg("text", text))
+                        : this.theme.fg(answered ? "success" : "muted", text),
                 target: { kind: "tab", index },
             });
             segments.push({ text: " ", style: plain });
@@ -542,9 +571,10 @@ export class QuestionPanelRenderer {
         segments.push(
             {
                 text: " ✓ Submit ",
-                style: (text) => this.view.isSubmitTab
-                    ? this.theme.bg("selectedBg", this.theme.fg("text", text))
-                    : this.theme.fg(this.view.allAnswered() ? "success" : "dim", text),
+                style: (text) =>
+                    this.view.isSubmitTab
+                        ? this.theme.bg("selectedBg", this.theme.fg("text", text))
+                        : this.theme.fg(this.view.allAnswered() ? "success" : "dim", text),
                 target: { kind: "tab", index: this.view.questions.length },
             },
             { text: "→", style: plain, target: { kind: "step", step: 1 } },
@@ -571,9 +601,10 @@ export class QuestionPanelRenderer {
             }
 
             const chosen = answer?.selectedIndexes.includes(row.index) ?? false;
-            const marker = question.multiSelect === true
-                ? this.theme.fg(chosen ? "success" : "dim", chosen ? "[x]" : "[ ]")
-                : this.theme.fg(chosen ? "success" : "dim", chosen ? "●" : "○");
+            const marker =
+                question.multiSelect === true
+                    ? this.theme.fg(chosen ? "success" : "dim", chosen ? "[x]" : "[ ]")
+                    : this.theme.fg(chosen ? "success" : "dim", chosen ? "●" : "○");
             const label = optionLabel(question, row.index);
             const labelColor: ThemeColor = focused || chosen ? "accent" : "text";
 
@@ -585,7 +616,12 @@ export class QuestionPanelRenderer {
             );
 
             if (option.description) {
-                pushWrapped(lines, contentWidth, "      ", this.theme.fg("muted", option.description));
+                pushWrapped(
+                    lines,
+                    contentWidth,
+                    "      ",
+                    this.theme.fg("muted", option.description),
+                );
             }
 
             return lines;
@@ -604,16 +640,33 @@ export class QuestionPanelRenderer {
                     lines,
                     contentWidth,
                     `${cursor} ${this.theme.fg("dim", "✎")} `,
-                    this.theme.fg(focused ? "accent" : "text", summarizeText(written, Math.max(4, contentWidth - 8))),
+                    this.theme.fg(
+                        focused ? "accent" : "text",
+                        summarizeText(written, Math.max(4, contentWidth - 8)),
+                    ),
                 );
 
                 return lines;
             }
 
-            return this.renderActionRow(cursor, "✎", "Type something", "write your own answer", focused, contentWidth);
+            return this.renderActionRow(
+                cursor,
+                "✎",
+                "Type something",
+                "write your own answer",
+                focused,
+                contentWidth,
+            );
         }
 
-        return this.renderActionRow(cursor, "→", "Next", "confirm the selection", focused, contentWidth);
+        return this.renderActionRow(
+            cursor,
+            "→",
+            "Next",
+            "confirm the selection",
+            focused,
+            contentWidth,
+        );
     }
 
     /** A fixed row: glyph and title, with a muted hint under them. */
@@ -641,7 +694,12 @@ export class QuestionPanelRenderer {
     private renderSubmit(contentWidth: number): string[] {
         const lines: string[] = [];
 
-        pushWrapped(lines, contentWidth, "", this.theme.fg("accent", this.theme.bold("Ready to submit")));
+        pushWrapped(
+            lines,
+            contentWidth,
+            "",
+            this.theme.fg("accent", this.theme.bold("Ready to submit")),
+        );
         lines.push("");
 
         for (const [index, question] of this.view.questions.entries()) {
@@ -676,7 +734,12 @@ export class QuestionPanelRenderer {
                 .map((question) => questionTabLabel(question))
                 .join(", ");
 
-            pushWrapped(lines, contentWidth, "", this.theme.fg("warning", `Unanswered: ${missing}`));
+            pushWrapped(
+                lines,
+                contentWidth,
+                "",
+                this.theme.fg("warning", `Unanswered: ${missing}`),
+            );
         }
 
         return lines;
@@ -785,18 +848,20 @@ function padStartCell(text: string, width: number): string {
     return " ".repeat(Math.max(0, width - visibleWidth(clipped))) + clipped;
 }
 
-function pushWrapped(
-    lines: string[],
-    contentWidth: number,
-    prefix: string,
-    text: string,
-): void {
+function pushWrapped(lines: string[], contentWidth: number, prefix: string, text: string): void {
     const prefixWidth = visibleWidth(prefix);
     const available = Math.max(1, contentWidth - prefixWidth);
     const wrapped = wrapTextWithAnsi(text, available);
     const continuation = " ".repeat(prefixWidth);
 
     for (const [index, line] of wrapped.entries()) {
-        lines.push(truncateToWidth(`${index === 0 ? prefix : continuation}${line}`, contentWidth, "…", true));
+        lines.push(
+            truncateToWidth(
+                `${index === 0 ? prefix : continuation}${line}`,
+                contentWidth,
+                "…",
+                true,
+            ),
+        );
     }
 }

@@ -47,7 +47,9 @@ function scriptedTimeoutSeconds(): number | undefined {
     }
     const seconds = Number(raw);
     if (!Number.isFinite(seconds) || seconds <= 0) {
-        throw new Error(`LUNE_SHELL_INSPECTOR_TIMEOUT must be a positive number of seconds, got ${JSON.stringify(raw)}`);
+        throw new Error(
+            `LUNE_SHELL_INSPECTOR_TIMEOUT must be a positive number of seconds, got ${JSON.stringify(raw)}`,
+        );
     }
     return seconds;
 }
@@ -64,7 +66,9 @@ function scriptedMode(): "foreground" | "background" {
         return "foreground";
     }
     if (raw !== "foreground" && raw !== "background") {
-        throw new Error(`LUNE_SHELL_INSPECTOR_MODE must be "foreground" or "background", got ${JSON.stringify(raw)}`);
+        throw new Error(
+            `LUNE_SHELL_INSPECTOR_MODE must be "foreground" or "background", got ${JSON.stringify(raw)}`,
+        );
     }
     return raw;
 }
@@ -73,10 +77,11 @@ export default function (pi: ExtensionAPI): void {
     const faux = fauxProvider();
     pi.registerProvider(faux.provider);
 
-    const toolArguments: { command: string; timeout?: number; mode: "foreground" | "background" } = {
-        command: scriptedCommand(),
-        mode: scriptedMode(),
-    };
+    const toolArguments: { command: string; timeout?: number; mode: "foreground" | "background" } =
+        {
+            command: scriptedCommand(),
+            mode: scriptedMode(),
+        };
     const timeout = scriptedTimeoutSeconds();
     if (timeout !== undefined) {
         toolArguments.timeout = timeout;

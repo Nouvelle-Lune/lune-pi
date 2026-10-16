@@ -1,5 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bindSettings, registerSettingsPanel, scopedExtension } from "@lune_99/pi-lune-extensions-core";
+import {
+    bindSettings,
+    registerSettingsPanel,
+    scopedExtension,
+} from "@lune_99/pi-lune-extensions-core";
 import { openSettingsPanel } from "@lune_99/pi-lune-extensions-core/panel/tui";
 import { DockController } from "./dock-controller.ts";
 import { dockPanel } from "./dock-panel.ts";

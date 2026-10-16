@@ -38,7 +38,9 @@ interface Snapshot {
 
 /** The newest shell view snapshot the host persisted, if any. */
 function lastSnapshot(host: FakePiHost): Snapshot | undefined {
-    const call = [...host.appendEntryCalls].reverse().find((entry) => entry.customType === SHELL_STATUS_ENTRY);
+    const call = [...host.appendEntryCalls]
+        .reverse()
+        .find((entry) => entry.customType === SHELL_STATUS_ENTRY);
     return call?.data as Snapshot | undefined;
 }
 
@@ -87,12 +89,28 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 toolCallId: "call-tree-kill",
             });
             const running = shellManager.getJob(jobId)!;
-            assert.equal(running.status, "running", "the shell must be running before the tree move");
+            assert.equal(
+                running.status,
+                "running",
+                "the shell must be running before the tree move",
+            );
 
-            await session.host.emit("session_before_tree", session.ctx, treePreparation(sessionLog));
+            await session.host.emit(
+                "session_before_tree",
+                session.ctx,
+                treePreparation(sessionLog),
+            );
 
-            assert.equal(running.controller.signal.aborted, true, "leaving the branch must stop the shell");
-            assert.equal(shellManager.getJob(jobId), undefined, "the lifecycle kill drops the runtime job");
+            assert.equal(
+                running.controller.signal.aborted,
+                true,
+                "leaving the branch must stop the shell",
+            );
+            assert.equal(
+                shellManager.getJob(jobId),
+                undefined,
+                "the lifecycle kill drops the runtime job",
+            );
 
             const snapshot = lastSnapshot(session.host);
             assert.ok(snapshot, "the lifecycle kill must persist a snapshot");
@@ -102,13 +120,21 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 "the departing branch must record the shell as killed",
             );
 
-            assert.deepEqual(session.host.sendMessageCalls, [], "a lifecycle kill must not notify the agent");
+            assert.deepEqual(
+                session.host.sendMessageCalls,
+                [],
+                "a lifecycle kill must not notify the agent",
+            );
             assert.deepEqual(
                 notificationsOfType(session.host, "background-shell-notification"),
                 [],
                 "no background-shell notification may be sent for this lifecycle kill",
             );
-            assert.deepEqual(turnTriggers(session.host), [], "a lifecycle kill must not trigger an agent turn");
+            assert.deepEqual(
+                turnTriggers(session.host),
+                [],
+                "a lifecycle kill must not trigger an agent turn",
+            );
 
             // `session_tree` restores the just-persisted branch state.
             await session.host.emit("session_tree", session.ctx, {
@@ -118,15 +144,31 @@ describe("pi-shell-inspector lifecycle notifications", () => {
 
             const restored = shellManager.getJob(jobId);
             assert.ok(restored, "the branch's snapshot must restore the killed shell");
-            assert.equal(restored.status, "killed", "the restored shell must keep its killed status");
-            assert.equal(restored.error, "pi session shutdown", "the snapshot must keep the lifecycle kill reason");
-            assert.equal(restored.controller.signal.aborted, false, "a restored job is inert state");
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 0,
-                failedCount: 0,
-                killedCount: 1,
-            }, "the restored branch must count the killed shell");
+            assert.equal(
+                restored.status,
+                "killed",
+                "the restored shell must keep its killed status",
+            );
+            assert.equal(
+                restored.error,
+                "pi session shutdown",
+                "the snapshot must keep the lifecycle kill reason",
+            );
+            assert.equal(
+                restored.controller.signal.aborted,
+                false,
+                "a restored job is inert state",
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 0,
+                    failedCount: 0,
+                    killedCount: 1,
+                },
+                "the restored branch must count the killed shell",
+            );
         } finally {
             await session.host.emit("session_shutdown", session.ctx);
             removeTempWorkDir(workDir);
@@ -147,11 +189,19 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                     ctx: session.ctx,
                     toolCallId: id,
                 });
-                assert.equal(shellManager.getJob(id)?.status, "running", "every shell must be running before the tree move");
+                assert.equal(
+                    shellManager.getJob(id)?.status,
+                    "running",
+                    "every shell must be running before the tree move",
+                );
                 controllers.push(shellManager.getJob(id)!.controller);
             }
 
-            await session.host.emit("session_before_tree", session.ctx, treePreparation(sessionLog));
+            await session.host.emit(
+                "session_before_tree",
+                session.ctx,
+                treePreparation(sessionLog),
+            );
 
             assert.deepEqual(
                 controllers.map((controller) => controller.signal.aborted),
@@ -165,14 +215,26 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 ids.map((id) => [id, "killed"]),
                 "every killed job must be persisted as killed",
             );
-            assert.equal(snapshot.stats.killedCount, ids.length, "the snapshot must count every killed shell");
-            assert.deepEqual(session.host.sendMessageCalls, [], "none of the lifecycle kills may notify");
+            assert.equal(
+                snapshot.stats.killedCount,
+                ids.length,
+                "the snapshot must count every killed shell",
+            );
+            assert.deepEqual(
+                session.host.sendMessageCalls,
+                [],
+                "none of the lifecycle kills may notify",
+            );
             assert.deepEqual(
                 notificationsOfType(session.host, "background-shell-notification"),
                 [],
                 "no background-shell notification may be sent for any lifecycle kill",
             );
-            assert.deepEqual(turnTriggers(session.host), [], "no lifecycle kill may trigger an agent turn");
+            assert.deepEqual(
+                turnTriggers(session.host),
+                [],
+                "no lifecycle kill may trigger an agent turn",
+            );
 
             await session.host.emit("session_tree", session.ctx, {
                 newLeafId: sessionLog.leafId,
@@ -184,12 +246,16 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 ids.map((id) => [id, "killed"]),
                 "the tree must restore every killed shell",
             );
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 0,
-                failedCount: 0,
-                killedCount: ids.length,
-            }, "the restored branch must count every killed shell");
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 0,
+                    failedCount: 0,
+                    killedCount: ids.length,
+                },
+                "the restored branch must count every killed shell",
+            );
         } finally {
             await session.host.emit("session_shutdown", session.ctx);
             removeTempWorkDir(workDir);
@@ -212,8 +278,16 @@ describe("pi-shell-inspector lifecycle notifications", () => {
 
             assert.equal(running.controller.signal.aborted, true, "shutdown must stop the shell");
             assert.equal(shellManager.getJob(jobId), undefined, "shutdown drops the runtime job");
-            assert.deepEqual(session.host.sendMessageCalls, [], "shutdown must not notify for the shells it kills");
-            assert.deepEqual(turnTriggers(session.host), [], "shutdown must not trigger an agent turn");
+            assert.deepEqual(
+                session.host.sendMessageCalls,
+                [],
+                "shutdown must not notify for the shells it kills",
+            );
+            assert.deepEqual(
+                turnTriggers(session.host),
+                [],
+                "shutdown must not trigger an agent turn",
+            );
 
             const snapshot = lastSnapshot(session.host);
             assert.equal(
@@ -232,8 +306,16 @@ describe("pi-shell-inspector lifecycle notifications", () => {
             });
             shellManager.settleJob("after-shutdown", { type: "completed", exitCode: 0 });
 
-            assert.deepEqual(session.host.sendMessageCalls, [], "the ended session must not be notified again");
-            assert.deepEqual(turnTriggers(session.host), [], "the ended session must not trigger an agent turn again");
+            assert.deepEqual(
+                session.host.sendMessageCalls,
+                [],
+                "the ended session must not be notified again",
+            );
+            assert.deepEqual(
+                turnTriggers(session.host),
+                [],
+                "the ended session must not trigger an agent turn again",
+            );
         } finally {
             removeTempWorkDir(workDir);
         }

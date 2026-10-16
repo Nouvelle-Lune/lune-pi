@@ -16,7 +16,6 @@ Install from npm:
 pi install npm:@lune_99/pi-ask-question
 ```
 
-
 Then start Pi normally:
 
 ```bash
@@ -34,19 +33,19 @@ pi
 
 ## Panel
 
-| Key | |
-| --- | --- |
-| `↑` `↓`, `k` `j` | Move between option rows |
-| `Enter` | Confirm the focused row - on a submit row it submits |
-| `Space` | Toggle the focused option in a multi-select question |
-| `1`–`9` | Pick an option by number |
-| `Tab`, `⇧Tab`, `←` `→` | Switch question tabs and the `✓ Submit` tab |
-| Any printable key except `⇧S`, or a paste, on `Type something` | Open the answer editor with that key or paste |
-| `Ctrl+V` in the editor (`Alt+V` on Windows and WSL) | Paste from the clipboard as in pi's editor: an image becomes the path of a temporary file, copied files become their paths, and other content is pasted as text |
-| `Enter` in the editor | Submit the written answer |
-| `Esc` in the editor | Back to the options, keeping the draft |
-| `Esc` | Close the panel and leave the request pending |
-| `⇧S` | Skip the whole request; inside the editor `S` is text, so leave it with `Esc` first |
+| Key                                                            |                                                                                                                                                                 |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `↑` `↓`, `k` `j`                                               | Move between option rows                                                                                                                                        |
+| `Enter`                                                        | Confirm the focused row - on a submit row it submits                                                                                                            |
+| `Space`                                                        | Toggle the focused option in a multi-select question                                                                                                            |
+| `1`–`9`                                                        | Pick an option by number                                                                                                                                        |
+| `Tab`, `⇧Tab`, `←` `→`                                         | Switch question tabs and the `✓ Submit` tab                                                                                                                     |
+| Any printable key except `⇧S`, or a paste, on `Type something` | Open the answer editor with that key or paste                                                                                                                   |
+| `Ctrl+V` in the editor (`Alt+V` on Windows and WSL)            | Paste from the clipboard as in pi's editor: an image becomes the path of a temporary file, copied files become their paths, and other content is pasted as text |
+| `Enter` in the editor                                          | Submit the written answer                                                                                                                                       |
+| `Esc` in the editor                                            | Back to the options, keeping the draft                                                                                                                          |
+| `Esc`                                                          | Close the panel and leave the request pending                                                                                                                   |
+| `⇧S`                                                           | Skip the whole request; inside the editor `S` is text, so leave it with `Esc` first                                                                             |
 
 A single-question request submits on the option press. Several questions walk through their tabs and meet on the `✓ Submit` tab, and submitting with a gap jumps to the first unanswered question instead of doing nothing.
 
@@ -54,12 +53,12 @@ Skip is `Shift+S`, so a plain `s` stays available as the first letter of an answ
 
 In pi's fullscreen mode the panel also takes the mouse:
 
-| Mouse | |
-| --- | --- |
-| Click a tab | Switch question tabs |
-| Click in the editor | Move the cursor |
-| Wheel over the preview | Scroll the preview |
-| Wheel elsewhere | Scroll the body, including a long question or `displayText` |
+| Mouse                  |                                                             |
+| ---------------------- | ----------------------------------------------------------- |
+| Click a tab            | Switch question tabs                                        |
+| Click in the editor    | Move the cursor                                             |
+| Wheel over the preview | Scroll the preview                                          |
+| Wheel elsewhere        | Scroll the body, including a long question or `displayText` |
 
 Option rows stay keyboard-only - a click neither focuses nor confirms one - and a press that hits no tab or editor is left to pi's text selection, so the panel's text can still be copied. Regular mode keeps the terminal's own mouse handling, and every action above also has a key.
 

@@ -1,8 +1,4 @@
-import type {
-    ExtensionContext,
-    ExtensionUIContext,
-    Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 
 import {
     Editor,
@@ -384,7 +380,12 @@ export class QuestionPanel implements Component, Focusable {
             return undefined;
         }
 
-        if (this.inputMode && layout.editor && insideRect(layout.editor, event) && insideRect(layout.body, event)) {
+        if (
+            this.inputMode &&
+            layout.editor &&
+            insideRect(layout.editor, event) &&
+            insideRect(layout.body, event)
+        ) {
             return this.editor.handleMouse({
                 ...event,
                 x: event.x - layout.editor.x,
@@ -473,7 +474,10 @@ export class QuestionPanel implements Component, Focusable {
     }
 
     /** The tab strip is the only row the mouse can act on; option rows stay keyboard-only. */
-    private pressTabAt(layout: QuestionPanelLayout, event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    private pressTabAt(
+        layout: QuestionPanelLayout,
+        event: TuiMouseEvent,
+    ): TuiMouseEventResult | undefined {
         const tab = layout.tabs.find((span) => insideSpan(span, event));
 
         if (!tab) {
@@ -585,9 +589,10 @@ export class QuestionPanel implements Component, Focusable {
 
     private enterInputMode(seed?: string): void {
         const questionIndex = this.draft.currentIndex;
-        const draftText = this.draft.customDrafts[questionIndex]
-            ?? this.draft.answers[questionIndex]?.customText
-            ?? "";
+        const draftText =
+            this.draft.customDrafts[questionIndex] ??
+            this.draft.answers[questionIndex]?.customText ??
+            "";
 
         this.inputMode = true;
         this.editor.setText(draftText);
@@ -678,9 +683,8 @@ export class QuestionPanel implements Component, Focusable {
         const question = this.controller.currentQuestion();
         const unanswered = this.draft.answers[this.draft.currentIndex] === undefined;
 
-        this.inputMode = question !== undefined
-            && (question.options?.length ?? 0) === 0
-            && unanswered;
+        this.inputMode =
+            question !== undefined && (question.options?.length ?? 0) === 0 && unanswered;
 
         if (this.inputMode) {
             this.editor.setText(this.draft.customDrafts[this.draft.currentIndex] ?? "");
@@ -723,14 +727,15 @@ export class QuestionPanel implements Component, Focusable {
     }
 
     private isConfirmKey(data: string): boolean {
-        return matchesKey(data, Key.enter)
-            || this.keybindings.matches(data, "tui.select.confirm")
-            || this.keybindings.matches(data, "tui.input.submit");
+        return (
+            matchesKey(data, Key.enter) ||
+            this.keybindings.matches(data, "tui.select.confirm") ||
+            this.keybindings.matches(data, "tui.input.submit")
+        );
     }
 
     private isCancelKey(data: string): boolean {
-        return matchesKey(data, Key.escape)
-            || this.keybindings.matches(data, "tui.select.cancel");
+        return matchesKey(data, Key.escape) || this.keybindings.matches(data, "tui.select.cancel");
     }
 
     private isClipboardPasteKey(data: string): boolean {
@@ -762,8 +767,12 @@ export class QuestionPanel implements Component, Focusable {
 }
 
 function insideRect(rect: PanelRect, event: TuiMouseEvent): boolean {
-    return event.x >= rect.x && event.x < rect.x + rect.width
-        && event.y >= rect.y && event.y < rect.y + rect.height;
+    return (
+        event.x >= rect.x &&
+        event.x < rect.x + rect.width &&
+        event.y >= rect.y &&
+        event.y < rect.y + rect.height
+    );
 }
 
 function insideSpan(span: PanelSpan, event: TuiMouseEvent): boolean {

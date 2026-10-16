@@ -5,11 +5,7 @@ import { acquireSettings } from "@lune_99/pi-lune-extensions-core/settings/advan
 import { Value } from "typebox/value";
 
 import { DOCK_STYLES } from "../../src/dock-footer.ts";
-import {
-    SETTINGS_ID,
-    dockSchema,
-    dockSettings,
-} from "../../src/dock-settings.ts";
+import { SETTINGS_ID, dockSchema, dockSettings } from "../../src/dock-settings.ts";
 import { createAgentFixture } from "../harness.ts";
 
 const DEFAULTS = {
@@ -82,7 +78,10 @@ describe("dock settings schema", () => {
         const { cwd, writeScope } = await createAgentFixture(t);
         await writeScope("global", { hidden: ["shell", "shell"] });
 
-        await assert.rejects(acquireSettings(dockSettings, { cwd, projectTrusted: true }), /hidden/);
+        await assert.rejects(
+            acquireSettings(dockSettings, { cwd, projectTrusted: true }),
+            /hidden/,
+        );
     });
 });
 
@@ -123,7 +122,10 @@ describe("stored dock settings", () => {
         const { cwd, writeRaw, readRaw, settingsPath } = await createAgentFixture(t);
         await writeRaw(settingsPath("global"), "{ corrupt");
 
-        await assert.rejects(acquireSettings(dockSettings, { cwd, projectTrusted: true }), SyntaxError);
+        await assert.rejects(
+            acquireSettings(dockSettings, { cwd, projectTrusted: true }),
+            SyntaxError,
+        );
 
         assert.equal(await readRaw(settingsPath("global")), "{ corrupt");
     });

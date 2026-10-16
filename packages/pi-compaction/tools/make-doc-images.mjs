@@ -39,7 +39,11 @@ writeFrames(root, [
         name: "compaction-settings",
         title: "pi — choose how your next compaction runs",
         theme,
-        lines: await settingsFrame({ definition: compactionSettings, panel: createCompactionPanel(() => []), theme }),
+        lines: await settingsFrame({
+            definition: compactionSettings,
+            panel: createCompactionPanel(() => []),
+            theme,
+        }),
     },
     {
         name: "compaction-review",

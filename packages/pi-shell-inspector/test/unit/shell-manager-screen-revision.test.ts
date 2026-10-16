@@ -13,7 +13,12 @@ import { shellManager } from "../../src/shell/shell-manager.ts";
 import { readJobScreen } from "../harness.ts";
 
 function startJob(id: string): void {
-    shellManager.startJob({ id, command: `cmd ${id}`, cwd: "/work", controller: new AbortController() });
+    shellManager.startJob({
+        id,
+        command: `cmd ${id}`,
+        cwd: "/work",
+        controller: new AbortController(),
+    });
 }
 
 async function writeOutput(id: string, output: string): Promise<void> {

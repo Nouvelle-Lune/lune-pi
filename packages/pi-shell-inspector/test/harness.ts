@@ -194,7 +194,11 @@ export interface FakeExtensionUi {
     notify(message: string, type?: string): void;
     /** Open a custom overlay; the fake records the factory instead of running pi's overlay. */
     custom(factory: (...args: unknown[]) => unknown, options?: unknown): Promise<unknown>;
-    setWidget(key: string, content: WidgetContent | undefined, options?: { placement?: WidgetPlacement }): void;
+    setWidget(
+        key: string,
+        content: WidgetContent | undefined,
+        options?: { placement?: WidgetPlacement },
+    ): void;
     /** Content currently mounted for `key`, or `undefined` when the key is not mounted. */
     mountedWidget(placement: WidgetPlacement, key: string): WidgetContent | undefined;
     /** Mounted keys of a placement bucket, in pi's reinsertion order. */
@@ -360,7 +364,10 @@ export class FakeSessionLog {
         this.manager =
             seeded.length === 0
                 ? SessionManager.inMemory(cwd)
-                : SessionManager.inMemory(cwd, {}, [newSessionHeader(cwd), ...seeded.map(toFileEntry)]);
+                : SessionManager.inMemory(cwd, {}, [
+                      newSessionHeader(cwd),
+                      ...seeded.map(toFileEntry),
+                  ]);
     }
 
     /** The real session manager this log wraps. */
@@ -581,7 +588,11 @@ export interface FakePiHost {
     /** `pi.appendEntry` calls, in call order. */
     readonly appendEntryCalls: readonly AppendEntryCall[];
     /** Fire one extension event with the given context, awaiting every handler. */
-    emit(event: PiEventName, ctx: ExtensionContext, payload?: Record<string, unknown>): Promise<void>;
+    emit(
+        event: PiEventName,
+        ctx: ExtensionContext,
+        payload?: Record<string, unknown>,
+    ): Promise<void>;
     /** Currently registered handlers for an event, in registration order. */
     handlers(event: PiEventName): readonly PiEventHandler[];
 }
@@ -614,7 +625,10 @@ export interface RegisterExtensionOptions {
      * throw. The host still records the attempted call in `sendMessageCalls` before delegating, so a
      * test can assert that the extension tried to notify even when the API throws.
      */
-    sendMessage?: (message: SendMessageCall["message"], options?: SendMessageCall["options"]) => void;
+    sendMessage?: (
+        message: SendMessageCall["message"],
+        options?: SendMessageCall["options"],
+    ) => void;
 }
 
 /**
@@ -630,7 +644,11 @@ export interface RegisterExtensionOptions {
  * then delegates to the optional override, so a test can model a failing transport without
  * replacing the host.
  */
-export function registerExtension(cwd: string, sessionLog?: FakeSessionLog, options: RegisterExtensionOptions = {}): FakePiHost {
+export function registerExtension(
+    cwd: string,
+    sessionLog?: FakeSessionLog,
+    options: RegisterExtensionOptions = {},
+): FakePiHost {
     const previousCwd = process.cwd();
     const registeredTools: BashToolDefinition[] = [];
     const registeredCommands: RegisteredCommand[] = [];
@@ -644,10 +662,7 @@ export function registerExtension(cwd: string, sessionLog?: FakeSessionLog, opti
         registerTool: (tool: BashToolDefinition) => {
             registeredTools.push(tool);
         },
-        registerCommand: (
-            name: string,
-            options: Omit<RegisteredCommand, "name">,
-        ) => {
+        registerCommand: (name: string, options: Omit<RegisteredCommand, "name">) => {
             registeredCommands.push({
                 name,
                 description: options.description,
@@ -662,7 +677,10 @@ export function registerExtension(cwd: string, sessionLog?: FakeSessionLog, opti
             // pi's own routing: the session manager owns the leaf and the entry id.
             sessionManager?.appendCustomEntry(customType, data);
         },
-        sendMessage: (message: SendMessageCall["message"], messageOptions?: SendMessageCall["options"]) => {
+        sendMessage: (
+            message: SendMessageCall["message"],
+            messageOptions?: SendMessageCall["options"],
+        ) => {
             sendMessageCalls.push({ message, options: messageOptions });
             options.sendMessage?.(message, messageOptions);
         },
@@ -837,7 +855,10 @@ export function reportedText(run: BashRun): string {
  * the call failed and how; the error object itself is never swallowed or rewritten. Every
  * `onUpdate` payload the tool emits is collected in order.
  */
-export async function runBashCommand(tool: BashToolDefinition, options: BashRunOptions): Promise<BashRun> {
+export async function runBashCommand(
+    tool: BashToolDefinition,
+    options: BashRunOptions,
+): Promise<BashRun> {
     const toolCallId = options.toolCallId ?? "call-1";
     const params: BashToolParams = { command: options.command };
     if (options.timeout !== undefined) {
@@ -849,7 +870,8 @@ export async function runBashCommand(tool: BashToolDefinition, options: BashRunO
     if (options.label !== undefined) {
         params.label = options.label;
     }
-    const ctx = options.ctx === null ? undefined : (options.ctx ?? createFakeContext(process.cwd()));
+    const ctx =
+        options.ctx === null ? undefined : (options.ctx ?? createFakeContext(process.cwd()));
     const signal = options.signal ?? new AbortController().signal;
     const execute = tool.execute as unknown as ToolExecute;
 
@@ -872,7 +894,15 @@ export async function runBashCommand(tool: BashToolDefinition, options: BashRunO
     }
     const durationMs = Date.now() - startedAt;
 
-    return { toolCallId, command: options.command, updates, result, error, failed: error !== undefined, durationMs };
+    return {
+        toolCallId,
+        command: options.command,
+        updates,
+        result,
+        error,
+        failed: error !== undefined,
+        durationMs,
+    };
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -950,7 +980,7 @@ export function waitForJobSettled(
                 reject(
                     new Error(
                         `shell job ${JSON.stringify(jobId)} did not settle within ${timeoutMs}ms ` +
-                        `(status ${JSON.stringify(job?.status)}, output ${JSON.stringify(job?.output.content ?? "")})`,
+                            `(status ${JSON.stringify(job?.status)}, output ${JSON.stringify(job?.output.content ?? "")})`,
                     ),
                 ),
             );

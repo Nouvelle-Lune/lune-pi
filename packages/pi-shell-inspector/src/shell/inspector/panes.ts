@@ -113,7 +113,10 @@ export function renderDetails(
 
     if (output.lineCount === 0) {
         rows.push(
-            cell(theme.fg("muted", job.status === "running" ? "no output yet" : "no output"), width),
+            cell(
+                theme.fg("muted", job.status === "running" ? "no output yet" : "no output"),
+                width,
+            ),
         );
     } else {
         rows.push(

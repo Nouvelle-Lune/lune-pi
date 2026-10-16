@@ -1,4 +1,9 @@
-import type { MessageRenderOptions, Theme, ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type {
+    MessageRenderOptions,
+    Theme,
+    ThemeBg,
+    ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 
 import {
     sliceByColumn,
@@ -212,7 +217,12 @@ class BackgroundShellNotificationBox implements Component {
             entries: this.jobs.map((job) => ({
                 name: "bash",
                 summary: collapseShellCommand(job.command),
-                status: job.status === "completed" ? "done" : job.status === "killed" ? "cancelled" : "failed",
+                status:
+                    job.status === "completed"
+                        ? "done"
+                        : job.status === "killed"
+                          ? "cancelled"
+                          : "failed",
                 detail: job.exitCode === undefined ? undefined : `exit ${job.exitCode}`,
                 durationMs: job.durationMs,
                 error: job.error,
@@ -245,16 +255,22 @@ class BackgroundShellNotificationBox implements Component {
         const outcome = [
             this.theme.fg(color, job.status),
             job.exitCode === undefined ? undefined : this.theme.fg(color, `exit ${job.exitCode}`),
-            job.durationMs === undefined ? undefined : this.theme.fg("muted", formatDuration(job.durationMs)),
+            job.durationMs === undefined
+                ? undefined
+                : this.theme.fg("muted", formatDuration(job.durationMs)),
         ].filter((part): part is string => part !== undefined);
 
         // Every outcome part is preceded by a separator, so the command gets what is left after all
         // of them: a long command can never push the status out of the row.
         const separator = this.theme.fg("dim", " · ");
-        const outcomeWidth = outcome.reduce((total, part) => total + visibleWidth(part), 0)
-            + outcome.length * visibleWidth(separator);
+        const outcomeWidth =
+            outcome.reduce((total, part) => total + visibleWidth(part), 0) +
+            outcome.length * visibleWidth(separator);
         const commandWidth = Math.max(0, width - outcomeWidth);
-        const command = this.theme.fg("text", clipToWidth(collapseShellCommand(job.command), commandWidth));
+        const command = this.theme.fg(
+            "text",
+            clipToWidth(collapseShellCommand(job.command), commandWidth),
+        );
 
         return [command, ...outcome].join(separator);
     }
@@ -281,7 +297,10 @@ class BackgroundShellNotificationBox implements Component {
         const rows = shown.map((line) => BODY_INDENT + this.theme.fg("toolOutput", line));
 
         if (hidden > 0) {
-            rows.push(BODY_INDENT + this.theme.fg("muted", `… ${hidden} earlier lines · ${EXPAND_KEY} to expand`));
+            rows.push(
+                BODY_INDENT +
+                    this.theme.fg("muted", `… ${hidden} earlier lines · ${EXPAND_KEY} to expand`),
+            );
         }
 
         return rows;
@@ -307,7 +326,9 @@ class BackgroundShellNotificationBox implements Component {
     }
 
     private bodyRows(text: string, width: number, color: ThemeColor): string[] {
-        return wrapTextWithAnsi(text, width).map((line) => BODY_INDENT + this.theme.fg(color, line));
+        return wrapTextWithAnsi(text, width).map(
+            (line) => BODY_INDENT + this.theme.fg(color, line),
+        );
     }
 
     private band(row: string, inner: number, paddingX: number): string {
@@ -322,7 +343,9 @@ class BackgroundShellNotificationBox implements Component {
     }
 
     private bandToken(): ThemeBg {
-        return this.jobs.some((job) => job.status !== "completed") ? "toolErrorBg" : "toolSuccessBg";
+        return this.jobs.some((job) => job.status !== "completed")
+            ? "toolErrorBg"
+            : "toolSuccessBg";
     }
 }
 

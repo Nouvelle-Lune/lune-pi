@@ -1,5 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bindSettings, registerSettingsPanel, ResourceScope } from "@lune_99/pi-lune-extensions-core";
+import {
+    bindSettings,
+    registerSettingsPanel,
+    ResourceScope,
+} from "@lune_99/pi-lune-extensions-core";
 import { recapSettings, type RecapSettingsView } from "./settings.ts";
 import { recapPanel } from "./panel.ts";
 import { RecapRuntime } from "./runtime.ts";

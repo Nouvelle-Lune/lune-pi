@@ -83,7 +83,9 @@ export function leftColumnWidth(questions: readonly AskQuestion[], contentWidth:
  * a fixed threshold would either stack usable widths or squeeze the box into unusable ones.
  */
 export function decidePreviewLayout(contentWidth: number, leftWidth: number): PreviewLayoutMode {
-    return contentWidth >= leftWidth + PREVIEW_COLUMN_GAP + MIN_PREVIEW_WIDTH ? "side-by-side" : "stacked";
+    return contentWidth >= leftWidth + PREVIEW_COLUMN_GAP + MIN_PREVIEW_WIDTH
+        ? "side-by-side"
+        : "stacked";
 }
 
 export function previewColumnWidths(
@@ -108,9 +110,10 @@ export function previewColumnWidths(
  * taller than that would be clipped by the panel window and lose its bottom border.
  */
 export function previewBlockRowBudget(mode: PreviewLayoutMode, availableRows: number): number {
-    const cap = mode === "side-by-side"
-        ? PREVIEW_MAX_BLOCK_ROWS_SIDE_BY_SIDE
-        : PREVIEW_MAX_BLOCK_ROWS_STACKED;
+    const cap =
+        mode === "side-by-side"
+            ? PREVIEW_MAX_BLOCK_ROWS_SIDE_BY_SIDE
+            : PREVIEW_MAX_BLOCK_ROWS_STACKED;
 
     return Math.max(MIN_BLOCK_ROWS, Math.min(cap, availableRows));
 }

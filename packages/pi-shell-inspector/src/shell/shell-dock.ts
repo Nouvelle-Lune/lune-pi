@@ -2,7 +2,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { shellManager } from "./shell-manager.ts";
 import { formatShellCommand } from "./shell-command.ts";
 
-
 const WIDGET_ID = "pi-shell-inspector";
 const PADDING = "";
 
@@ -11,7 +10,7 @@ export class ShellDock {
     private selected = false;
     private ctx: ExtensionContext | undefined;
 
-    constructor() { };
+    constructor() {}
 
     private syncRefreshTimer(): void {
         const hasRunningJobs = shellManager.jobsStatusStat.runningCount > 0;
@@ -46,7 +45,9 @@ export class ShellDock {
     }
 
     render(): void {
-        if (!this.ctx || !this.ctx.hasUI) { return; }
+        if (!this.ctx || !this.ctx.hasUI) {
+            return;
+        }
 
         this.syncRefreshTimer();
 
@@ -62,9 +63,7 @@ export class ShellDock {
 
         this.ctx.ui.setWidget(
             WIDGET_ID,
-            [
-                `${PADDING}${summary}${this.ctx.ui.theme.fg("dim", " · /shell to open")}`,
-            ],
+            [`${PADDING}${summary}${this.ctx.ui.theme.fg("dim", " · /shell to open")}`],
             {
                 placement: "belowEditor",
             },
@@ -79,7 +78,9 @@ export class ShellDock {
             this.refreshTimer = undefined;
         }
 
-        if (!this.ctx || !this.ctx.hasUI) { return; }
+        if (!this.ctx || !this.ctx.hasUI) {
+            return;
+        }
 
         this.selected = false;
         this.ctx.ui.setWidget(WIDGET_ID, undefined);
@@ -105,10 +106,20 @@ function shellDockSummary(ctx: ExtensionContext): string {
         ].join(ctx.ui.theme.fg("dim", " · "));
     }
     // only one completed shell case
-    if (status.completedCount === 1 && status.runningCount === 0 && status.failedCount === 0 && status.killedCount === 0) {
+    if (
+        status.completedCount === 1 &&
+        status.runningCount === 0 &&
+        status.failedCount === 0 &&
+        status.killedCount === 0
+    ) {
         const completedJob = shellManager.getCompletedJobsList()[0];
-        const elapsedTime = Math.floor((completedJob!.finishedAt! - completedJob!.startedAt) / 1000);
-        return (ctx.ui.theme.fg("success", `${status.completedCount} shell completed`) + ` in ${elapsedTime}s`);
+        const elapsedTime = Math.floor(
+            (completedJob!.finishedAt! - completedJob!.startedAt) / 1000,
+        );
+        return (
+            ctx.ui.theme.fg("success", `${status.completedCount} shell completed`) +
+            ` in ${elapsedTime}s`
+        );
     }
 
     const parts: string[] = [];

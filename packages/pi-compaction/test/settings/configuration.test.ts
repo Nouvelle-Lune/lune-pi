@@ -45,10 +45,7 @@ test("following requires a session model while explicit models preserve independ
     // Session-following requires a model, while an explicitly selected model keeps its saved effort.
     await withCompactionSettings("lune-configuration-", async (settings) => {
         await settings.set("enabled", true);
-        assert.throws(
-            () => resolveCompactionSettings(settings.snapshot()),
-            /No session model/,
-        );
+        assert.throws(() => resolveCompactionSettings(settings.snapshot()), /No session model/);
         await settings.set("summaryModel", SUMMARY_REFERENCE);
         await settings.set("summaryThinkingLevel", "max");
         const actual = resolveCompactionSettings(settings.snapshot(), {
@@ -106,9 +103,7 @@ test("confidence saved through either settings scope reloads unchanged without v
     // Nested field edits persist independently by scope and survive a backend reload.
     await withCompactionSettings("lune-confidence-reload-", async (settings, environment) => {
         const section = createCompactionSection(settings, () => []);
-        const confidence = section.fields.find(
-            ({ id }) => id === '["policy","deleteThreshold"]',
-        )!;
+        const confidence = section.fields.find(({ id }) => id === '["policy","deleteThreshold"]')!;
         await confidence.set(0.7, "global");
         await confidence.set(0.2, "project");
         await settings.reload();

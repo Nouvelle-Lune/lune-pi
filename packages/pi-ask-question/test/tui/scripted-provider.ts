@@ -142,14 +142,15 @@ export default function (pi: ExtensionAPI): void {
     const faux = fauxProvider();
     pi.registerProvider(faux.provider);
 
-    const toolCalls = process.env.LAQ_DEMO === "two"
-        ? [
-            fauxToolCall("ask_user_questions", { questions: QUESTIONS }),
-            fauxToolCall("ask_user_questions", { questions: SECOND_QUESTIONS }),
-        ]
-        : process.env.LAQ_DEMO === "multi"
-            ? [fauxToolCall("ask_user_questions", { questions: MULTI_QUESTIONS })]
-            : [fauxToolCall("ask_user_questions", { questions: QUESTIONS })];
+    const toolCalls =
+        process.env.LAQ_DEMO === "two"
+            ? [
+                  fauxToolCall("ask_user_questions", { questions: QUESTIONS }),
+                  fauxToolCall("ask_user_questions", { questions: SECOND_QUESTIONS }),
+              ]
+            : process.env.LAQ_DEMO === "multi"
+              ? [fauxToolCall("ask_user_questions", { questions: MULTI_QUESTIONS })]
+              : [fauxToolCall("ask_user_questions", { questions: QUESTIONS })];
 
     faux.setResponses([
         fauxAssistantMessage(toolCalls, { stopReason: "toolUse" }),

@@ -15,7 +15,12 @@ import {
     renderFooter,
     renderHeader,
 } from "./inspector/frame.ts";
-import { BODY_TOP, listWindowStart, paneGeometry, type PaneGeometry } from "./inspector/geometry.ts";
+import {
+    BODY_TOP,
+    listWindowStart,
+    paneGeometry,
+    type PaneGeometry,
+} from "./inspector/geometry.ts";
 import { CommandPreviews, type ThemeColor } from "./inspector/job-format.ts";
 import { OutputRowsCache } from "./inspector/output-rows.ts";
 import { OutputViewport } from "./inspector/output-viewport.ts";
@@ -337,14 +342,19 @@ export class ShellInspector implements Component {
         this.unsubscribeJobs = undefined;
     }
 
-    private clearSelectedJob(job: Readonly<{ id: string; label?: string; command: string }> | undefined): void {
+    private clearSelectedJob(
+        job: Readonly<{ id: string; label?: string; command: string }> | undefined,
+    ): void {
         if (!job) {
             return;
         }
 
         if (shellManager.clearJob(job.id)) {
             this.viewport.follow();
-            this.showNotice(`Cleared ${formatShellCommand(job.label ?? job.command, 28)}`, "success");
+            this.showNotice(
+                `Cleared ${formatShellCommand(job.label ?? job.command, 28)}`,
+                "success",
+            );
         } else {
             this.showNotice("Clear failed, only completed, failed, or killed", "accent");
         }

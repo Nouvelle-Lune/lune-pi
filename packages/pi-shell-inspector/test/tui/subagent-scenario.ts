@@ -89,18 +89,25 @@ export default function (pi: ExtensionAPI): void {
     pi.registerProvider(faux.provider);
 
     const parentCommand = commandFromEnv("LUNE_SHELL_INSPECTOR_COMMAND", DEFAULT_PARENT_COMMAND);
-    const probeCommand = commandFromEnv("LUNE_SHELL_INSPECTOR_PROBE_COMMAND", DEFAULT_PROBE_COMMAND);
+    const probeCommand = commandFromEnv(
+        "LUNE_SHELL_INSPECTOR_PROBE_COMMAND",
+        DEFAULT_PROBE_COMMAND,
+    );
 
     const parent = { turns: 0 };
     const probe = { turns: 0 };
 
     const scriptedResponse: FauxResponseFactory = (context) => {
-        const isProbe = context.messages.some((message) => systemText(message).includes(PROBE_MARKER));
+        const isProbe = context.messages.some((message) =>
+            systemText(message).includes(PROBE_MARKER),
+        );
 
         if (isProbe) {
             probe.turns += 1;
             if (probe.turns === 1) {
-                return fauxAssistantMessage(fauxToolCall("bash", { command: probeCommand }), { stopReason: "toolUse" });
+                return fauxAssistantMessage(fauxToolCall("bash", { command: probeCommand }), {
+                    stopReason: "toolUse",
+                });
             }
             return fauxAssistantMessage(PROBE_FINAL_TEXT);
         }
@@ -113,7 +120,11 @@ export default function (pi: ExtensionAPI): void {
             return fauxAssistantMessage(
                 [
                     fauxToolCall("bash", { command: parentCommand, mode: "background" }),
-                    fauxToolCall("subagent", { agent: PROBE_AGENT_NAME, task: "run the probe command and report back", async: false }),
+                    fauxToolCall("subagent", {
+                        agent: PROBE_AGENT_NAME,
+                        task: "run the probe command and report back",
+                        async: false,
+                    }),
                 ],
                 { stopReason: "toolUse" },
             );

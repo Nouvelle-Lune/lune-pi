@@ -123,7 +123,9 @@ export class WrappedOutput {
  */
 export class OutputRowsCache {
     private readonly wraps = new LineWrapCache();
-    private entry: { jobId: string; revision: number; width: number; output: WrappedOutput } | undefined;
+    private entry:
+        | { jobId: string; revision: number; width: number; output: WrappedOutput }
+        | undefined;
 
     get(source: ScreenSource, jobId: string, width: number): WrappedOutput {
         const revision = source.getScreenRevision(jobId);

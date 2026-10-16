@@ -71,7 +71,12 @@ the error is shown; if `disabled` throws, editing is blocked and the error is sh
 ```ts
 fields: [
     { path: "enabled", label: "Enabled" },
-    { path: "retries", label: "Retries", group: "Advanced", visible: ({ values }) => values.enabled },
+    {
+        path: "retries",
+        label: "Retries",
+        group: "Advanced",
+        visible: ({ values }) => values.enabled,
+    },
     {
         path: "level",
         label: "Level",

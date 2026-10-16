@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { ShellDockContribution } from "./shell/shell-dock-contribution.ts";
 
-import { shellManager } from "./shell/shell-manager.ts"
+import { shellManager } from "./shell/shell-manager.ts";
 
 import { BashTool, BackgroundShellTool, KillBackgroundShellTool } from "./tools/bash-tool.ts";
 import {
@@ -22,13 +22,9 @@ export default function (pi: ExtensionAPI): void {
         renderBackgroundShellNotificationBox,
     );
 
-    let unsubscribeShellManager:
-        | (() => void)
-        | undefined;
+    let unsubscribeShellManager: (() => void) | undefined;
 
-    let unsubscribeBackgroundShellNotifications:
-        | (() => void)
-        | undefined;
+    let unsubscribeBackgroundShellNotifications: (() => void) | undefined;
 
     pi.on("session_start", (_event, ctx) => {
         // Release the old context before manager resets can notify its subscribers.
@@ -43,16 +39,14 @@ export default function (pi: ExtensionAPI): void {
 
         dock.attach(ctx);
 
-        unsubscribeShellManager =
-            shellManager.subscribe((event) => {
-                dock.onManagerEvent(event);
-            });
+        unsubscribeShellManager = shellManager.subscribe((event) => {
+            dock.onManagerEvent(event);
+        });
 
         unsubscribeBackgroundShellNotifications?.();
 
         // Register background shell notifications
         unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(pi, ctx);
-
     });
 
     pi.on("session_shutdown", () => {
@@ -74,7 +68,6 @@ export default function (pi: ExtensionAPI): void {
         } finally {
             unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(pi, ctx);
         }
-
     });
 
     pi.on("session_tree", (_event, ctx) => {

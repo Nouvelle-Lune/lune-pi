@@ -161,7 +161,10 @@ describe("output viewport", () => {
     /** `count` one-row lines, so rows and lines coincide. */
     function outputOf(count: number) {
         const screens = new FakeScreens();
-        screens.set("a", Array.from({ length: count }, (_, index) => `row ${index}`));
+        screens.set(
+            "a",
+            Array.from({ length: count }, (_, index) => `row ${index}`),
+        );
 
         return new OutputRowsCache().get(screens, "a", 40);
     }
@@ -191,7 +194,10 @@ describe("output viewport", () => {
         const output = outputOf(20);
         viewport.view(output, 5, false);
 
-        assert.equal(viewport.scrollBy(-2, () => output), "moved");
+        assert.equal(
+            viewport.scrollBy(-2, () => output),
+            "moved",
+        );
 
         const view = viewport.view(output, 5, false);
 
@@ -219,7 +225,10 @@ describe("output viewport", () => {
     it("ignores scrolling before any frame was laid out", () => {
         const viewport = new OutputViewport();
 
-        assert.equal(viewport.scrollBy(-1, () => outputOf(20)), "ignored");
+        assert.equal(
+            viewport.scrollBy(-1, () => outputOf(20)),
+            "ignored",
+        );
         assert.equal(viewport.paused, false);
     });
 
@@ -229,7 +238,10 @@ describe("output viewport", () => {
         viewport.view(output, 5, false);
         viewport.scrollBy(-1, () => output);
 
-        assert.equal(viewport.scrollBy(1, () => output), "moved");
+        assert.equal(
+            viewport.scrollBy(1, () => output),
+            "moved",
+        );
         assert.equal(viewport.paused, false);
     });
 
@@ -239,7 +251,10 @@ describe("output viewport", () => {
         viewport.view(output, 5, false);
         viewport.jumpToOldest();
 
-        assert.equal(viewport.scrollBy(-1, () => output), "unchanged");
+        assert.equal(
+            viewport.scrollBy(-1, () => output),
+            "unchanged",
+        );
         assert.equal(viewport.paused, true);
     });
 
@@ -287,6 +302,9 @@ describe("output viewport", () => {
         viewport.reset();
 
         assert.equal(viewport.paused, false);
-        assert.equal(viewport.scrollBy(-1, () => output), "ignored");
+        assert.equal(
+            viewport.scrollBy(-1, () => output),
+            "ignored",
+        );
     });
 });

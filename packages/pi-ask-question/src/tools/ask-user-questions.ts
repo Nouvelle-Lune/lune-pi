@@ -10,12 +10,12 @@ import Type from "typebox";
 
 export type AskUserQuestionsDetails =
     | {
-        status: "pending";
-        requestId: string;
-    }
+          status: "pending";
+          requestId: string;
+      }
     | {
-        status: "unavailable";
-    };
+          status: "unavailable";
+      };
 
 /**
  * The tool is asynchronous by design: it returns as soon as the panel is open, the model
@@ -94,8 +94,9 @@ export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
                 .map((question) => theme.fg("text", summarizeText(question.question, 60)));
 
             return new Text(
-                theme.fg("toolTitle", theme.bold("ask_user_questions ")) + theme.fg("muted", label) +
-                (lines.length > 0 ? `\n${lines.join("\n")}` : ""),
+                theme.fg("toolTitle", theme.bold("ask_user_questions ")) +
+                    theme.fg("muted", label) +
+                    (lines.length > 0 ? `\n${lines.join("\n")}` : ""),
                 0,
                 0,
             );
@@ -105,12 +106,19 @@ export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
             const details = result.details as AskUserQuestionsDetails | undefined;
 
             if (details?.status === "unavailable") {
-                return new Text(theme.fg("error", result.content[0]?.type === "text" ? result.content[0].text : "unavailable"), 0, 0);
+                return new Text(
+                    theme.fg(
+                        "error",
+                        result.content[0]?.type === "text" ? result.content[0].text : "unavailable",
+                    ),
+                    0,
+                    0,
+                );
             }
 
             return new Text(
                 theme.fg("warning", "waiting for the user") +
-                theme.fg("dim", " · /question to reopen the panel"),
+                    theme.fg("dim", " · /question to reopen the panel"),
                 0,
                 0,
             );
@@ -149,7 +157,8 @@ const askUserQuestionsSchema = Type.Object({
 
                         description: Type.Optional(
                             Type.String({
-                                description: "One short sentence on the consequence or tradeoff of this option.",
+                                description:
+                                    "One short sentence on the consequence or tradeoff of this option.",
                             }),
                         ),
 
@@ -171,7 +180,8 @@ const askUserQuestionsSchema = Type.Object({
             multiSelect: Type.Optional(
                 Type.Boolean({
                     default: false,
-                    description: "True when several options can apply at once; keep false for mutually exclusive choices.",
+                    description:
+                        "True when several options can apply at once; keep false for mutually exclusive choices.",
                 }),
             ),
         }),

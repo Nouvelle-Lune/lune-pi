@@ -37,27 +37,27 @@ Dock starts enabled with the `ruled` style. Lune Shell Inspector and Lune Ask Qu
 
 ![Lune Dock styles](docs/dock-styles.png)
 
-| Style | |
-| --- | --- |
+| Style             |                                                           |
+| ----------------- | --------------------------------------------------------- |
 | `ruled` · default | Rules around the module/model row and directory/usage row |
-| `boxed` | The same information in a rounded frame |
-| `compact` | Two rows with no frame |
-| `minimal` | One row with modules, model and context use |
-| `classic` | Modules only, with Pi's existing footer |
+| `boxed`           | The same information in a rounded frame                   |
+| `compact`         | Two rows with no frame                                    |
+| `minimal`         | One row with modules, model and context use               |
+| `classic`         | Modules only, with Pi's existing footer                   |
 
 Run `/dock` to preview and choose a style. Every style except `classic` replaces Pi's built-in footer; choose `classic` when another extension uses that footer. Folder and branch icons use Nerd Font glyphs.
 
 ## Keyboard controls
 
-| Where | Key | Action |
-| --- | --- | --- |
-| Empty editor | `↓` | Focus Dock |
-| Editor | `Super+↓` | Focus Dock while preserving your text |
-| Dock | `←` / `→` | Select a module |
-| Dock | `Home` / `End` | Jump to the first / last module |
-| Dock | `Enter` | Open its panel |
-| Dock | `↑` / `Esc` | Return to the editor |
-| Dock | Type or paste | Return to the editor and deliver the input |
+| Where        | Key            | Action                                     |
+| ------------ | -------------- | ------------------------------------------ |
+| Empty editor | `↓`            | Focus Dock                                 |
+| Editor       | `Super+↓`      | Focus Dock while preserving your text      |
+| Dock         | `←` / `→`      | Select a module                            |
+| Dock         | `Home` / `End` | Jump to the first / last module            |
+| Dock         | `Enter`        | Open its panel                             |
+| Dock         | `↑` / `Esc`    | Return to the editor                       |
+| Dock         | Type or paste  | Return to the editor and deliver the input |
 
 `Super` is Command on macOS. Editor shortcuts leave autocomplete and other open panels alone; ordinary Down also leaves non-empty editor text alone.
 

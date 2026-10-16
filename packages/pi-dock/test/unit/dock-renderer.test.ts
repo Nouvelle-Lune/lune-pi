@@ -69,7 +69,11 @@ describe("dock renderer", () => {
 
         for (const width of [40, 41, 80, 200]) {
             const row = renderDockLine(entries, width, identityTheme)[0]!;
-            assert.equal(visibleWidth(row), width, `row ${width} must spend the whole width budget`);
+            assert.equal(
+                visibleWidth(row),
+                width,
+                `row ${width} must spend the whole width budget`,
+            );
         }
     });
 
@@ -89,11 +93,7 @@ describe("dock renderer", () => {
         const unfocused = allocated.splice(0);
 
         view.render(entries, 80, identityTheme, "item-0");
-        assert.deepEqual(
-            allocated,
-            unfocused,
-            "selecting a cell must not resize its neighbors",
-        );
+        assert.deepEqual(allocated, unfocused, "selecting a cell must not resize its neighbors");
     });
 
     it("scrolls the window only as far as the selection needs", () => {
@@ -167,7 +167,12 @@ describe("dock renderer", () => {
             },
         };
 
-        renderDockLine([{ id: "passive", snapshot: { base: passive } }], 80, identityTheme, "passive");
+        renderDockLine(
+            [{ id: "passive", snapshot: { base: passive } }],
+            80,
+            identityTheme,
+            "passive",
+        );
 
         assert.equal(forwarded, 0, "keyboard input belongs to the controller, not to snapshots");
     });

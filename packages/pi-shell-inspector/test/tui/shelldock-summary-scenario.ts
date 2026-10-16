@@ -22,7 +22,12 @@
  * `LUNE_SHELL_INSPECTOR_COMMAND`, `LUNE_SHELL_INSPECTOR_FIXTURE`, `LUNE_SHELL_INSPECTOR_TIMEOUT` and
  * `LUNE_SHELL_INSPECTOR_MODE` are ignored here (the launcher passes them only to the fixture scenario).
  */
-import { fauxAssistantMessage, fauxProvider, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai";
+import {
+    fauxAssistantMessage,
+    fauxProvider,
+    fauxToolCall,
+    type FauxResponseFactory,
+} from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { getFixture } from "../fixtures/long-running-scripts.ts";
@@ -77,7 +82,11 @@ export default function (pi: ExtensionAPI): void {
         return fauxAssistantMessage(
             [
                 fauxToolCall("bash", { command: LONG_SLEEP_COMMAND, mode: "background" }),
-                fauxToolCall("bash", { command: FAILING_COMMAND, timeout: FAILING_TIMEOUT_SECONDS, mode: "background" }),
+                fauxToolCall("bash", {
+                    command: FAILING_COMMAND,
+                    timeout: FAILING_TIMEOUT_SECONDS,
+                    mode: "background",
+                }),
             ],
             { stopReason: "toolUse" },
         );

@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import {
-    getDockRegistry,
-} from "@lune_99/pi-lune-extensions-core/dock/host";
+import { getDockRegistry } from "@lune_99/pi-lune-extensions-core/dock/host";
 
 import type { LuneDockProvider } from "@lune_99/pi-lune-extensions-core/dock";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
@@ -16,7 +14,11 @@ import {
     type AskQuestionRequest,
 } from "../../src/core/questionManager.ts";
 import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
-import { QUESTION_CONTRIBUTION_ID, createQuestionDockContribution, getQuestionDockSnapshot } from "../../src/tui/question-dock-contribution.ts";
+import {
+    QUESTION_CONTRIBUTION_ID,
+    createQuestionDockContribution,
+    getQuestionDockSnapshot,
+} from "../../src/tui/question-dock-contribution.ts";
 import {
     createFakeContext,
     createFakePiHost,
@@ -56,9 +58,13 @@ async function startSession(
 
 /** Resolve the real extension contribution registered for the session's UI object. */
 function registeredContribution(ui: object): LuneDockProvider {
-    const contribution = getDockRegistry().getContributions(ui)
+    const contribution = getDockRegistry()
+        .getContributions(ui)
         .find((item) => item.id === QUESTION_CONTRIBUTION_ID);
-    assert.ok(contribution, "the extension entry point must register the question contribution for this UI");
+    assert.ok(
+        contribution,
+        "the extension entry point must register the question contribution for this UI",
+    );
     return contribution.provider;
 }
 
@@ -74,10 +80,16 @@ function type(panel: NonNullable<FakeUi["panel"]>, text: string): void {
 
 /** Read the latest persisted question snapshot from the fake session branch. */
 function latestSnapshot(branch: readonly FakeBranchEntry[]): { requests: AskQuestionRequest[] } {
-    const entry = [...branch].reverse().find(
-        (candidate) => candidate.type === "custom" && candidate.customType === QUESTION_STATE_ENTRY,
+    const entry = [...branch]
+        .reverse()
+        .find(
+            (candidate) =>
+                candidate.type === "custom" && candidate.customType === QUESTION_STATE_ENTRY,
+        );
+    assert.ok(
+        entry && entry.type === "custom",
+        "the extension must persist a question state entry",
     );
-    assert.ok(entry && entry.type === "custom", "the extension must persist a question state entry");
     return entry.data as { requests: AskQuestionRequest[] };
 }
 
@@ -116,7 +128,12 @@ describe("question dock contribution", () => {
         directContributions.push(contribution);
         contribution.attach(createFakeContext());
 
-        assert.equal(stripTerminalSequences(getQuestionDockSnapshot(createFakeContext()).base.render(100)[0]!), "○ Ask");
+        assert.equal(
+            stripTerminalSequences(
+                getQuestionDockSnapshot(createFakeContext()).base.render(100)[0]!,
+            ),
+            "○ Ask",
+        );
 
         const bundledQuestions: AskQuestion[] = [
             { question: "First choice?", options: [{ label: "A" }] },
@@ -125,10 +142,20 @@ describe("question dock contribution", () => {
         ];
         questionManager.create(bundledQuestions);
 
-        assert.equal(stripTerminalSequences(getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!), "● Ask · 1 pending request");
+        assert.equal(
+            stripTerminalSequences(
+                getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!,
+            ),
+            "● Ask · 1 pending request",
+        );
 
         questionManager.create([{ question: "Another request?" }]);
-        assert.equal(stripTerminalSequences(getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!), "● Ask · 2 pending requests");
+        assert.equal(
+            stripTerminalSequences(
+                getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!,
+            ),
+            "● Ask · 2 pending requests",
+        );
     });
 
     it("publishes atomic levels, retains an idle base, and stays single-line at narrow widths", async () => {
@@ -138,8 +165,15 @@ describe("question dock contribution", () => {
         questionManager.create([{ header: "API design", question: "Which API?" }]);
         assert.notStrictEqual(mounted.snapshot, idle);
         assert.equal(stripTerminalSequences(idle.base.render(80)[0]!), "○ Ask");
-        assert.match(stripTerminalSequences(mounted.snapshot.full!.render(200)[0]!), /1 pending request · API design/);
-        for (const level of [mounted.snapshot.base, mounted.snapshot.detail!, mounted.snapshot.full!]) {
+        assert.match(
+            stripTerminalSequences(mounted.snapshot.full!.render(200)[0]!),
+            /1 pending request · API design/,
+        );
+        for (const level of [
+            mounted.snapshot.base,
+            mounted.snapshot.detail!,
+            mounted.snapshot.full!,
+        ]) {
             for (const width of [0, 1, 8, 30, 120]) {
                 const lines = level.render(width);
                 assert.equal(lines.length, 1);
@@ -148,7 +182,10 @@ describe("question dock contribution", () => {
         }
         questionManager.clearAll();
         assert.equal(getDockRegistry().getContributions(session.ui).length, 1);
-        assert.equal(stripTerminalSequences(mounted.snapshot.detail!.render(80)[0]!), "○ Ask · idle");
+        assert.equal(
+            stripTerminalSequences(mounted.snapshot.detail!.render(80)[0]!),
+            "○ Ask · idle",
+        );
     });
 
     it("uses host presence only in the matching UI scope and restores its widget when the host detaches", async () => {
@@ -162,8 +199,15 @@ describe("question dock contribution", () => {
         const invalidationsAfterAttach = otherInvalidations;
         questionManager.create([{ question: "Which database?" }]);
 
-        assert.ok(session.ui.mountedWidget("belowEditor", WIDGET_KEY), "the fallback remains visible without a same-scope host");
-        assert.equal(otherInvalidations, invalidationsAfterAttach, "another UI receives no contribution invalidation");
+        assert.ok(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            "the fallback remains visible without a same-scope host",
+        );
+        assert.equal(
+            otherInvalidations,
+            invalidationsAfterAttach,
+            "another UI receives no contribution invalidation",
+        );
         assert.equal(getDockRegistry().getContributions(otherUi).length, 0);
         assert.equal(getDockRegistry().getContributions(session.ui).length, 1);
 
@@ -171,21 +215,30 @@ describe("question dock contribution", () => {
         const releaseHost = getDockRegistry().attachHost(session.ui, {
             invalidate: () => hostInvalidations++,
         });
-        assert.equal(session.ui.mountedWidget("belowEditor", WIDGET_KEY), undefined, "the host takes over the standalone widget");
+        assert.equal(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            undefined,
+            "the host takes over the standalone widget",
+        );
         assert.ok(hostInvalidations > 0, "the host receives the existing question state");
 
         releaseHost();
-        assert.ok(session.ui.mountedWidget("belowEditor", WIDGET_KEY), "detaching the host restores the pending question widget");
+        assert.ok(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            "detaching the host restores the pending question widget",
+        );
         releaseOtherHost();
     });
 
     it("opens the same pending request from the slash command and dock while persisting an unfinished draft", async () => {
         // Contract: both entry points open the pending-question panel, and Esc persists unfinished text so it survives a resumed session.
         const session = await startSession();
-        const request = questionManager.create([{
-            question: "Which database?",
-            options: [{ label: "Postgres" }, { label: "SQLite" }],
-        }]);
+        const request = questionManager.create([
+            {
+                question: "Which database?",
+                options: [{ label: "Postgres" }, { label: "SQLite" }],
+            },
+        ]);
         const command = session.host.commands.get("question");
         assert.ok(command, "the /question command must be registered");
 
@@ -198,27 +251,44 @@ describe("question dock contribution", () => {
         await commandOpening;
 
         assert.equal(request.draft.customDrafts[0], "half typed");
-        assert.deepEqual(latestSnapshot(session.branch).requests.find((saved) => saved.id === request.id)?.draft.customDrafts, ["half typed"]);
+        assert.deepEqual(
+            latestSnapshot(session.branch).requests.find((saved) => saved.id === request.id)?.draft
+                .customDrafts,
+            ["half typed"],
+        );
         const firstUi = session.ui;
         await session.host.fire("session_shutdown", session.ctx);
         session.closed = true;
 
         const resumed = await startSession(session.branch);
-        const restored = questionManager.getPendingRequests().find((pending) => pending.id === request.id);
-        assert.equal(restored?.draft.customDrafts[0], "half typed", "the draft is restored from the saved session branch");
+        const restored = questionManager
+            .getPendingRequests()
+            .find((pending) => pending.id === request.id);
+        assert.equal(
+            restored?.draft.customDrafts[0],
+            "half typed",
+            "the draft is restored from the saved session branch",
+        );
 
         const openingFromDock = registeredContribution(resumed.ui).activate();
         assert.ok(resumed.ui.panel, "Enter on the question dock contribution opens the same panel");
         resumed.ui.panel.handleInput?.(ENTER);
         assert.match(
-            resumed.ui.panel.render(120).map((line) => line.replace(/\x1b\[[0-9;]*m/g, "")).join("\n"),
+            resumed.ui.panel
+                .render(120)
+                .map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""))
+                .join("\n"),
             /half typed/,
             "the dock-opened panel restores the saved draft into the editor",
         );
         await closeQuestionPanel(resumed.ui);
         await openingFromDock;
 
-        assert.equal(widgetWrites(firstUi) > 0, true, "the command session rendered its fallback widget before opening");
+        assert.equal(
+            widgetWrites(firstUi) > 0,
+            true,
+            "the command session rendered its fallback widget before opening",
+        );
         assert.equal(resumed.ui.customCalls.length, 1, "the dock opened exactly one panel");
     });
 
@@ -234,29 +304,65 @@ describe("question dock contribution", () => {
         await first.host.fire("session_start", secondCtx);
         first.ui = secondUi;
         first.ctx = secondCtx;
-        assert.equal(getDockRegistry().getContributions(firstUi).length, 0, "the previous UI registration is removed");
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 1, "the new session registers one contribution");
+        assert.equal(
+            getDockRegistry().getContributions(firstUi).length,
+            0,
+            "the previous UI registration is removed",
+        );
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            1,
+            "the new session registers one contribution",
+        );
         const oldPersistCount = first.host.appendEntryCalls.length;
 
         questionManager.create([{ question: "Second session?" }]);
-        assert.equal(widgetWrites(firstUi), firstUiWritesAtRestart, "the retired UI receives no later question state updates");
-        assert.equal(first.host.appendEntryCalls.length, oldPersistCount + 1, "the active session persists the new request once");
+        assert.equal(
+            widgetWrites(firstUi),
+            firstUiWritesAtRestart,
+            "the retired UI receives no later question state updates",
+        );
+        assert.equal(
+            first.host.appendEntryCalls.length,
+            oldPersistCount + 1,
+            "the active session persists the new request once",
+        );
         assert.ok(widgetWrites(secondUi) > 0, "the replacement UI receives the pending request");
 
         await first.host.fire("session_shutdown", secondCtx);
         first.closed = true;
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 0, "shutdown releases the current contribution");
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            0,
+            "shutdown releases the current contribution",
+        );
         const oldPersistCountAfterShutdown = first.host.appendEntryCalls.length;
 
         const reloaded = await startSession(first.branch, secondUi);
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 1, "a reloaded extension installs one new contribution");
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            1,
+            "a reloaded extension installs one new contribution",
+        );
         const writesBeforeReloadRequest = widgetWrites(secondUi);
         const oldWritesBeforeReloadRequest = first.host.appendEntryCalls.length;
 
         questionManager.create([{ question: "Reloaded session?" }]);
-        assert.equal(widgetWrites(secondUi), writesBeforeReloadRequest + 1, "one active listener renders the new request once");
-        assert.equal(reloaded.host.appendEntryCalls.length, 1, "the reloaded host persists the request once");
-        assert.equal(first.host.appendEntryCalls.length, oldWritesBeforeReloadRequest, "the old extension does not keep writing after reload");
+        assert.equal(
+            widgetWrites(secondUi),
+            writesBeforeReloadRequest + 1,
+            "one active listener renders the new request once",
+        );
+        assert.equal(
+            reloaded.host.appendEntryCalls.length,
+            1,
+            "the reloaded host persists the request once",
+        );
+        assert.equal(
+            first.host.appendEntryCalls.length,
+            oldWritesBeforeReloadRequest,
+            "the old extension does not keep writing after reload",
+        );
         assert.equal(oldPersistCountAfterShutdown, oldWritesBeforeReloadRequest);
 
         await reloaded.host.fire("session_shutdown", reloaded.ctx);

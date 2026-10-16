@@ -43,15 +43,15 @@ Keep the introduction focused on the present product. Release history, migration
 
 All package names below are exact. The directory links lead to their current documentation.
 
-| Package | User-facing role | Exact npm name |
-| --- | --- | --- |
-| [Core Theme](../packages/pi-core-theme/README.md) | Compact and expandable tool cards, highlighted split/unified diffs, a pixel-moon header, and seven dark/light palettes. | `@lune_99/pi-core-theme` |
-| [Ask Question](../packages/pi-ask-question/README.md) | Asynchronous structured questions with choices, optional Markdown previews, written answers, and a review/submit flow for multiple questions. | `@lune_99/pi-ask-question` |
-| [Shell Inspector](../packages/pi-shell-inspector/README.md) | Background shell jobs, a live output inspector, job controls, and completion results delivered back to the agent. | `@lune_99/pi-shell-inspector` |
-| [Dock](../packages/pi-dock/README.md) | A keyboard-operated place for cooperating extensions, model information, working directory, and session statistics. | `@lune_99/pi-dock` |
-| [Compaction](../packages/pi-compaction/README.md) | A choice of summary model and thinking level for Pi compaction, with optional review of tool history before summarization. | `@lune_99/pi-compaction` |
-| [Recap](../packages/pi-recap/README.md) | A short reminder near the editor covering the goal, progress, blocker, and a supported next step when returning to a session. | `@lune_99/pi-recap` |
-| [Core](../packages/pi-lune-extensions-core/README.md) | Shared settings, settings panels, lifecycle cleanup, and Dock contracts used by extensions. | `@lune_99/pi-lune-extensions-core` |
+| Package                                                     | User-facing role                                                                                                                              | Exact npm name                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| [Core Theme](../packages/pi-core-theme/README.md)           | Compact and expandable tool cards, highlighted split/unified diffs, a pixel-moon header, and seven dark/light palettes.                       | `@lune_99/pi-core-theme`           |
+| [Ask Question](../packages/pi-ask-question/README.md)       | Asynchronous structured questions with choices, optional Markdown previews, written answers, and a review/submit flow for multiple questions. | `@lune_99/pi-ask-question`         |
+| [Shell Inspector](../packages/pi-shell-inspector/README.md) | Background shell jobs, a live output inspector, job controls, and completion results delivered back to the agent.                             | `@lune_99/pi-shell-inspector`      |
+| [Dock](../packages/pi-dock/README.md)                       | A keyboard-operated place for cooperating extensions, model information, working directory, and session statistics.                           | `@lune_99/pi-dock`                 |
+| [Compaction](../packages/pi-compaction/README.md)           | A choice of summary model and thinking level for Pi compaction, with optional review of tool history before summarization.                    | `@lune_99/pi-compaction`           |
+| [Recap](../packages/pi-recap/README.md)                     | A short reminder near the editor covering the goal, progress, blocker, and a supported next step when returning to a session.                 | `@lune_99/pi-recap`                |
+| [Core](../packages/pi-lune-extensions-core/README.md)       | Shared settings, settings panels, lifecycle cleanup, and Dock contracts used by extensions.                                                   | `@lune_99/pi-lune-extensions-core` |
 
 Core is generic infrastructure. Feature behavior belongs to the feature packages; Core's role extends across the family and to other extension authors.
 
@@ -91,18 +91,18 @@ The main asset directory is [`docs/previews/`](previews/). It currently contains
 
 The filenames below are relative to that directory. They are an inventory, not a requirement to use every image.
 
-| Story or use | Files | What they show |
-| --- | --- | --- |
-| Workspace hero | [`workspace-dark.png`](previews/workspace-dark.png), [`workspace-light.png`](previews/workspace-light.png) | The Lune header, transcript, code change, editor, and session Dock in context. |
-| Motion | [`walkthrough.gif`](previews/walkthrough.gif), [`walkthrough.mp4`](previews/walkthrough.mp4) | A short question interaction and the complete recorded walkthrough. |
-| Tool activity and diffs | [`tools-expanded.png`](previews/tools-expanded.png) | Expanded tool content and the change being reviewed. |
-| Structured decisions | [`ask-question.png`](previews/ask-question.png), `ask-question-alternative.png`, `ask-question-next.png`, `ask-question-submit.png`, `question-answered.png` | Options, changing previews, question tabs, submission, and the transcript result. |
-| Background work | [`shell-inspector.png`](previews/shell-inspector.png), `shell-inspector-next.png`, `shell-inspector-scroll.png` | Job selection, status, output, and scrolling. |
-| Dock | [`dock-focus.png`](previews/dock-focus.png), [`dock-styles.png`](previews/dock-styles.png) | Dock interaction and its settings panel. The current `dock-styles.png` is a settings capture, not a comparison montage of all five styles. |
-| Compaction | [`compaction.png`](previews/compaction.png), [`compaction-result.png`](previews/compaction-result.png) | Compaction settings and the recorded result. |
-| Recap | [`recap.png`](previews/recap.png), [`recap-settings.png`](previews/recap-settings.png) | The reminder near the editor and Recap settings. |
-| Header and settings | [`startup.png`](previews/startup.png), [`theme-settings.png`](previews/theme-settings.png) | Startup appearance and the Theme settings panel. |
-| Palette gallery | `pi-core-dark.png`, `pi-core-light.png`, `pi-core-aurora.png`, `pi-core-eclipse.png`, `pi-core-nebula.png`, `pi-core-dawn.png`, `pi-core-mist.png` | A separate Pi startup for each palette. |
+| Story or use            | Files                                                                                                                                                        | What they show                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Workspace hero          | [`workspace-dark.png`](previews/workspace-dark.png), [`workspace-light.png`](previews/workspace-light.png)                                                   | The Lune header, transcript, code change, editor, and session Dock in context.                                                             |
+| Motion                  | [`walkthrough.gif`](previews/walkthrough.gif), [`walkthrough.mp4`](previews/walkthrough.mp4)                                                                 | A short question interaction and the complete recorded walkthrough.                                                                        |
+| Tool activity and diffs | [`tools-expanded.png`](previews/tools-expanded.png)                                                                                                          | Expanded tool content and the change being reviewed.                                                                                       |
+| Structured decisions    | [`ask-question.png`](previews/ask-question.png), `ask-question-alternative.png`, `ask-question-next.png`, `ask-question-submit.png`, `question-answered.png` | Options, changing previews, question tabs, submission, and the transcript result.                                                          |
+| Background work         | [`shell-inspector.png`](previews/shell-inspector.png), `shell-inspector-next.png`, `shell-inspector-scroll.png`                                              | Job selection, status, output, and scrolling.                                                                                              |
+| Dock                    | [`dock-focus.png`](previews/dock-focus.png), [`dock-styles.png`](previews/dock-styles.png)                                                                   | Dock interaction and its settings panel. The current `dock-styles.png` is a settings capture, not a comparison montage of all five styles. |
+| Compaction              | [`compaction.png`](previews/compaction.png), [`compaction-result.png`](previews/compaction-result.png)                                                       | Compaction settings and the recorded result.                                                                                               |
+| Recap                   | [`recap.png`](previews/recap.png), [`recap-settings.png`](previews/recap-settings.png)                                                                       | The reminder near the editor and Recap settings.                                                                                           |
+| Header and settings     | [`startup.png`](previews/startup.png), [`theme-settings.png`](previews/theme-settings.png)                                                                   | Startup appearance and the Theme settings panel.                                                                                           |
+| Palette gallery         | `pi-core-dark.png`, `pi-core-light.png`, `pi-core-aurora.png`, `pi-core-eclipse.png`, `pi-core-nebula.png`, `pi-core-dawn.png`, `pi-core-mist.png`           | A separate Pi startup for each palette.                                                                                                    |
 
 ### Provenance and older assets
 
@@ -172,15 +172,15 @@ Package READMEs also contain individual npm installation commands. Before making
 
 Use these sources when resolving details:
 
-| Question | Owning source |
-| --- | --- |
-| Workspace names, requirements, and commands | [Root package manifest](../package.json) |
-| Package behavior and user controls | The seven package READMEs linked above, then their owning source files |
-| Theme defaults | [Theme settings](../packages/pi-core-theme/src/settings.ts) |
-| Dock defaults and styles | [Dock settings](../packages/pi-dock/src/dock-settings.ts) |
-| Compaction defaults | [Compaction schema](../packages/pi-compaction/src/settings/schema.ts) |
-| Recap defaults | [Recap settings](../packages/pi-recap/src/settings.ts) |
-| Architecture and development conventions | [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md) |
+| Question                                     | Owning source                                                                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace names, requirements, and commands  | [Root package manifest](../package.json)                                                                                         |
+| Package behavior and user controls           | The seven package READMEs linked above, then their owning source files                                                           |
+| Theme defaults                               | [Theme settings](../packages/pi-core-theme/src/settings.ts)                                                                      |
+| Dock defaults and styles                     | [Dock settings](../packages/pi-dock/src/dock-settings.ts)                                                                        |
+| Compaction defaults                          | [Compaction schema](../packages/pi-compaction/src/settings/schema.ts)                                                            |
+| Recap defaults                               | [Recap settings](../packages/pi-recap/src/settings.ts)                                                                           |
+| Architecture and development conventions     | [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md)                                                              |
 | Capture provenance and package image updates | [Capture manifest](previews/capture.json), [asset guide](previews/README.md), and [image mapping](../tools/real-demo/assets.mjs) |
 
 Recheck facts against the checkout being delivered. If sources conflict or a proposed claim depends on unclear behavior, ask the maintainer before changing that claim or the implementation.

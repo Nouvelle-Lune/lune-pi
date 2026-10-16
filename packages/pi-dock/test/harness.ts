@@ -282,9 +282,10 @@ export interface SessionFixture {
 }
 
 /** The fields the status source reads from Pi's context, backed by a real in-memory session. */
-export function createSessionContext(
-    options: { ui?: unknown; cwd?: string } = {},
-): { ctx: ExtensionContext; session: SessionFixture } {
+export function createSessionContext(options: { ui?: unknown; cwd?: string } = {}): {
+    ctx: ExtensionContext;
+    session: SessionFixture;
+} {
     const cwd = options.cwd ?? "/work/project";
     const session: SessionFixture = {
         sessionManager: SessionManager.inMemory(cwd),
@@ -396,7 +397,11 @@ export function toolResultMessage(usage?: Usage): ToolResultMessage {
 
 /** Context usage whose used tokens agree with the share, so a test states only the share and window. */
 export function createContext(percent: number | null, window: number): DockStatus["context"] {
-    return { tokens: percent === null ? null : Math.round((percent / 100) * window), percent, window };
+    return {
+        tokens: percent === null ? null : Math.round((percent / 100) * window),
+        percent,
+        window,
+    };
 }
 
 /** A complete status with a quiet default so each test states only the field it is about. */
@@ -468,7 +473,10 @@ export async function createAgentFixture(t: NodeTestContext) {
         /** The dock's stored overrides in one scope; `undefined` when the file is absent. */
         readNamespace: async (scope: SettingsScope) => {
             try {
-                return JSON.parse(await readFile(settingsPath(scope), "utf-8")) as Record<string, unknown>;
+                return JSON.parse(await readFile(settingsPath(scope), "utf-8")) as Record<
+                    string,
+                    unknown
+                >;
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
                 throw error;

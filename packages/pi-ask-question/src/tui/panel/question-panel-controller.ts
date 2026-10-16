@@ -15,10 +15,7 @@ import type {
 } from "../../core/question-types.ts";
 
 /** One selectable line of the focused question, in panel order. */
-export type QuestionRow =
-    | { kind: "option"; index: number }
-    | { kind: "custom" }
-    | { kind: "next" };
+export type QuestionRow = { kind: "option"; index: number } | { kind: "custom" } | { kind: "next" };
 
 /** Rows of one question: its options, the free-form row, and the multi-select confirm row. */
 export function questionRows(question: AskQuestion): QuestionRow[] {
@@ -121,8 +118,8 @@ export class QuestionPanelController {
 
         const rows = questionRows(question);
 
-        this.draft.optionIndex = (focusedRowIndex(rows, this.draft.optionIndex) + step + rows.length)
-            % rows.length;
+        this.draft.optionIndex =
+            (focusedRowIndex(rows, this.draft.optionIndex) + step + rows.length) % rows.length;
     }
 
     /** Jump to a tab; the submit tab is `questions.length`. Returns whether the tab changed. */
@@ -199,9 +196,8 @@ export class QuestionPanelController {
 
         // A written answer and selected options are mutually exclusive; the written
         // draft itself stays in `customDrafts` so the editor can restore it.
-        this.draft.answers[questionIndex] = indexes.length > 0
-            ? { selectedIndexes: indexes }
-            : undefined;
+        this.draft.answers[questionIndex] =
+            indexes.length > 0 ? { selectedIndexes: indexes } : undefined;
     }
 
     answerWithOption(index: number): void {
@@ -219,9 +215,8 @@ export class QuestionPanelController {
 
         const questionIndex = this.draft.currentIndex;
 
-        this.draft.currentIndex = questionIndex < this.questions.length - 1
-            ? questionIndex + 1
-            : this.questions.length;
+        this.draft.currentIndex =
+            questionIndex < this.questions.length - 1 ? questionIndex + 1 : this.questions.length;
         this.draft.optionIndex = 0;
 
         return "next";

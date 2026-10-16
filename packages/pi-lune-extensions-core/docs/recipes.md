@@ -86,9 +86,7 @@ reference with Pi when you use it:
 
 ```ts
 const reference = view.get("model");
-const model = reference
-    ? ctx.modelRegistry.find(reference.provider, reference.id)
-    : ctx.model; // "Follow session model"
+const model = reference ? ctx.modelRegistry.find(reference.provider, reference.id) : ctx.model; // "Follow session model"
 ```
 
 ## React to changes
@@ -134,7 +132,7 @@ const settings = defineSettings({
 
 Rules of thumb:
 
-- The current version is `migrations.length + 1`. Stored data at version *n* passes through
+- The current version is `migrations.length + 1`. Stored data at version _n_ passes through
   `migrations[n - 1]`, so append new migrations and never reorder or delete shipped ones.
 - A migration receives an isolated copy of one file's overrides (no defaults, no
   `$version`) and returns the overrides for the next version. Keep it synchronous and pure.
@@ -322,10 +320,7 @@ class ListEditor implements SettingsEditorComponent {
     readonly help = "Enter save · comma-separated";
     private readonly input = new Input();
 
-    constructor(
-        value: readonly string[],
-        submit: (value: string[]) => void,
-    ) {
+    constructor(value: readonly string[], submit: (value: string[]) => void) {
         this.input.setValue(value.join(", "));
         this.input.onSubmit = (text) =>
             submit(

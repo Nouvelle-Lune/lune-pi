@@ -17,9 +17,15 @@ const definition: DockDefinition = {
     }),
     activate() {},
     standalone: {
-        setCtx(ctx) { renderer.setContext(ctx); },
-        render() { renderer.render(); },
-        clear() { renderer.clear(); },
+        setCtx(ctx) {
+            renderer.setContext(ctx);
+        },
+        render() {
+            renderer.render();
+        },
+        clear() {
+            renderer.clear();
+        },
     },
 };
 const contribution = createDockContribution(definition);

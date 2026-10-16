@@ -105,7 +105,9 @@ class LifecycleDriver {
     }
 
     /** Load the extension (a fresh one, as after `/reload`) and fire `session_start`. */
-    async start(reason: "startup" | "reload" | "new" | "resume" | "fork" = "startup"): Promise<void> {
+    async start(
+        reason: "startup" | "reload" | "new" | "resume" | "fork" = "startup",
+    ): Promise<void> {
         this.host = registerExtension(this.workDir, this.sessionLog);
         this.ctx = createFakeContext(this.workDir, { ui: this.ui, sessionLog: this.sessionLog });
         await this.host.emit("session_start", this.ctx, { reason });
@@ -260,19 +262,34 @@ describe("pi-shell-inspector session persistence", () => {
             const done = driver.job("job-completed", "echo done");
             driver.settle(done.id, { type: "completed", exitCode: 0 });
             const live = driver.job("job-running", "sleep 30");
-            assert.equal(shellManager.getJob("job-running")!.status, "running", "the job must be running before the shutdown");
+            assert.equal(
+                shellManager.getJob("job-running")!.status,
+                "running",
+                "the job must be running before the shutdown",
+            );
 
             await driver.stop("quit");
 
-            assert.equal(live.controller.signal.aborted, true, "shutdown must stop the live process");
-            assert.deepEqual(shellManager.getAllJobsList(), [], "the runtime manager must be emptied");
+            assert.equal(
+                live.controller.signal.aborted,
+                true,
+                "shutdown must stop the live process",
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsList(),
+                [],
+                "the runtime manager must be emptied",
+            );
             assert.equal(driver.dockText(), undefined, "the dock must be cleared on shutdown");
             const snapshotIds = shellEntries(driver.sessionLog);
             assert.equal(snapshotIds.length, 1, "shutdown must persist exactly one snapshot");
             const snapshot = driver.sessionLog.entry(snapshotIds[0]!)!.data as ShellStatusSnapshot;
             assert.deepEqual(
                 snapshot.jobs.map((job) => [job.id, job.status]),
-                [["job-completed", "completed"], ["job-running", "killed"]],
+                [
+                    ["job-completed", "completed"],
+                    ["job-running", "killed"],
+                ],
                 "the persisted snapshot must record the completed job and the shutdown-killed one",
             );
 
@@ -282,13 +299,32 @@ describe("pi-shell-inspector session persistence", () => {
 
             assert.deepEqual(
                 shellManager.getAllJobsList().map((job) => [job.id, job.status]),
-                [["job-completed", "completed"], ["job-running", "killed"]],
+                [
+                    ["job-completed", "completed"],
+                    ["job-running", "killed"],
+                ],
                 "the reopened session must restore every persisted job with its final status",
             );
-            assert.equal(shellManager.getJob("job-running")!.error, "pi session shutdown", "the restored shell must keep the lifecycle kill reason");
-            assert.equal(shellManager.getJob("job-running")!.output.content, "", "a restored shell must be inert state with no output");
-            assert.equal(shellManager.getJob("job-completed")!.exitCode, 0, "a restored completed shell must keep its exit code");
-            assert.match(reopened.dockText() ?? "", /^2 shells · 1 completed · 1 killed · \/shell to open$/, "the restored shell list must be summarized in the dock");
+            assert.equal(
+                shellManager.getJob("job-running")!.error,
+                "pi session shutdown",
+                "the restored shell must keep the lifecycle kill reason",
+            );
+            assert.equal(
+                shellManager.getJob("job-running")!.output.content,
+                "",
+                "a restored shell must be inert state with no output",
+            );
+            assert.equal(
+                shellManager.getJob("job-completed")!.exitCode,
+                0,
+                "a restored completed shell must keep its exit code",
+            );
+            assert.match(
+                reopened.dockText() ?? "",
+                /^2 shells · 1 completed · 1 killed · \/shell to open$/,
+                "the restored shell list must be summarized in the dock",
+            );
 
             await reopened.stop("quit");
         });
@@ -304,19 +340,39 @@ describe("pi-shell-inspector session persistence", () => {
             driver.settle(b.id, { type: "completed", exitCode: 0 });
 
             await driver.stop("reload");
-            assert.equal(a.controller.signal.aborted, true, "reload must not leave a process behind");
+            assert.equal(
+                a.controller.signal.aborted,
+                true,
+                "reload must not leave a process behind",
+            );
 
             await driver.start("reload");
 
-            assert.equal(shellManager.getJob("A")!.status, "killed", "the reload must restore A as killed");
-            assert.equal(shellManager.getJob("B")!.status, "completed", "the reload must restore B as completed");
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 1,
-                failedCount: 0,
-                killedCount: 1,
-            }, "the restored counters must match the restored jobs");
-            assert.match(driver.dockText() ?? "", /^2 shells · 1 completed · 1 killed · \/shell to open$/, "the restored shell list must be summarized in the dock");
+            assert.equal(
+                shellManager.getJob("A")!.status,
+                "killed",
+                "the reload must restore A as killed",
+            );
+            assert.equal(
+                shellManager.getJob("B")!.status,
+                "completed",
+                "the reload must restore B as completed",
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 1,
+                    failedCount: 0,
+                    killedCount: 1,
+                },
+                "the restored counters must match the restored jobs",
+            );
+            assert.match(
+                driver.dockText() ?? "",
+                /^2 shells · 1 completed · 1 killed · \/shell to open$/,
+                "the restored shell list must be summarized in the dock",
+            );
 
             await driver.stop("quit");
         });
@@ -331,15 +387,27 @@ describe("pi-shell-inspector session persistence", () => {
             for (let round = 0; round < 3; round++) {
                 await driver.stop("reload");
                 await driver.start("reload");
-                assert.equal(live.controller.signal.aborted, true, `reload ${round + 1} must stop the process`);
+                assert.equal(
+                    live.controller.signal.aborted,
+                    true,
+                    `reload ${round + 1} must stop the process`,
+                );
 
                 // session_start renders once; the restored snapshot itself must not re-render per job.
                 const before = driver.dockCalls;
                 const killedBeforeProbe = shellManager.getAllJobsStatusStat().killedCount;
                 driver.job(`probe-${round}`, "echo probe");
-                assert.equal(driver.dockCalls, before + 1, `one manager event must render the dock once (round ${round + 1})`);
+                assert.equal(
+                    driver.dockCalls,
+                    before + 1,
+                    `one manager event must render the dock once (round ${round + 1})`,
+                );
                 shellManager.settleJob(`probe-${round}`, { type: "killed", error: "probe" });
-                assert.equal(driver.dockCalls, before + 2, "the settle must render exactly once more");
+                assert.equal(
+                    driver.dockCalls,
+                    before + 2,
+                    "the settle must render exactly once more",
+                );
 
                 // Each round restores the previous round's snapshot (which already holds the earlier
                 // probes), so the delta - not the absolute count - is what proves nothing double-counts.
@@ -370,10 +438,17 @@ describe("pi-shell-inspector session persistence", () => {
 
             assert.deepEqual(
                 shellManager.getAllJobsList().map((job) => [job.id, job.status]),
-                [["job-done", "completed"], ["job-live", "killed"]],
+                [
+                    ["job-done", "completed"],
+                    ["job-live", "killed"],
+                ],
                 "a resumed session must rebuild its jobs from the stored snapshot alone",
             );
-            assert.match(resumed.dockText() ?? "", /^2 shells · 1 completed · 1 killed · \/shell to open$/, "the resumed shell list must be summarized in the dock");
+            assert.match(
+                resumed.dockText() ?? "",
+                /^2 shells · 1 completed · 1 killed · \/shell to open$/,
+                "the resumed shell list must be summarized in the dock",
+            );
 
             await resumed.stop("quit");
         });
@@ -384,11 +459,19 @@ describe("pi-shell-inspector session persistence", () => {
             const logA = newSessionLog();
             appendSeedJob(logA, "A1", "echo a", { type: "completed", exitCode: 0 });
             const logB = newSessionLog();
-            appendSeedJob(logB, "B1", "exit 1", { type: "failed", error: "Command exited with code 1", exitCode: 1 });
+            appendSeedJob(logB, "B1", "exit 1", {
+                type: "failed",
+                error: "Command exited with code 1",
+                exitCode: 1,
+            });
 
             const driver = new LifecycleDriver(workDir, logA);
             await driver.start();
-            assert.equal(shellManager.getJob("A1")!.status, "completed", "the first session must restore its own persisted job");
+            assert.equal(
+                shellManager.getJob("A1")!.status,
+                "completed",
+                "the first session must restore its own persisted job",
+            );
 
             await driver.stop("resume");
 
@@ -396,10 +479,26 @@ describe("pi-shell-inspector session persistence", () => {
             driver.sessionLog = logB;
             await driver.start("resume");
 
-            assert.deepEqual(shellManager.getAllJobsList().map((job) => job.id), ["B1"], "the resumed session must list only its own job");
-            assert.equal(shellManager.getJob("A1"), undefined, "A1 must not leak into the resumed session");
-            assert.equal(shellManager.getJob("B1")!.status, "failed", "the resumed job must keep its stored status");
-            assert.equal(shellManager.getJob("B1")!.error, "Command exited with code 1", "the resumed job must keep its stored reason");
+            assert.deepEqual(
+                shellManager.getAllJobsList().map((job) => job.id),
+                ["B1"],
+                "the resumed session must list only its own job",
+            );
+            assert.equal(
+                shellManager.getJob("A1"),
+                undefined,
+                "A1 must not leak into the resumed session",
+            );
+            assert.equal(
+                shellManager.getJob("B1")!.status,
+                "failed",
+                "the resumed job must keep its stored status",
+            );
+            assert.equal(
+                shellManager.getJob("B1")!.error,
+                "Command exited with code 1",
+                "the resumed job must keep its stored reason",
+            );
 
             await driver.stop("quit");
         });
@@ -416,12 +515,20 @@ describe("pi-shell-inspector session persistence", () => {
             driver.settle(b.id, { type: "completed", exitCode: 0 });
 
             await driver.stop("new");
-            assert.equal(a.controller.signal.aborted, true, "ending the old session must stop its shell");
+            assert.equal(
+                a.controller.signal.aborted,
+                true,
+                "ending the old session must stop its shell",
+            );
 
-            const persisted = oldLog.entry(shellEntries(oldLog).at(-1)!)!.data as ShellStatusSnapshot;
+            const persisted = oldLog.entry(shellEntries(oldLog).at(-1)!)!
+                .data as ShellStatusSnapshot;
             assert.deepEqual(
                 persisted.jobs.map((job) => [job.id, job.status]),
-                [["A", "killed"], ["B", "completed"]],
+                [
+                    ["A", "killed"],
+                    ["B", "completed"],
+                ],
                 "the old session must record what happened to its shells",
             );
 
@@ -429,13 +536,21 @@ describe("pi-shell-inspector session persistence", () => {
             driver.sessionLog = newSessionLog();
             await driver.start("new");
 
-            assert.deepEqual(shellManager.getAllJobsList(), [], "a new session must start with no shells");
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), {
-                runningCount: 0,
-                completedCount: 0,
-                failedCount: 0,
-                killedCount: 0,
-            }, "a new session must start with empty counters");
+            assert.deepEqual(
+                shellManager.getAllJobsList(),
+                [],
+                "a new session must start with no shells",
+            );
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                {
+                    runningCount: 0,
+                    completedCount: 0,
+                    failedCount: 0,
+                    killedCount: 0,
+                },
+                "a new session must start with empty counters",
+            );
             assert.equal(driver.dockText(), undefined, "an empty session mounts no dock");
 
             await driver.stop("quit");
@@ -452,7 +567,11 @@ describe("pi-shell-inspector session persistence", () => {
             const b = original.job("B", "sleep 30");
 
             await original.stop("fork");
-            assert.equal(b.controller.signal.aborted, true, "forking must stop the live shell before the new session starts");
+            assert.equal(
+                b.controller.signal.aborted,
+                true,
+                "forking must stop the live shell before the new session starts",
+            );
 
             // `/fork` creates a new session file from the branch up to the current leaf.
             const fork = new LifecycleDriver(workDir, forkSessionLog(log, log.leafId));
@@ -460,7 +579,10 @@ describe("pi-shell-inspector session persistence", () => {
 
             assert.deepEqual(
                 shellManager.getAllJobsList().map((job) => [job.id, job.status]),
-                [["A", "completed"], ["B", "killed"]],
+                [
+                    ["A", "completed"],
+                    ["B", "killed"],
+                ],
                 "the fork must inherit the branch's final shell state",
             );
 
@@ -482,8 +604,16 @@ describe("pi-shell-inspector session persistence", () => {
             log.appendMessage("m2");
             startJobIn(writer, "A2", "sleep 30");
             appendShellStatus(writer, log);
-            assert.deepEqual(jobIdsOf(log, snapshot1Entry), ["A1"], "guard: the first snapshot holds only A1");
-            assert.deepEqual(jobIdsOf(log, log.leafId!), ["A2"], "guard: the second snapshot holds only A2");
+            assert.deepEqual(
+                jobIdsOf(log, snapshot1Entry),
+                ["A1"],
+                "guard: the first snapshot holds only A1",
+            );
+            assert.deepEqual(
+                jobIdsOf(log, log.leafId!),
+                ["A2"],
+                "guard: the second snapshot holds only A2",
+            );
 
             // Fork at the first historical node: only m1 and the older snapshot are on the branch.
             const forkLog = forkSessionLog(log, snapshot1Entry);
@@ -495,9 +625,21 @@ describe("pi-shell-inspector session persistence", () => {
                 ["A1"],
                 "the fork must restore the snapshot on its own branch, not the original session's newest one",
             );
-            assert.equal(shellManager.getJob("A2"), undefined, "the fork must not see a job outside its branch");
-            assert.deepEqual(jobIdsOf(forkLog, snapshot1Entry), ["A1"], "the fork's own snapshot must stay its source of truth");
-            assert.deepEqual(shellEntries(forkLog), [snapshot1Entry], "the fork must hold exactly its branch's snapshot");
+            assert.equal(
+                shellManager.getJob("A2"),
+                undefined,
+                "the fork must not see a job outside its branch",
+            );
+            assert.deepEqual(
+                jobIdsOf(forkLog, snapshot1Entry),
+                ["A1"],
+                "the fork's own snapshot must stay its source of truth",
+            );
+            assert.deepEqual(
+                shellEntries(forkLog),
+                [snapshot1Entry],
+                "the fork must hold exactly its branch's snapshot",
+            );
 
             await fork.stop("quit");
         });
@@ -523,7 +665,11 @@ describe("pi-shell-inspector session persistence", () => {
             const branchBSources = new LifecycleDriver(workDir, log);
             await branchBSources.start();
             const b1 = branchBSources.job("B1", "exit 1");
-            branchBSources.settle(b1.id, { type: "failed", error: "Command exited with code 1", exitCode: 1 });
+            branchBSources.settle(b1.id, {
+                type: "failed",
+                error: "Command exited with code 1",
+                exitCode: 1,
+            });
             await branchBSources.stop("reload");
             const snapshotB = log.leafId!;
 
@@ -539,10 +685,22 @@ describe("pi-shell-inspector session persistence", () => {
             // ---- arrive on branch A: pi's `branch()` then `session_tree` (restore only) ----
             log.setLeaf(snapshotA);
             await manager.tree(snapshotA);
-            assert.deepEqual(shellManager.getAllJobsList().map((job) => job.id), ["A1", "A2"], "arriving on A must restore A's jobs");
+            assert.deepEqual(
+                shellManager.getAllJobsList().map((job) => job.id),
+                ["A1", "A2"],
+                "arriving on A must restore A's jobs",
+            );
             assert.equal(shellManager.getJob("B1"), undefined, "B's job must not appear on A");
-            assert.equal(shellManager.getJob("A2")!.status, "killed", "A's running shell was killed at A's teardown");
-            assert.equal(shellManager.getJob("A1")!.status, "completed", "A's finished shell must keep its status");
+            assert.equal(
+                shellManager.getJob("A2")!.status,
+                "killed",
+                "A's running shell was killed at A's teardown",
+            );
+            assert.equal(
+                shellManager.getJob("A1")!.status,
+                "completed",
+                "A's finished shell must keep its status",
+            );
 
             // ---- A -> B: B's state; A's teardown snapshot lands on A's own branch ----
             const beforeB = log.entries().length;
@@ -554,27 +712,49 @@ describe("pi-shell-inspector session persistence", () => {
                 ["B1"],
                 "B's branch must restore only B's snapshot",
             );
-            assert.equal(shellManager.getJob("A1"), undefined, "A's completed job must not leak into B");
+            assert.equal(
+                shellManager.getJob("A1"),
+                undefined,
+                "A's completed job must not leak into B",
+            );
             assert.equal(shellManager.getJob("A2"), undefined, "A's live job must not leak into B");
-            assert.equal(shellManager.getJob("B1")!.status, "failed", "B's job must keep its stored failure status");
+            assert.equal(
+                shellManager.getJob("B1")!.status,
+                "failed",
+                "B's job must keep its stored failure status",
+            );
 
             // Exactly one entry was appended - A's own teardown snapshot, under A's leaf.
             const addedLeavingA = log.entries().slice(beforeB);
             assert.equal(addedLeavingA.length, 1, "leaving A appends exactly one entry");
-            assert.equal(addedLeavingA[0]!.customType, SHELL_STATUS_ENTRY, "the appended entry must be a shell snapshot");
+            assert.equal(
+                addedLeavingA[0]!.customType,
+                SHELL_STATUS_ENTRY,
+                "the appended entry must be a shell snapshot",
+            );
             assert.deepEqual(
                 jobIdsOf(log, addedLeavingA[0]!.id),
                 ["A1", "A2"],
                 "the appended snapshot must describe the branch that was left",
             );
             assert.ok(
-                log.getBranch(addedLeavingA[0]!.parentId ?? undefined).some((entry) => entry.id === snapshotA),
+                log
+                    .getBranch(addedLeavingA[0]!.parentId ?? undefined)
+                    .some((entry) => entry.id === snapshotA),
                 `the appended snapshot must hang off A's branch, not B's, got ${JSON.stringify(log.getBranch(addedLeavingA[0]!.parentId ?? undefined).map((entry) => entry.id))}`,
             );
 
             // B's active branch must hold B's own snapshot and nothing an A teardown added.
-            assert.deepEqual(shellEntriesOnBranch(log), [snapshotB], "A's teardown snapshot must not reach B");
-            assert.equal(branchJobs(log).join(","), "B1", "B's branch must not contain any of A's jobs");
+            assert.deepEqual(
+                shellEntriesOnBranch(log),
+                [snapshotB],
+                "A's teardown snapshot must not reach B",
+            );
+            assert.equal(
+                branchJobs(log).join(","),
+                "B1",
+                "B's branch must not contain any of A's jobs",
+            );
 
             // ---- B -> A: A's final state again, B's snapshot untouched ----
             const entriesBeforeReturn = log.entries().length;
@@ -590,15 +770,35 @@ describe("pi-shell-inspector session persistence", () => {
                 ["A1", "A2"],
                 "returning to A must restore A's snapshot, not B's",
             );
-            assert.equal(shellManager.getJob("A2")!.status, "killed", "A's live shell must come back as killed");
-            assert.equal(shellManager.getJob("A1")!.status, "completed", "A's finished shell must keep its status");
+            assert.equal(
+                shellManager.getJob("A2")!.status,
+                "killed",
+                "A's live shell must come back as killed",
+            );
+            assert.equal(
+                shellManager.getJob("A1")!.status,
+                "completed",
+                "A's finished shell must keep its status",
+            );
             assert.equal(shellManager.getJob("B1"), undefined, "B's job must not appear on A");
 
             const addedLeavingB = log.entries().slice(entriesBeforeReturn);
             assert.equal(addedLeavingB.length, 1, "leaving B appends exactly one entry");
-            assert.deepEqual(jobIdsOf(log, addedLeavingB[0]!.id), ["B1"], "B's teardown snapshot describes B");
-            assert.deepEqual(shellEntriesOnBranch(log), [snapshotA], "B's teardown snapshot must not reach A");
-            assert.equal(branchJobs(log).join(","), "A1,A2", "A's branch must not contain any of B's jobs");
+            assert.deepEqual(
+                jobIdsOf(log, addedLeavingB[0]!.id),
+                ["B1"],
+                "B's teardown snapshot describes B",
+            );
+            assert.deepEqual(
+                shellEntriesOnBranch(log),
+                [snapshotA],
+                "B's teardown snapshot must not reach A",
+            );
+            assert.equal(
+                branchJobs(log).join(","),
+                "A1,A2",
+                "A's branch must not contain any of B's jobs",
+            );
         });
     });
 });

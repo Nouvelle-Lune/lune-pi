@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-    getDockRegistry,
-    type DockHost,
-} from "@lune_99/pi-lune-extensions-core/dock/host";
+import { getDockRegistry, type DockHost } from "@lune_99/pi-lune-extensions-core/dock/host";
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -40,7 +37,10 @@ interface ShellHost {
 /** Register the real extension entry point against the smallest API surface its lifecycle uses. */
 function createShellHost(): ShellHost {
     const handlers = new Map<string, ShellHandler[]>();
-    const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>();
+    const commands = new Map<
+        string,
+        { handler: (args: string, ctx: ExtensionContext) => unknown }
+    >();
     const api = {
         on(event: string, handler: ShellHandler) {
             const registered = handlers.get(event) ?? [];
@@ -53,7 +53,10 @@ function createShellHost(): ShellHost {
         },
         registerTool() {},
         registerMessageRenderer() {},
-        registerCommand(name: string, options: { handler: (args: string, ctx: ExtensionContext) => unknown }) {
+        registerCommand(
+            name: string,
+            options: { handler: (args: string, ctx: ExtensionContext) => unknown },
+        ) {
             commands.set(name, options);
         },
         appendEntry() {},
@@ -84,7 +87,11 @@ function addJob(id: string, status: ShellJobStatus): void {
         return;
     }
     if (status === "failed") {
-        shellManager.settleJob(id, { type: "failed", error: "Command exited with code 1", exitCode: 1 });
+        shellManager.settleJob(id, {
+            type: "failed",
+            error: "Command exited with code 1",
+            exitCode: 1,
+        });
         return;
     }
     shellManager.settleJob(id, { type: "killed", error: "killed by test" });
@@ -144,20 +151,45 @@ describe("shell dock contribution", () => {
         directContributions.push(contribution);
         contribution.attach(createFakeContext("/work"));
 
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!), "○ Shell", "idle providers remain registered");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!),
+            "○ Shell",
+            "idle providers remain registered",
+        );
 
         addJob("completed", "completed");
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!), "● Shell · 1 completed");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
+            "● Shell · 1 completed",
+        );
 
         addJob("running", "running");
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "◐", "running work outranks completed work");
-        assert.match(stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!), /1 running · 1 completed/);
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "◐",
+            "running work outranks completed work",
+        );
+        assert.match(
+            stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
+            /1 running · 1 completed/,
+        );
 
         addJob("failed", "failed");
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕", "a failed job outranks running work");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+            "a failed job outranks running work",
+        );
         addJob("killed", "killed");
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕", "a killed job also requires attention");
-        assert.match(stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!), /2 failed\/killed/);
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+            "a killed job also requires attention",
+        );
+        assert.match(
+            stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
+            /2 failed\/killed/,
+        );
     });
 
     it("publishes complete passive single-line snapshots with command and elapsed time", async () => {
@@ -165,7 +197,10 @@ describe("shell dock contribution", () => {
         addJob("latest", "completed");
         const mounted = getDockRegistry().getContributions(session.ui)[0]!;
         const previous = mounted.snapshot;
-        assert.match(stripTerminalSequences(previous.full!.render(200)[0]!), /latest: echo latest · \d+s/);
+        assert.match(
+            stripTerminalSequences(previous.full!.render(200)[0]!),
+            /latest: echo latest · \d+s/,
+        );
         for (const level of [previous.base, previous.detail!, previous.full!]) {
             for (const width of [0, 1, 8, 30, 120]) {
                 const lines = level.render(width);
@@ -176,7 +211,10 @@ describe("shell dock contribution", () => {
         addJob("second", "completed");
         assert.notStrictEqual(mounted.snapshot, previous);
         assert.match(stripTerminalSequences(previous.detail!.render(200)[0]!), /1 completed/);
-        assert.match(stripTerminalSequences(mounted.snapshot.detail!.render(200)[0]!), /2 completed/);
+        assert.match(
+            stripTerminalSequences(mounted.snapshot.detail!.render(200)[0]!),
+            /2 completed/,
+        );
     });
 
     it("keeps a newly failed job red when a successful inspector open acknowledges only its opening snapshot", async () => {
@@ -195,10 +233,18 @@ describe("shell dock contribution", () => {
         overlay.close();
         await opening;
 
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕", "the failure that arrived while the panel was open remains unseen");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+            "the failure that arrived while the panel was open remains unseen",
+        );
         assert.equal(shellManager.clearJob("new-failure"), true);
         contribution.onManagerEvent({ type: "job-cleared", id: "new-failure" });
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "●", "the original failure was acknowledged and only completed work remains");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "●",
+            "the original failure was acknowledged and only completed work remains",
+        );
     });
 
     it("keeps an only-failed item red after its failure has been opened", async () => {
@@ -215,8 +261,14 @@ describe("shell dock contribution", () => {
         overlay.close();
         await opening;
 
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕");
-        assert.match(stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!), /1 failed\/killed/);
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+        );
+        assert.match(
+            stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
+            /1 failed\/killed/,
+        );
     });
 
     it("does not acknowledge failures when opening the inspector rejects", async () => {
@@ -230,7 +282,10 @@ describe("shell dock contribution", () => {
         addJob("failed", "failed");
 
         await assert.rejects(contribution.open(ctx), /overlay failed/);
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+        );
     });
 
     it("forgets acknowledged failure IDs when the manager is cleared", async () => {
@@ -247,13 +302,21 @@ describe("shell dock contribution", () => {
         const opening = contribution.open(ctx);
         overlay.close();
         await opening;
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "●", "the viewed failure is acknowledged beside completed history");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "●",
+            "the viewed failure is acknowledged beside completed history",
+        );
 
         shellManager.clearAllJobs();
         contribution.onManagerEvent({ type: "jobs-cleared" });
         addJob("reused-id", "failed");
 
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "✕", "a failure after the reset is unseen even when its ID was acknowledged before");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "✕",
+            "a failure after the reset is unseen even when its ID was acknowledged before",
+        );
     });
 
     it("returns from busy to healthy when the last running job completes beside completed history", () => {
@@ -264,9 +327,15 @@ describe("shell dock contribution", () => {
         addJob("completed", "completed");
         addJob("running", "running");
 
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "◐");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "◐",
+        );
         assert.equal(shellManager.settleJob("running", { type: "completed", exitCode: 0 }), true);
-        assert.equal(stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0), "●");
+        assert.equal(
+            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
+            "●",
+        );
     });
 
     it("keeps a host scoped to another UI from hiding this session's fallback and restores the fallback when detached", async () => {
@@ -277,14 +346,24 @@ describe("shell dock contribution", () => {
         addJob("visible", "completed");
         const otherHostRelease = attachHost(otherUi);
 
-        assert.ok(session.ui.mountedWidget("belowEditor", WIDGET_KEY), "a host in another UI cannot claim this contribution");
+        assert.ok(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            "a host in another UI cannot claim this contribution",
+        );
         assert.equal(getDockRegistry().getContributions(otherUi).length, 0);
         assert.equal(getDockRegistry().getContributions(session.ui).length, 1);
 
         const hostRelease = attachHost(session.ui);
-        assert.equal(session.ui.mountedWidget("belowEditor", WIDGET_KEY), undefined, "the scoped host owns the compact representation");
+        assert.equal(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            undefined,
+            "the scoped host owns the compact representation",
+        );
         hostRelease();
-        assert.ok(session.ui.mountedWidget("belowEditor", WIDGET_KEY), "host removal restores the plugin's original widget");
+        assert.ok(
+            session.ui.mountedWidget("belowEditor", WIDGET_KEY),
+            "host removal restores the plugin's original widget",
+        );
         assert.ok(session.ui.widgetCalls.length > before);
 
         otherHostRelease();
@@ -300,26 +379,54 @@ describe("shell dock contribution", () => {
 
         await first.host.fire("session_start", secondCtx);
         first.ctx = secondCtx;
-        assert.equal(getDockRegistry().getContributions(first.ui).length, 0, "the previous UI registration is released");
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 1, "the replacement session registers exactly once");
+        assert.equal(
+            getDockRegistry().getContributions(first.ui).length,
+            0,
+            "the previous UI registration is released",
+        );
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            1,
+            "the replacement session registers exactly once",
+        );
         const firstCallsAfterRestart = first.ui.widgetCalls.length;
 
         addJob("after-restart", "completed");
-        assert.equal(first.ui.widgetCalls.length, firstCallsAfterRestart, "the old UI receives no job event");
+        assert.equal(
+            first.ui.widgetCalls.length,
+            firstCallsAfterRestart,
+            "the old UI receives no job event",
+        );
         assert.ok(secondUi.widgetCalls.length > 0, "the active UI receives the job event");
 
         await first.host.fire("session_shutdown", secondCtx);
         first.closed = true;
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 0, "shutdown releases the active registration");
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            0,
+            "shutdown releases the active registration",
+        );
         const callsAfterShutdown = secondUi.widgetCalls.length;
 
         const reloaded = await startSession(secondUi);
-        assert.equal(getDockRegistry().getContributions(secondUi).length, 1, "a reloaded extension owns one fresh registration");
+        assert.equal(
+            getDockRegistry().getContributions(secondUi).length,
+            1,
+            "a reloaded extension owns one fresh registration",
+        );
         const callsBeforeReloadedJob = secondUi.widgetCalls.length;
         addJob("after-reload", "completed");
-        assert.equal(secondUi.widgetCalls.length, callsBeforeReloadedJob + 2, "the reloaded listener renders the start and settle events once each");
+        assert.equal(
+            secondUi.widgetCalls.length,
+            callsBeforeReloadedJob + 2,
+            "the reloaded listener renders the start and settle events once each",
+        );
         assert.ok(secondUi.widgetCalls.length > callsAfterShutdown);
-        assert.equal(first.ui.widgetCalls.length, firstCallsAtRestart, "the retired UI remains untouched after reload");
+        assert.equal(
+            first.ui.widgetCalls.length,
+            firstCallsAtRestart,
+            "the retired UI remains untouched after reload",
+        );
 
         await reloaded.host.fire("session_shutdown", reloaded.ctx);
         reloaded.closed = true;

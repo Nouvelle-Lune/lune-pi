@@ -15,7 +15,8 @@ export async function updatePackageImages(root, captures, themes) {
         "recap.png": ["pi-recap/docs/recap-widget.png"],
         "recap-settings.png": ["pi-recap/docs/recap-settings.png"],
     };
-    for (const theme of themes) images[theme + ".png"] = ["pi-core-theme/docs/palettes/" + theme + ".png"];
+    for (const theme of themes)
+        images[theme + ".png"] = ["pi-core-theme/docs/palettes/" + theme + ".png"];
     for (const [source, targets] of Object.entries(images)) {
         for (const relative of targets) {
             const destination = join(root, "packages", relative);

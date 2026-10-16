@@ -94,7 +94,9 @@ function backgroundTimeoutSeconds(): number | undefined {
     }
     const seconds = Number(raw);
     if (!Number.isFinite(seconds) || seconds <= 0) {
-        throw new Error(`LUNE_SHELL_INSPECTOR_TIMEOUT must be a positive number of seconds, got ${JSON.stringify(raw)}`);
+        throw new Error(
+            `LUNE_SHELL_INSPECTOR_TIMEOUT must be a positive number of seconds, got ${JSON.stringify(raw)}`,
+        );
     }
     return seconds;
 }
@@ -143,7 +145,9 @@ export default function (pi: ExtensionAPI): void {
         // rendering while the long sleep keeps this shell observable.
         fauxAssistantMessage(
             [
-                fauxText("The command contains literal newlines; start it in the background for inspection."),
+                fauxText(
+                    "The command contains literal newlines; start it in the background for inspection.",
+                ),
                 fauxToolCall("bash", {
                     command: MULTILINE_REPRO_COMMAND,
                     mode: "background",

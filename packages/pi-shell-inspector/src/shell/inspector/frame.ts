@@ -8,8 +8,7 @@ import type { Notice } from "./footer-notice.ts";
 const BACK_TO_BOTTOM_LABEL = "[ ↓ Back to bottom · End ]";
 const BACK_TO_BOTTOM_LABEL_WIDTH = visibleWidth(BACK_TO_BOTTOM_LABEL);
 
-const KEY_HINTS =
-    "↑↓/jk shell · ⇧↑↓/jk scroll · Home/End · x to kill · c to clear · Esc to close";
+const KEY_HINTS = "↑↓/jk shell · ⇧↑↓/jk scroll · Home/End · x to kill · c to clear · Esc to close";
 
 function border(theme: Theme, text: string): string {
     return theme.fg("border", text);
@@ -42,10 +41,7 @@ export function renderHeader(
 }
 
 export function renderFooter(theme: Theme, width: number, notice: Notice | undefined): string {
-    return cell(
-        notice ? theme.fg(notice.color, notice.text) : theme.fg("dim", KEY_HINTS),
-        width,
-    );
+    return cell(notice ? theme.fg(notice.color, notice.text) : theme.fg("dim", KEY_HINTS), width);
 }
 
 export interface BottomSeparator {
@@ -111,7 +107,11 @@ export function assembleFrame(theme: Theme, geometry: PaneGeometry, parts: Frame
         );
     }
 
-    lines.push(parts.separator, edge + parts.footer + edge, border(theme, `└${"─".repeat(innerWidth)}┘`));
+    lines.push(
+        parts.separator,
+        edge + parts.footer + edge,
+        border(theme, `└${"─".repeat(innerWidth)}┘`),
+    );
 
     return lines;
 }

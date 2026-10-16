@@ -81,8 +81,8 @@ describe("pi-shell-inspector kill key", () => {
 
         inspector = new ShellInspector(
             session.ctx,
-            () => { },
-            () => { },
+            () => {},
+            () => {},
             () => TERMINAL_ROWS,
             stubTheme,
         );
@@ -126,7 +126,8 @@ describe("pi-shell-inspector kill key", () => {
 
         const pid = await waitForPid();
         await waitFor("the shell's ready line to reach the job", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("ready"));
+            (shellManager.getJob(jobId)?.output.content ?? "").includes("ready"),
+        );
         assert.equal(isProcessAlive(pid), true, "the shell must be running before the kill");
 
         press("x");
@@ -134,8 +135,16 @@ describe("pi-shell-inspector kill key", () => {
         const killed = shellManager.getJob(jobId);
         assert.ok(killed, "the killed shell must stay listed");
         assert.equal(killed.status, "killed", "x must settle the selected shell as killed");
-        assert.equal(killed.error, "Shell killed by user", "the kill must record the user's reason");
-        assert.equal(killed.controller.signal.aborted, true, "the kill must abort the job's process tree");
+        assert.equal(
+            killed.error,
+            "Shell killed by user",
+            "the kill must record the user's reason",
+        );
+        assert.equal(
+            killed.controller.signal.aborted,
+            true,
+            "the kill must abort the job's process tree",
+        );
         assert.deepEqual(
             shellManager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
@@ -144,29 +153,73 @@ describe("pi-shell-inspector kill key", () => {
 
         await waitFor("the killed shell's process to exit", () => !isProcessAlive(pid));
 
-        await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-        assert.equal(session.host.sendMessageCalls.length, 1, "a kill must notify the agent exactly once");
+        await waitFor(
+            "the batched shell notification",
+            () => session.host.sendMessageCalls.length === 1,
+        );
+        assert.equal(
+            session.host.sendMessageCalls.length,
+            1,
+            "a kill must notify the agent exactly once",
+        );
         const notification = session.host.sendMessageCalls[0]!;
 
-        assert.equal(notification.message.customType, "background-shell-notification", "the kill must notify under the shell notification type");
-        assert.equal(notification.message.display, true, "the notification must enter the transcript, where the box renders it");
-        assert.equal(notification.options?.triggerTurn, true, "the agent must get a turn to read it");
-        assert.equal(notification.options?.deliverAs, "steer", "the notification must steer the running turn");
+        assert.equal(
+            notification.message.customType,
+            "background-shell-notification",
+            "the kill must notify under the shell notification type",
+        );
+        assert.equal(
+            notification.message.display,
+            true,
+            "the notification must enter the transcript, where the box renders it",
+        );
+        assert.equal(
+            notification.options?.triggerTurn,
+            true,
+            "the agent must get a turn to read it",
+        );
+        assert.equal(
+            notification.options?.deliverAs,
+            "steer",
+            "the notification must steer the running turn",
+        );
 
-        const killedJobRows = (notification.message.details as BackgroundShellNotificationDetails).jobs;
+        const killedJobRows = (notification.message.details as BackgroundShellNotificationDetails)
+            .jobs;
         assert.deepEqual(
-            killedJobRows.map(({ shellJobId, status, exitCode }) => ({ shellJobId, status, exitCode })),
+            killedJobRows.map(({ shellJobId, status, exitCode }) => ({
+                shellJobId,
+                status,
+                exitCode,
+            })),
             [{ shellJobId: jobId, status: "killed", exitCode: undefined }],
             "the notification must identify the killed shell",
         );
-        assert.equal(killedJobRows[0]!.command, `echo $$ > '${pidFile}'; printf 'ready\\n'; exec sleep 300`, "the box must render the killed shell's command");
+        assert.equal(
+            killedJobRows[0]!.command,
+            `echo $$ > '${pidFile}'; printf 'ready\\n'; exec sleep 300`,
+            "the box must render the killed shell's command",
+        );
 
         const text = messageText(notification);
-        assert.ok(text.startsWith(`Background shell ${jobId} killed.`), `the notification must open with the job id and status: ${text}`);
+        assert.ok(
+            text.startsWith(`Background shell ${jobId} killed.`),
+            `the notification must open with the job id and status: ${text}`,
+        );
         assert.ok(text.includes("Command: "), `the notification must report the command: ${text}`);
-        assert.ok(text.includes(pidFile), `the killed shell's command must reach the agent: ${text}`);
-        assert.ok(text.includes("Error: Shell killed by user"), `the notification must report the kill reason: ${text}`);
-        assert.ok(text.includes("Output:\nready"), `the output collected before the kill must reach the agent: ${text}`);
+        assert.ok(
+            text.includes(pidFile),
+            `the killed shell's command must reach the agent: ${text}`,
+        );
+        assert.ok(
+            text.includes("Error: Shell killed by user"),
+            `the notification must report the kill reason: ${text}`,
+        );
+        assert.ok(
+            text.includes("Output:\nready"),
+            `the output collected before the kill must reach the agent: ${text}`,
+        );
     });
 
     it("kills only the shell the user selected", async () => {
@@ -185,9 +238,21 @@ describe("pi-shell-inspector kill key", () => {
         press("j");
         press("x");
 
-        assert.equal(shellManager.getJob(target.jobId)?.status, "killed", "the selected shell must be killed");
-        assert.equal(shellManager.getJob(other.jobId)?.status, "running", "the unselected shell must survive");
-        assert.equal(shellManager.getJob(other.jobId)?.controller.signal.aborted, false, "the unselected shell's process must stay alive");
+        assert.equal(
+            shellManager.getJob(target.jobId)?.status,
+            "killed",
+            "the selected shell must be killed",
+        );
+        assert.equal(
+            shellManager.getJob(other.jobId)?.status,
+            "running",
+            "the unselected shell must survive",
+        );
+        assert.equal(
+            shellManager.getJob(other.jobId)?.controller.signal.aborted,
+            false,
+            "the unselected shell's process must stay alive",
+        );
         assert.deepEqual(
             shellManager.getAllJobsStatusStat(),
             { runningCount: 1, completedCount: 0, failedCount: 0, killedCount: 1 },
@@ -204,7 +269,9 @@ describe("pi-shell-inspector kill key", () => {
         const terminalEvents: string[] = [];
         const unsubscribe = shellManager.subscribe((event) => {
             if (
-                (event.type === "job-completed" || event.type === "job-failed" || event.type === "job-killed") &&
+                (event.type === "job-completed" ||
+                    event.type === "job-failed" ||
+                    event.type === "job-killed") &&
                 event.id === jobId
             ) {
                 terminalEvents.push(event.type);
@@ -213,24 +280,43 @@ describe("pi-shell-inspector kill key", () => {
 
         try {
             press("x");
-            assert.equal(shellManager.getJob(jobId)?.status, "killed", "the key must settle the job as killed");
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
+            assert.equal(
+                shellManager.getJob(jobId)?.status,
+                "killed",
+                "the key must settle the job as killed",
+            );
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
             assert.equal(session.host.sendMessageCalls.length, 1, "the kill must notify once");
 
             // The backend rejects with an AbortError after the process tree was killed; the runner's
             // settle must be refused rather than notify a second time.
             await new Promise((resolve) => setTimeout(resolve, 500));
 
-            assert.deepEqual(terminalEvents, ["job-killed"], "the kill must remain the job's only terminal event");
+            assert.deepEqual(
+                terminalEvents,
+                ["job-killed"],
+                "the kill must remain the job's only terminal event",
+            );
             const job = shellManager.getJob(jobId)!;
             assert.equal(job.status, "killed", "the abort rejection must not change the status");
-            assert.equal(job.error, "Shell killed by user", "the abort rejection must not rewrite the reason");
+            assert.equal(
+                job.error,
+                "Shell killed by user",
+                "the abort rejection must not rewrite the reason",
+            );
             assert.deepEqual(
                 shellManager.getAllJobsStatusStat(),
                 { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
                 "the race must move the killed counter once",
             );
-            assert.equal(session.host.sendMessageCalls.length, 1, "the abort rejection must not notify again");
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "the abort rejection must not notify again",
+            );
         } finally {
             unsubscribe();
         }
@@ -255,16 +341,35 @@ describe("pi-shell-inspector kill key", () => {
 
             const job = shellManager.getJob(jobId)!;
             assert.equal(job.status, "killed", "the repeated kill must leave the status as killed");
-            assert.equal(job.error, "Shell killed by user", "the second x must not rewrite the reason");
-            assert.equal(job.controller.signal.aborted, true, "the kill must have aborted the job once");
+            assert.equal(
+                job.error,
+                "Shell killed by user",
+                "the second x must not rewrite the reason",
+            );
+            assert.equal(
+                job.controller.signal.aborted,
+                true,
+                "the kill must have aborted the job once",
+            );
             assert.deepEqual(
                 shellManager.getAllJobsStatusStat(),
                 { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
                 "the second x must not move a counter",
             );
-            assert.deepEqual(terminalEvents, ["job-killed"], "the job must emit exactly one kill event");
-            await waitFor("the batched shell notification", () => session.host.sendMessageCalls.length === 1);
-            assert.equal(session.host.sendMessageCalls.length, 1, "a repeated kill must not notify twice");
+            assert.deepEqual(
+                terminalEvents,
+                ["job-killed"],
+                "the job must emit exactly one kill event",
+            );
+            await waitFor(
+                "the batched shell notification",
+                () => session.host.sendMessageCalls.length === 1,
+            );
+            assert.equal(
+                session.host.sendMessageCalls.length,
+                1,
+                "a repeated kill must not notify twice",
+            );
         } finally {
             unsubscribe();
         }
@@ -277,17 +382,25 @@ describe("pi-shell-inspector kill key", () => {
                 status === "completed"
                     ? "printf 'done\\n'"
                     : status === "failed"
-                        ? "printf 'bad\\n'; exit 3"
-                        : "sleep 300";
+                      ? "printf 'bad\\n'; exit 3"
+                      : "sleep 300";
             await startBackgroundBashCommand(session.tool, {
                 command,
                 ctx: session.ctx,
                 toolCallId: jobId,
             });
             if (status === "killed") {
-                assert.equal(shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }), true, "the fixture kill must be accepted");
+                assert.equal(
+                    shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+                    true,
+                    "the fixture kill must be accepted",
+                );
             } else {
-                assert.equal((await waitForJobSettled(jobId)).status, status, `the fixture must settle as ${status}`);
+                assert.equal(
+                    (await waitForJobSettled(jobId)).status,
+                    status,
+                    `the fixture must settle as ${status}`,
+                );
             }
 
             const before = shellManager.getJob(jobId)!;
@@ -299,7 +412,9 @@ describe("pi-shell-inspector kill key", () => {
             const terminalEvents: string[] = [];
             const unsubscribe = shellManager.subscribe((event) => {
                 if (
-                    (event.type === "job-completed" || event.type === "job-failed" || event.type === "job-killed") &&
+                    (event.type === "job-completed" ||
+                        event.type === "job-failed" ||
+                        event.type === "job-killed") &&
                     event.id === jobId
                 ) {
                     terminalEvents.push(event.type);
@@ -317,8 +432,16 @@ describe("pi-shell-inspector kill key", () => {
             assert.equal(after.error, originalError, "x must not overwrite the recorded error");
             assert.equal(after.exitCode, originalExitCode, "x must not restamp the exit code");
             assert.equal(after.finishedAt, originalFinishedAt, "x must not restamp the finish");
-            assert.deepEqual(shellManager.getAllJobsStatusStat(), statsBefore, "x must not move a counter");
-            assert.deepEqual(terminalEvents, [], "x must not emit a terminal event for a settled shell");
+            assert.deepEqual(
+                shellManager.getAllJobsStatusStat(),
+                statsBefore,
+                "x must not move a counter",
+            );
+            assert.deepEqual(
+                terminalEvents,
+                [],
+                "x must not emit a terminal event for a settled shell",
+            );
             assert.equal(
                 session.host.sendMessageCalls.length,
                 notificationsBefore,

@@ -76,7 +76,11 @@ function isBlank(line: string): boolean {
  * render width; measuring that padding would stretch the box to its whole column. A title
  * needs its own room inside the top border: one dash, the title, a space and one more dash.
  */
-export function computeBoxWidth(lines: readonly string[], maxInnerWidth: number, title?: string): number {
+export function computeBoxWidth(
+    lines: readonly string[],
+    maxInnerWidth: number,
+    title?: string,
+): number {
     const available = Math.max(1, maxInnerWidth);
     let widest = Math.min(MIN_BOX_INNER_WIDTH, available);
 
@@ -92,7 +96,11 @@ export function computeBoxWidth(lines: readonly string[], maxInnerWidth: number,
         widest = Math.max(widest, visibleWidth(title) + 4);
     }
 
-    return Math.min(widest, available) + BORDER_HORIZONTAL_OVERHEAD + 2 * BORDER_INNER_PADDING_HORIZONTAL;
+    return (
+        Math.min(widest, available) +
+        BORDER_HORIZONTAL_OVERHEAD +
+        2 * BORDER_INNER_PADDING_HORIZONTAL
+    );
 }
 
 /**
@@ -122,11 +130,13 @@ export function renderBorderedBox(
     const hidden = options.hidden ?? 0;
     const hiddenAbove = options.hiddenAbove ?? 0;
 
-    boxed.push(options.colorFn(
-        hidden > 0 || hiddenAbove > 0
-            ? hiddenNotice(hiddenAbove, hidden, dashSpan)
-            : `└${"─".repeat(dashSpan)}┘`,
-    ));
+    boxed.push(
+        options.colorFn(
+            hidden > 0 || hiddenAbove > 0
+                ? hiddenNotice(hiddenAbove, hidden, dashSpan)
+                : `└${"─".repeat(dashSpan)}┘`,
+        ),
+    );
 
     return boxed;
 }
@@ -153,14 +163,11 @@ function topBorder(dashSpan: number, title: string | undefined): string {
 
 /** Bottom border with the hidden-line notice, kept exactly `dashSpan` columns wide. */
 function hiddenNotice(above: number, below: number, dashSpan: number): string {
-    const text = above > 0
-        ? `${[`↑ ${above}`, below > 0 ? `↓ ${below}` : undefined].filter(Boolean).join(" · ")} hidden`
-        : `${below} line${below === 1 ? "" : "s"} hidden`;
-    const notice = truncateToWidth(
-        ` ✂ ── ${text} ── `,
-        dashSpan,
-        "…",
-    );
+    const text =
+        above > 0
+            ? `${[`↑ ${above}`, below > 0 ? `↓ ${below}` : undefined].filter(Boolean).join(" · ")} hidden`
+            : `${below} line${below === 1 ? "" : "s"} hidden`;
+    const notice = truncateToWidth(` ✂ ── ${text} ── `, dashSpan, "…");
     const fill = Math.max(0, dashSpan - visibleWidth(notice));
     const left = Math.floor(fill / 2);
 

@@ -264,7 +264,10 @@ interface StatSlot {
 function counters(theme: Theme, ...parts: [label: string, count: number][]): string {
     return parts
         .map(([label, count]) =>
-            padEnd(count > 0 ? theme.fg("muted", label + formatTokens(count)) : "", 1 + COUNT_WIDTH),
+            padEnd(
+                count > 0 ? theme.fg("muted", label + formatTokens(count)) : "",
+                1 + COUNT_WIDTH,
+            ),
         )
         .join(" ");
 }
@@ -416,7 +419,11 @@ export function renderInfoRow(
         .join("");
     // Only the context slot is left once even it overflows; its blank leading columns give way first.
     const right =
-        firstDrawn < 0 ? "" : visibleWidth(grid) > width ? truncateToWidth(grid.trimStart(), width) : grid;
+        firstDrawn < 0
+            ? ""
+            : visibleWidth(grid) > width
+              ? truncateToWidth(grid.trimStart(), width)
+              : grid;
 
     let left = "";
     if (parts.workspace) {

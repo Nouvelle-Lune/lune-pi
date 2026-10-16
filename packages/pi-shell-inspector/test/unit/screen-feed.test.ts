@@ -107,7 +107,10 @@ describe("screen feed", () => {
         const rows = text.split("\n").filter((row) => row !== "");
         const numbers = rows.map((row) => Number(row.slice(0, 8)));
 
-        assert.ok(text.endsWith(newest), "the newest chunk must be the last thing the emulator saw");
+        assert.ok(
+            text.endsWith(newest),
+            "the newest chunk must be the last thing the emulator saw",
+        );
         assert.ok(text.length < 200 * MB, "the flood must have been shortened");
         assert.deepEqual(
             numbers,

@@ -7,18 +7,33 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Theme, initTheme } from "@earendil-works/pi-coding-agent";
 import { colorToHex, parseColor, visibleWidth } from "@earendil-works/pi-tui";
-import { createDefinedSettingsSection, getSettingsPanelRegistry } from "@lune_99/pi-lune-extensions-core/panel/host";
+import {
+    createDefinedSettingsSection,
+    getSettingsPanelRegistry,
+} from "@lune_99/pi-lune-extensions-core/panel/host";
 import { openSettingsPanel } from "@lune_99/pi-lune-extensions-core/panel/tui";
 import { createSettingsSandbox } from "@lune_99/pi-lune-extensions-core/testing";
 
-const darkFile = new URL("./modes/interactive/theme/dark.json", import.meta.resolve("@earendil-works/pi-coding-agent"));
+const darkFile = new URL(
+    "./modes/interactive/theme/dark.json",
+    import.meta.resolve("@earendil-works/pi-coding-agent"),
+);
 const dark = JSON.parse(readFileSync(darkFile, "utf8"));
-const backgrounds = new Set(["selectedBg", "searchMatchBg", "userMessageBg", "customMessageBg", "toolPendingBg", "toolSuccessBg", "toolErrorBg"]);
+const backgrounds = new Set([
+    "selectedBg",
+    "searchMatchBg",
+    "userMessageBg",
+    "customMessageBg",
+    "toolPendingBg",
+    "toolSuccessBg",
+    "toolErrorBg",
+]);
 
 /** Use actual Pi tokens with explicit truecolor output, independent of the invoking terminal. */
 export function makeTheme(definition = dark) {
     const colors = Object.entries(definition.colors).map(([key, value]) => [
-        key, colorToHex(parseColor(definition.vars[value] ?? value)),
+        key,
+        colorToHex(parseColor(definition.vars[value] ?? value)),
     ]);
     initTheme("dark", false);
     return new Theme(
@@ -30,7 +45,14 @@ export function makeTheme(definition = dark) {
 }
 
 /** Capture the production settings panel through its public UI entry, with isolated storage. */
-export async function settingsFrame({ definition, panel, theme, values = {}, keys = [], width = 106 }) {
+export async function settingsFrame({
+    definition,
+    panel,
+    theme,
+    values = {},
+    keys = [],
+    width = 106,
+}) {
     const sandbox = await createSettingsSandbox({ prefix: "lune-doc-images-" });
     let release;
     let component;
@@ -47,13 +69,21 @@ export async function settingsFrame({ definition, panel, theme, values = {}, key
             ui: {
                 theme,
                 custom: async (factory) => {
-                    component = factory({ terminal: { rows: 42, columns: width }, requestRender() {} }, theme, {}, () => {});
+                    component = factory(
+                        { terminal: { rows: 42, columns: width }, requestRender() {} },
+                        theme,
+                        {},
+                        () => {},
+                    );
                     for (const key of keys) component.handleInput(key);
                     lines = component.render(width);
                 },
             },
         };
-        release = getSettingsPanelRegistry().register(ctx.ui, createDefinedSettingsSection(lease.settings, panel));
+        release = getSettingsPanelRegistry().register(
+            ctx.ui,
+            createDefinedSettingsSection(lease.settings, panel),
+        );
         await openSettingsPanel(ctx, { section: panel.id });
         return lines;
     } finally {
@@ -63,12 +93,29 @@ export async function settingsFrame({ definition, panel, theme, values = {}, key
     }
 }
 
-const ansi16 = ["#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0", "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff"];
+const ansi16 = [
+    "#000000",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#c0c0c0",
+    "#808080",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#ffffff",
+];
 function color256(index) {
     if (index < 16) return ansi16[index];
     if (index < 232) {
         const n = index - 16;
-        const level = (v) => v === 0 ? 0 : 55 + v * 40;
+        const level = (v) => (v === 0 ? 0 : 55 + v * 40);
         return `#${[Math.floor(n / 36), Math.floor((n % 36) / 6), n % 6].map((v) => level(v).toString(16).padStart(2, "0")).join("")}`;
     }
     return `#${(8 + (index - 232) * 10).toString(16).padStart(2, "0").repeat(3)}`;
@@ -79,7 +126,9 @@ function runs(line) {
     const output = [];
     let state = {};
     let last = 0;
-    const push = (value) => { if (value) output.push({ text: value, ...state }); };
+    const push = (value) => {
+        if (value) output.push({ text: value, ...state });
+    };
     escape.lastIndex = 0;
     for (let match = escape.exec(line); match; match = escape.exec(line)) {
         push(line.slice(last, match.index));
@@ -96,8 +145,10 @@ function runs(line) {
             else if (code === 4) state.underline = true;
             else if (code === 7) state.inverse = true;
             else if (code === 9) state.strike = true;
-            else if (code === 22) { state.bold = false; state.dim = false; }
-            else if (code === 23) state.italic = false;
+            else if (code === 22) {
+                state.bold = false;
+                state.dim = false;
+            } else if (code === 23) state.italic = false;
             else if (code === 24) state.underline = false;
             else if (code === 27) state.inverse = false;
             else if (code === 29) state.strike = false;
@@ -111,7 +162,10 @@ function runs(line) {
                 state[code === 38 ? "fg" : "bg"] = color256(codes[i + 2]);
                 i += 2;
             } else if ((code === 38 || code === 48) && codes[i + 1] === 2) {
-                state[code === 38 ? "fg" : "bg"] = `#${codes.slice(i + 2, i + 5).map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+                state[code === 38 ? "fg" : "bg"] = `#${codes
+                    .slice(i + 2, i + 5)
+                    .map((v) => v.toString(16).padStart(2, "0"))
+                    .join("")}`;
                 i += 4;
             } else throw new Error(`Unsupported terminal style: ${code}`);
         }
@@ -120,7 +174,11 @@ function runs(line) {
     return output;
 }
 
-const xml = (value) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]);
+const xml = (value) =>
+    value.replace(
+        /[&<>"']/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c],
+    );
 const CELL = 8.43;
 const LINE = 19.4;
 const PAD = 18;
@@ -131,26 +189,38 @@ function toSvg({ title, lines, theme, background = "#181a1b" }) {
     const width = Math.max(...lines.map(visibleWidth)) * CELL + PAD * 2;
     const height = lines.length * LINE + PAD * 2 + BAR;
     const foreground = colorToHex(theme.colors.text);
-    const body = lines.map((line, row) => {
-        const y = BAR + PAD + row * LINE;
-        const rectangles = [];
-        const text = [];
-        let column = 0;
-        for (const run of runs(line)) {
-            const cells = visibleWidth(run.text);
-            if (!cells) continue;
-            const x = PAD + column * CELL;
-            const fg = run.inverse ? (run.bg ?? background) : (run.fg ?? foreground);
-            const bg = run.inverse ? (run.fg ?? foreground) : run.bg;
-            if (bg) rectangles.push(`<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${(cells * CELL).toFixed(2)}" height="${LINE}" fill="${bg}"/>`);
-            const decoration = [run.underline ? "underline" : "", run.strike ? "line-through" : ""].filter(Boolean).join(" ");
-            const attributes = `${run.bold ? ' font-weight="600"' : ""}${run.italic ? ' font-style="italic"' : ""}${run.dim ? ' opacity="0.65"' : ""}${decoration ? ` text-decoration="${decoration}"` : ""}`;
-            // Explicit cell positions keep Unicode and font substitutions on the terminal grid.
-            text.push(`<text x="${x.toFixed(2)}" y="${(y + LINE * 0.72).toFixed(2)}" fill="${fg}" textLength="${(cells * CELL).toFixed(2)}" lengthAdjust="spacingAndGlyphs"${attributes}>${xml(run.text)}</text>`);
-            column += cells;
-        }
-        return rectangles.join("") + text.join("");
-    }).join("\n");
+    const body = lines
+        .map((line, row) => {
+            const y = BAR + PAD + row * LINE;
+            const rectangles = [];
+            const text = [];
+            let column = 0;
+            for (const run of runs(line)) {
+                const cells = visibleWidth(run.text);
+                if (!cells) continue;
+                const x = PAD + column * CELL;
+                const fg = run.inverse ? (run.bg ?? background) : (run.fg ?? foreground);
+                const bg = run.inverse ? (run.fg ?? foreground) : run.bg;
+                if (bg)
+                    rectangles.push(
+                        `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${(cells * CELL).toFixed(2)}" height="${LINE}" fill="${bg}"/>`,
+                    );
+                const decoration = [
+                    run.underline ? "underline" : "",
+                    run.strike ? "line-through" : "",
+                ]
+                    .filter(Boolean)
+                    .join(" ");
+                const attributes = `${run.bold ? ' font-weight="600"' : ""}${run.italic ? ' font-style="italic"' : ""}${run.dim ? ' opacity="0.65"' : ""}${decoration ? ` text-decoration="${decoration}"` : ""}`;
+                // Explicit cell positions keep Unicode and font substitutions on the terminal grid.
+                text.push(
+                    `<text x="${x.toFixed(2)}" y="${(y + LINE * 0.72).toFixed(2)}" fill="${fg}" textLength="${(cells * CELL).toFixed(2)}" lengthAdjust="spacingAndGlyphs"${attributes}>${xml(run.text)}</text>`,
+                );
+                column += cells;
+            }
+            return rectangles.join("") + text.join("");
+        })
+        .join("\n");
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="Menlo, FiraCode Nerd Font Mono, monospace" font-size="14" xml:space="preserve" role="img" aria-label="${xml(title)}">
 <title>${xml(title)}</title>
 <rect width="${width}" height="${height}" rx="10" fill="${background}"/>
