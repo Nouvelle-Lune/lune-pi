@@ -1662,7 +1662,7 @@ test("codemode shows live nested calls despite empty or stale partial metadata a
     assert.match(active, /● read {2}live\.ts/);
     assert.match(active, new RegExp(`${RUNNING_MARK} bash {2}npm run build`));
     assert.equal(
-        (active.match(/read  live.ts/g) ?? []).length,
+        (active.match(/read {2}live.ts/g) ?? []).length,
         1,
         "Metadata and execution events describe one call",
     );

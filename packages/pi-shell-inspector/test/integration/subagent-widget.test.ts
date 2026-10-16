@@ -29,7 +29,6 @@ import {
     removeTempWorkDir,
     startBackgroundBashCommand,
     waitForJobSettled,
-    type ExtensionSession,
     type FakeExtensionUi,
     type WidgetContent,
 } from "../harness.ts";

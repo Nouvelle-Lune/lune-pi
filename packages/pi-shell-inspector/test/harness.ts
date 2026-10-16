@@ -49,7 +49,7 @@ import luneShellInspectorExtension from "../src/index.ts";
 import { shellManager, type ShellJob } from "../src/shell/shell-manager.ts";
 
 /** Tool definition the extension registers; the parameter schema stays opaque for the harness. */
-export type BashToolDefinition = ToolDefinition<any, any, any>;
+export type BashToolDefinition = ToolDefinition;
 
 /** Execution mode the registered tool accepts; omitted means `foreground`. */
 export type BashMode = "foreground" | "background";
@@ -919,8 +919,6 @@ export function waitForJobSettled(
     timeoutMs: number = JOB_SETTLE_TIMEOUT_MS,
 ): Promise<Readonly<ShellJob>> {
     return new Promise((resolve, reject) => {
-        let unsubscribe: (() => void) | undefined;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         let finished = false;
 
         const finish = (settle: () => void): void => {
@@ -928,10 +926,8 @@ export function waitForJobSettled(
                 return;
             }
             finished = true;
-            if (timer) {
-                clearTimeout(timer);
-            }
-            unsubscribe?.();
+            clearTimeout(timer);
+            unsubscribe();
             settle();
         };
 
@@ -941,14 +937,14 @@ export function waitForJobSettled(
         };
 
         // Subscribe before the first check so a job that settles in between is never missed.
-        unsubscribe = shellManager.subscribe(() => {
+        const unsubscribe = shellManager.subscribe(() => {
             const job = settledJob();
             if (job) {
                 finish(() => resolve(job));
             }
         });
 
-        timer = setTimeout(() => {
+        const timer = setTimeout(() => {
             const job = shellManager.getJob(jobId);
             finish(() =>
                 reject(

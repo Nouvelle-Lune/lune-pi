@@ -6,7 +6,6 @@ import type {
     ClassifierResult,
 } from "@earendil-works/pi-ai";
 import { runRequests } from "../../src/tool-review/classification.ts";
-import { policy } from "../harness/fixtures.ts";
 
 function question(id: string): ClassifierQuestion {
     return { type: "bool", instructions: id, criteria: { true: "yes", false: "no" } };

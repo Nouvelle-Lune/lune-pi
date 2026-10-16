@@ -407,6 +407,7 @@ export class DockController {
                     this.refresh();
                 } catch (error) {
                     this.reportError(error);
+                    // eslint-disable-next-line no-unsafe-finally -- A failed refresh must not refocus a stale dock.
                     return;
                 }
                 if (this.items.length > 0 && this.component && !this.tui?.hasOverlay()) {

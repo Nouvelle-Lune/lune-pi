@@ -504,6 +504,7 @@ class SettingsPanel implements Component, Focusable {
                     isSettingsNotificationError(error)
                         ? `Reloaded; ${message}`
                         : `Retry failed: ${message}`,
+                    { cause: error },
                 );
             }
         });

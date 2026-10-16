@@ -505,7 +505,7 @@ describe("dock footer styles", () => {
             const lines = renderStyle("minimal", 100, { status: createStatus({ showProvider: false }) });
 
             assert.equal(lines.length, 1);
-            assert.match(lines[0]!, /^ shells │ questions .* │ claude-test • high │  25k\/200k · 12\.3%$/);
+            assert.match(lines[0]!, /^ shells │ questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/);
             assert.doesNotMatch(lines[0]!, /\/work\/project/);
         });
 
@@ -521,13 +521,13 @@ describe("dock footer styles", () => {
         it("names the provider when there is room", () => {
             const [row] = renderStyle("minimal", 100);
 
-            assert.match(row!, / │ \(anthropic\) claude-test • high │  25k\/200k · 12\.3%$/);
+            assert.match(row!, / │ \(anthropic\) claude-test • high │ {2}25k\/200k · 12\.3%$/);
         });
 
         it("drops the provider before the context use", () => {
             const [row] = renderStyle("minimal", 70);
 
-            assert.match(row!, / │ claude-test • high │  25k\/200k · 12\.3%$/);
+            assert.match(row!, / │ claude-test • high │ {2}25k\/200k · 12\.3%$/);
             assert.doesNotMatch(row!, /anthropic/);
         });
 
@@ -541,7 +541,7 @@ describe("dock footer styles", () => {
         it("shows only the context use when the model is hidden", () => {
             const [row] = renderStyle("minimal", 100, {}, { showModel: false });
 
-            assert.match(row!, / │  25k\/200k · 12\.3%$/);
+            assert.match(row!, / │ {2}25k\/200k · 12\.3%$/);
             assert.doesNotMatch(row!, /claude-test/);
         });
 

@@ -274,7 +274,7 @@ test("duplicate Panel ownership rejects the newcomer while retaining the first r
 });
 
 test("Settings setup cleans earlier listeners when a native registration fails", async (t) => {
-    const fixture = await createSettingsFixture(t);
+    await createSettingsFixture(t);
     const bridge = fakePi({ fail: "session_shutdown" });
     assert.throws(
         () => bindSettings(bridge.pi, defineSettings({ id: "partial", schema })),

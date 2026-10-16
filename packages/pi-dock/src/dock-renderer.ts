@@ -82,7 +82,7 @@ export class DockView {
             return entry.id === selectedId ? theme.bg("selectedBg", text) : text;
         });
 
-        let line =
+        const line =
             gutter +
             theme.fg("dim", before) +
             cells.join(theme.fg("dim", " │ ")) +

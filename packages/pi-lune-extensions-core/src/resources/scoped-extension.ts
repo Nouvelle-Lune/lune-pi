@@ -35,6 +35,7 @@ export function scopedExtension(
             try {
                 await resources.dispose();
             } catch (cleanupError) {
+                // eslint-disable-next-line preserve-caught-error -- AggregateError.errors retains both failures.
                 throw new AggregateError(
                     [error, cleanupError],
                     "Extension setup and cleanup failed",

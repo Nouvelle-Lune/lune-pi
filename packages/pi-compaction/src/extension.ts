@@ -28,6 +28,7 @@ export async function installConfiguredCompaction(pi: ExtensionAPI) {
         try {
             await resources.dispose();
         } catch (cleanupError) {
+            // eslint-disable-next-line preserve-caught-error -- AggregateError.errors retains both failures.
             throw new AggregateError([error, cleanupError], "Compaction setup and cleanup failed");
         }
         throw error;

@@ -363,7 +363,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 notifications: notificationsFor(session, jobId).length,
             };
             const terminalEvents = watchTerminalEvents(jobId);
-            let text = "";
+            let text: string;
 
             try {
                 text = await killShell(killTool, jobId);

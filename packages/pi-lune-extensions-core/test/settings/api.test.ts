@@ -9,9 +9,9 @@ import * as panelTui from "../../src/panel/tui.ts";
 import * as testing from "../../src/testing/index.ts";
 
 // @ts-expect-error Backend SPI types are available only from /settings/backend.
-import type { SettingsBackend as RootBackend } from "../../src/index.ts";
+import type { SettingsBackend as _RootBackend } from "../../src/index.ts";
 // @ts-expect-error The consumer settings entry does not export backend SPI types.
-import type { SettingsBackend as ConsumerBackend } from "../../src/settings/index.ts";
+import type { SettingsBackend as _ConsumerBackend } from "../../src/settings/index.ts";
 
 test("consumer entry points isolate low-level acquisition in the advanced entry", () => {
     for (const entry of [sdk, settingsSdk]) {

@@ -25,4 +25,13 @@ jobs:
                   cache: npm
             - run: npm install --global npm@11.6.2
             - run: npm ci
-            - run: npm run check
+            - name: Check formatting
+              run: npm run format:check
+            - name: Lint TypeScript and JavaScript
+              run: npm run lint
+            - name: Typecheck all packages
+              run: npm run typecheck
+            - name: Test all packages
+              run: npm test
+            - name: Check package contents
+              run: npm run pack:check

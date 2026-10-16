@@ -96,7 +96,7 @@ test(
                 for (let i = 0; i < 6; i++) ui.press("\x1b[B");
                 ui.press("\r");
                 assert.match(ui.text(), /✓ read \[Pi\]/);
-                assert.match(ui.text(), /  github_search \[MCP · github\]/);
+                assert.match(ui.text(), / {2}github_search \[MCP · github\]/);
                 assert.match(ui.text(), /✓ temporarily_missing \[Unavailable\]/);
                 for (const width of [24, 80])
                     assert.ok(ui.panel.render(width).every((line) => visibleWidth(line) <= width));
@@ -123,7 +123,7 @@ test(
                     tool("added_later", "/extension.ts"),
                 ];
                 ui.press("\r");
-                assert.match(ui.text(), /  added_later/);
+                assert.match(ui.text(), / {2}added_later/);
                 assert.match(ui.text(), /✓ read \[Unavailable\]/);
                 ui.press(" ");
                 ui.press("\x1b");

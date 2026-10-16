@@ -140,6 +140,7 @@ export function createDockRegistry(): DockRegistry {
                 try {
                     notifyPresence(state.contributions.values(), false);
                 } catch (cleanupError) {
+                    // eslint-disable-next-line preserve-caught-error -- AggregateError.errors retains both failures.
                     throw new AggregateError(
                         [error, cleanupError],
                         "Lune dock host attachment and cleanup failed",

@@ -33,7 +33,7 @@ export default function realDemo(pi) {
     let scenario;
     pi.registerCommand("demo", {
         description: "Run a reproducible, offline Lune recording scenario",
-        handler: async (args, ctx) => {
+        handler: async (args) => {
             scenario = args.trim();
             if (scenario === "workspace") {
                 faux.setResponses([

@@ -117,6 +117,7 @@ async function writeStored(file: string, stored: StoredSettings): Promise<void> 
         try {
             await fs.rm(tmpPath, { force: true });
         } catch (cleanupError) {
+            // eslint-disable-next-line preserve-caught-error -- AggregateError.errors retains both failures.
             throw new AggregateError(
                 [error, cleanupError],
                 "Settings write and temporary file cleanup failed",
