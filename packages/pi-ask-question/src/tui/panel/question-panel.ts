@@ -1,5 +1,6 @@
 import type {
     ExtensionContext,
+    ExtensionUIContext,
     Theme,
 } from "@earendil-works/pi-coding-agent";
 
@@ -22,6 +23,7 @@ import {
     type AskQuestionDraft,
     type AskQuestionRequest,
 } from "../../core/questionManager.ts";
+import { readClipboardPaste, type ClipboardPaste } from "./clipboard-paste.ts";
 import { QuestionPanelController } from "./question-panel-controller.ts";
 import {
     QuestionPanelRenderer,
@@ -42,6 +44,9 @@ const OVERLAY_MARGIN = 2;
 
 /** Frame rows: top border, header, two separators, footer, bottom border. */
 const FRAME_HEIGHT = 6;
+
+/** pi-tui delivers a terminal paste as one input that starts with this marker. */
+const BRACKETED_PASTE_START = "\x1b[200~";
 
 export interface OpenQuestionPanelOptions {
     /**
@@ -151,6 +156,7 @@ async function showQuestionPanel(
                     keybindings,
                     close: (reason) => done(reason),
                     onDeferred: options.onDeferred,
+                    notify: (message, type) => ctx.ui.notify(message, type),
                 }),
             {
                 overlay: true,
@@ -181,6 +187,8 @@ export interface QuestionPanelOptions {
     keybindings: KeybindingsManager;
     close: (reason: PanelCloseReason) => void;
     onDeferred?: () => void;
+    /** Reports a failed clipboard paste; only the extension holds `ctx.ui`. */
+    notify?: ExtensionUIContext["notify"];
 }
 
 /**
@@ -198,12 +206,15 @@ export class QuestionPanel implements Component, Focusable {
     private readonly terminalRows: () => number;
     private readonly close: (reason: PanelCloseReason) => void;
     private readonly onDeferred: (() => void) | undefined;
+    private readonly notify: ExtensionUIContext["notify"] | undefined;
 
     private readonly controller: QuestionPanelController;
     private readonly renderer: QuestionPanelRenderer;
 
     private readonly editor: Editor;
     private inputMode = false;
+    /** Set once the panel has closed itself, so a clipboard read that returns late is dropped. */
+    private closed = false;
 
     /** Geometry of the last frame, for mouse hit-testing. */
     private layout: QuestionPanelLayout | undefined;
@@ -214,8 +225,12 @@ export class QuestionPanel implements Component, Focusable {
     constructor(options: QuestionPanelOptions) {
         this.request = options.request;
         this.keybindings = options.keybindings;
-        this.close = options.close;
+        this.close = (reason) => {
+            this.closed = true;
+            options.close(reason);
+        };
         this.onDeferred = options.onDeferred;
+        this.notify = options.notify;
 
         this.requestRender = () => options.tui.requestRender();
         this.terminalRows = () => options.tui.terminal.rows;
@@ -260,6 +275,12 @@ export class QuestionPanel implements Component, Focusable {
                 return;
             }
 
+            // pi's editor handles this key itself; this editor is a plain one that drops it.
+            if (this.isClipboardPasteKey(data)) {
+                void this.pasteFromClipboard();
+                return;
+            }
+
             this.editor.handleInput(data);
             this.requestRender();
             return;
@@ -280,12 +301,20 @@ export class QuestionPanel implements Component, Focusable {
             return;
         }
 
-        // The custom row is where answers are written, so printable keys start the editor
-        // there instead of being eaten by the single-key shortcuts below (digits, space,
+        // The custom row is where answers are written, so printable keys and pastes start the
+        // editor there instead of being eaten by the single-key shortcuts below (digits, space,
         // j/k), which keep working on the option rows and on the submit tab.
-        if (isTypedCharacter(data) && this.controller.isCustomRowFocused()) {
-            this.enterInputMode(data);
-            return;
+        if (this.controller.isCustomRowFocused()) {
+            if (this.isClipboardPasteKey(data)) {
+                this.enterInputMode();
+                void this.pasteFromClipboard();
+                return;
+            }
+
+            if (isTypedCharacter(data) || data.startsWith(BRACKETED_PASTE_START)) {
+                this.enterInputMode(data);
+                return;
+            }
         }
 
         if (this.controller.isMultiQuestion) {
@@ -586,6 +615,50 @@ export class QuestionPanel implements Component, Focusable {
         this.draft.customDrafts[this.draft.currentIndex] = text.length > 0 ? text : undefined;
     }
 
+    /**
+     * The read is async, so by the time it returns the editor may be closed or show another
+     * question; the paste is then dropped instead of landing in an answer it was not meant for.
+     */
+    private async pasteFromClipboard(): Promise<void> {
+        const question = this.draft.currentIndex;
+        let paste: ClipboardPaste | undefined;
+
+        try {
+            paste = await readClipboardPaste();
+        } catch (error) {
+            this.notify?.(
+                `Failed to paste from clipboard: ${error instanceof Error ? error.message : String(error)}`,
+                "error",
+            );
+            return;
+        }
+
+        if (!paste || this.closed || !this.inputMode || this.draft.currentIndex !== question) {
+            return;
+        }
+
+        let text = paste.text;
+
+        if (paste.isPath) {
+            // A path glued to a word would read as one token to the model.
+            const cursor = this.editor.getCursor();
+            const line = this.editor.getLines()[cursor.line] ?? "";
+            const before = line[cursor.col - 1];
+            const after = line[cursor.col];
+
+            if (before !== undefined && !/\s/.test(before)) {
+                text = ` ${text}`;
+            }
+
+            if (after !== undefined && !/\s/.test(after)) {
+                text = `${text} `;
+            }
+        }
+
+        this.editor.insertTextAtCursor(text);
+        this.requestRender();
+    }
+
     private commitCustomAnswer(text: string): void {
         const trimmed = text.trim();
 
@@ -658,6 +731,10 @@ export class QuestionPanel implements Component, Focusable {
     private isCancelKey(data: string): boolean {
         return matchesKey(data, Key.escape)
             || this.keybindings.matches(data, "tui.select.cancel");
+    }
+
+    private isClipboardPasteKey(data: string): boolean {
+        return this.keybindings.matches(data, "app.clipboard.pasteImage");
     }
 
     private isUpKey(data: string): boolean {
