@@ -1616,7 +1616,9 @@ test("codemode shows live nested calls despite empty or stale partial metadata a
         true,
     );
     runtime.emit("tool_execution_start", { toolCallId: parent, toolName: "codemode", args: {} });
-    assert.match(output(card), /1 call · 1 running/);
+    // The parent is not a call: before the first nested call the heading counts none, but its mark still runs.
+    assert.match(output(card), new RegExp(`${RUNNING_MARK} codemode {2}0 calls`));
+    assert.doesNotMatch(output(card), /1 call|running/);
     assert.doesNotMatch(output(card), /tools\.read|Preparing script/, "No script preview");
     assert.equal(
         lines(card).filter((row) => row.trim()).length,
@@ -1676,6 +1678,78 @@ test("codemode shows live nested calls despite empty or stale partial metadata a
     assert.doesNotMatch(output(card), /running/);
     assert.match(output(card), /● bash {2}npm run build · failed · 90ms/);
 });
+
+for (const mode of ["on", "compact"] as const) {
+    const helperOutput = "Script completed\nWall time 0.1 seconds\nOutput:\nread, bash, edit";
+
+    test(`${mode} codemode that makes no nested calls reports 0 calls while streaming and after completion`, (t) => {
+        const runtime = fixture(t, mode);
+        const card = runtime.stream("codemode");
+        card.updateArgs({ code: "text(ALL_TOOLS.join(', '));" });
+        card.setArgsComplete();
+        card.markExecutionStarted();
+        runtime.emit("tool_execution_start", {
+            toolCallId: "tool-0",
+            toolName: "codemode",
+            args: {},
+        });
+        card.updateResult({ content: [], details: { calls: [] }, isError: false }, true);
+        const running = output(card);
+        assert.match(running, new RegExp(`${RUNNING_MARK} codemode {2}0 calls`));
+        assert.doesNotMatch(running, /1 call/);
+        card.updateResult({
+            content: [{ type: "text", text: helperOutput }],
+            details: { calls: [] },
+            isError: false,
+        });
+        runtime.emit("tool_execution_end", { toolCallId: "tool-0", isError: false });
+        const finished = output(card);
+        assert.match(finished, /● codemode {2}0 calls/);
+        assert.doesNotMatch(finished, /1 call|running/);
+        assert.equal(
+            lines(card).filter((row) => row.trim()).length,
+            1,
+            "No call row exists under the heading",
+        );
+    });
+
+    test(`${mode} replayed codemode with no nested calls reports 0 calls and with one nested call shows exactly one row`, (t) => {
+        const runtime = fixture(t, mode);
+        const empty = runtime.add(
+            "codemode",
+            { code: "text(ALL_TOOLS.join(', '));" },
+            { content: [{ type: "text", text: helperOutput }], details: { calls: [] } },
+        );
+        const emptyOutput = output(empty);
+        assert.match(emptyOutput, /● codemode {2}0 calls/);
+        assert.doesNotMatch(emptyOutput, /1 call/);
+
+        const single = runtime.add(
+            "codemode",
+            { code: "text(await tools.bash({ command: 'ls' }));" },
+            {
+                content: [{ type: "text", text: helperOutput }],
+                details: {
+                    calls: [
+                        {
+                            id: "tool-0/1",
+                            name: "bash",
+                            args: '{"command":"ls"}',
+                            status: "ok",
+                            durationMs: 12,
+                        },
+                    ],
+                },
+            },
+        );
+        const singleLines = lines(single);
+        assert.match(output(single), /● codemode {2}1 call\b/);
+        assert.doesNotMatch(output(single), /1 calls|0 calls/);
+        const rows = singleLines.filter((row) => /[├└] /.test(row));
+        assert.equal(rows.length, 1);
+        assert.match(rows[0]!, /└ ● bash {2}ls/);
+    });
+}
 
 for (const mode of ["on", "compact"] as const) {
     test(`${mode} streaming codemode keeps its collapsed card script-free and only adds call rows`, (t) => {

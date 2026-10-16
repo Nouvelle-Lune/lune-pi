@@ -104,3 +104,7 @@ All notable changes are documented here using
   script as raw code, then replaced it with the call tree when the first nested call
   started, so the card flashed and jumped. The collapsed card now keeps its heading and
   adds one row per call; expand the card to read the script.
+- **Codemode cards counting themselves as a call.** A codemode script that called no
+  tools, for example one that only used `ALL_TOOLS`, `searchTools()` or `text()`, showed
+  `1 call` with no call row under it, because the heading counted the codemode call
+  itself. The heading now counts only nested calls and shows `0 calls` for such a script.
