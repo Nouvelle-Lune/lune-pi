@@ -1095,6 +1095,27 @@ describe("question panel", () => {
             assert.deepEqual(request.draft.answers, [undefined]);
         });
 
+        it("closes with the withdrawn reason once when the request is withdrawn", () => {
+            const { panel, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.closeWithdrawn();
+            panel.closeWithdrawn();
+
+            assert.equal(counts.closed, 1);
+            assert.equal(counts.reason, "withdrawn");
+            assert.equal(counts.deferred, 0);
+        });
+
+        it("does not close again after the panel already settled", () => {
+            const { panel, counts } = createFixture(OPTION_QUESTIONS);
+
+            panel.handleInput(ENTER);
+            panel.closeWithdrawn();
+
+            assert.equal(counts.closed, 1);
+            assert.equal(counts.reason, "settled");
+        });
+
         it("returns from the editor to the options first, then defers", () => {
             const { panel, request, counts } = createFixture(OPTION_QUESTIONS);
 

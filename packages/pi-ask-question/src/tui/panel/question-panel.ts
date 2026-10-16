@@ -14,6 +14,7 @@ import {
     type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 
+import { requestHeaders } from "../../core/question-format.ts";
 import {
     questionManager,
     type AskQuestionDraft,
@@ -55,10 +56,10 @@ export interface OpenQuestionPanelOptions {
 }
 
 /**
- * Why a panel closed: a settled one hands over to the next pending request, while a deferred
- * one (Esc) leaves its request pending and only closes the overlay.
+ * Why a panel closed: a settled or withdrawn one hands over to the next pending request, while a
+ * deferred one (Esc) leaves its request pending and only closes the overlay.
  */
-export type PanelCloseReason = "settled" | "deferred";
+export type PanelCloseReason = "settled" | "deferred" | "withdrawn";
 
 /**
  * Ownership of the single overlay.
@@ -82,12 +83,12 @@ export function resetQuestionPanelState(): void {
 }
 
 /**
- * Show pending requests, least recently shown first, until there is nothing left to answer.
+ * Show pending requests in `nextPendingRequest` order until there is nothing left to answer.
  *
  * Called immediately after a request is created, and again from `/question`. A request that
  * arrives while a panel is open does not have to wait for `/question`: it is already pending,
- * so the loop picks it up as soon as the current panel settles - and because it was never
- * shown, it comes before a request the user only deferred. Deferring (Esc) ends the loop on
+ * so the loop picks it up as soon as the current panel settles or is withdrawn - and because it
+ * was never shown, it comes before a request the user only deferred. Deferring (Esc) ends the loop on
  * purpose - the user asked for quiet, not for the next question - and the request stays pending
  * for `/question`.
  *
@@ -128,7 +129,10 @@ export async function openQuestionPanel(
             if (panelGeneration !== generation || panelOwner !== owner) {
                 return;
             }
-        } while (reason === "settled" && questionManager.getPendingRequests().length > 0);
+        } while (
+            (reason === "settled" || reason === "withdrawn") &&
+            questionManager.getPendingRequests().length > 0
+        );
     } finally {
         if (panelGeneration === generation && panelOwner === owner) {
             panelOwner = undefined;
@@ -142,10 +146,12 @@ async function showQuestionPanel(
     request: AskQuestionRequest,
     options: OpenQuestionPanelOptions,
 ): Promise<PanelCloseReason | undefined> {
+    let unsubscribe: (() => void) | undefined;
+
     try {
         return await ctx.ui.custom<PanelCloseReason>(
-            (tui, theme, keybindings, done) =>
-                new QuestionPanel({
+            (tui, theme, keybindings, done) => {
+                const panel = new QuestionPanel({
                     request,
                     tui,
                     theme,
@@ -153,7 +159,21 @@ async function showQuestionPanel(
                     close: (reason) => done(reason),
                     onDeferred: options.onDeferred,
                     notify: (message, type) => ctx.ui.notify(message, type),
-                }),
+                });
+
+                // The withdrawal comes from a tool call, not from this panel's input.
+                unsubscribe = questionManager.subscribe((event) => {
+                    if (event.type === "request-withdrawn" && event.id === request.id) {
+                        panel.closeWithdrawn();
+                        ctx.ui.notify(
+                            `The agent withdrew: ${requestHeaders(request)} (${event.reason})`,
+                            "info",
+                        );
+                    }
+                });
+
+                return panel;
+            },
             {
                 overlay: true,
                 overlayOptions: {
@@ -173,6 +193,8 @@ async function showQuestionPanel(
         );
 
         return undefined;
+    } finally {
+        unsubscribe?.();
     }
 }
 
@@ -441,6 +463,13 @@ export class QuestionPanel implements Component, Focusable {
 
     invalidate(): void {
         this.renderer.invalidate();
+    }
+
+    /** The request was withdrawn under the panel; its draft goes with it. */
+    closeWithdrawn(): void {
+        if (!this.closed) {
+            this.close("withdrawn");
+        }
     }
 
     private get draft(): AskQuestionDraft {

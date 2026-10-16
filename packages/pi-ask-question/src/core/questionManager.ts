@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -37,9 +37,27 @@ export type QuestionManagerEvent =
     | { type: "request-shown"; id: string }
     | { type: "request-answered"; id: string }
     | { type: "request-skipped"; id: string }
+    | { type: "request-withdrawn"; id: string; reason: string }
+    | { type: "request-wait-started"; id: string }
+    | { type: "request-wait-ended"; id: string }
     | { type: "request-delivered"; id: string }
     | { type: "requests-restored" }
     | { type: "requests-cleared" };
+
+/** How a blocking tool call's wait ended; an interrupted request stays pending. */
+export type QuestionWaitOutcome =
+    | { status: "settled"; request: Readonly<AskQuestionRequest> }
+    | { status: "interrupted" };
+
+/**
+ * Result of a withdrawal. Only a pending request can be withdrawn: a settled one already has an
+ * answer on its way to the model, and a waited-on one belongs to the paused tool call.
+ */
+export type QuestionWithdrawOutcome =
+    | { status: "withdrawn"; request: Readonly<AskQuestionRequest> }
+    | { status: "settled"; request: Readonly<AskQuestionRequest> }
+    | { status: "waiting" }
+    | { status: "unknown" };
 
 export type QuestionManagerListener = (event: QuestionManagerEvent) => void;
 export type QuestionManagerListenerErrorHandler = (
@@ -57,6 +75,11 @@ export class QuestionManager {
      * out of the pending queue - until the branch really carries its message.
      */
     private readonly outbox = new Map<string, AskQuestionRequest>();
+    /**
+     * Blocking tool calls by the request they wait on. They live in memory only: after a restart
+     * pi closes the orphaned call, and the restored request is delivered as a message.
+     */
+    private readonly waiters = new Map<string, (outcome: QuestionWaitOutcome) => void>();
     private readonly listeners = new Map<
         QuestionManagerListener,
         QuestionManagerListenerErrorHandler | undefined
@@ -70,9 +93,16 @@ export class QuestionManager {
      */
     private persistedSnapshot: string | undefined;
 
-    create(questions: readonly AskQuestion[]): AskQuestionRequest {
+    /**
+     * `reservedIds` are ids the new request must not take, such as those of the answer messages on
+     * the branch: reconciliation matches a message by id and would release the new request unsent.
+     */
+    create(
+        questions: readonly AskQuestion[],
+        reservedIds: ReadonlySet<string> = new Set(),
+    ): AskQuestionRequest {
         const request: AskQuestionRequest = {
-            id: randomUUID(),
+            id: this.newRequestId(reservedIds),
             createdAt: Date.now(),
             questions: questions.map(copyQuestion),
             status: "pending",
@@ -99,21 +129,64 @@ export class QuestionManager {
     /**
      * The pending request the panel should show next.
      *
-     * Least recently shown first, with a request that was never shown ahead of all of them: a
-     * question that just arrived has to surface immediately, while one the user dismissed with
-     * Esc must not pop back up in front of it. Requests that were never shown fall back to the
-     * order they were created in.
+     * A request a blocking tool call waits on comes first, because the agent cannot continue
+     * without it. After that, least recently shown first, with a request that was never shown
+     * ahead of all of them: a question that just arrived has to surface immediately, while one the
+     * user dismissed with Esc must not pop back up in front of it. Requests that were never shown
+     * fall back to the order they were created in.
      */
     nextPendingRequest(): AskQuestionRequest | undefined {
         let next: AskQuestionRequest | undefined;
 
         for (const request of this.getPendingRequests()) {
-            if (next === undefined || shownOrder(request) < shownOrder(next)) {
+            if (next === undefined || this.showsBefore(request, next)) {
                 next = request;
             }
         }
 
         return next;
+    }
+
+    /** Whether a blocking tool call waits on the pending request `id`. */
+    isWaiting(id: string): boolean {
+        return this.waiters.has(id);
+    }
+
+    /**
+     * Hold the answer of pending request `id` for a blocking tool call.
+     *
+     * The promise resolves with the settled request, which then skips the outbox: the tool result
+     * carries the answer. When `signal` aborts first, or the state is cleared, it resolves as
+     * interrupted and the request stays pending, so a later answer is delivered as a message.
+     */
+    waitForSettle(id: string, signal: AbortSignal | undefined): Promise<QuestionWaitOutcome> {
+        if (!this.pending.has(id) || this.waiters.has(id)) {
+            throw new Error(`Question request ${id} is not pending or already has a waiter`);
+        }
+
+        if (signal?.aborted) {
+            return Promise.resolve({ status: "interrupted" });
+        }
+
+        const onAbort = (): void => {
+            if (this.releaseWaiter(id, { status: "interrupted" })) {
+                this.emit({ type: "request-wait-ended", id });
+            }
+        };
+
+        const outcome = new Promise<QuestionWaitOutcome>((resolve) => {
+            this.waiters.set(id, (result) => {
+                signal?.removeEventListener("abort", onAbort);
+                resolve(result);
+            });
+        });
+
+        // pi waits for the run to become idle before an abort completes, and it has no tool
+        // timeout, so a wait that ignored the signal would hang Esc.
+        signal?.addEventListener("abort", onAbort, { once: true });
+        this.emit({ type: "request-wait-started", id });
+
+        return outcome;
     }
 
     /**
@@ -174,6 +247,33 @@ export class QuestionManager {
         return true;
     }
 
+    /**
+     * Remove pending request `id` without an answer; no message is sent, the withdrawing tool
+     * result is the record. Like submit and skip, only the first of them counts.
+     */
+    withdraw(id: string, reason: string): QuestionWithdrawOutcome {
+        const settled = this.outbox.get(id);
+
+        if (settled) {
+            return { status: "settled", request: settled };
+        }
+
+        const request = this.pending.get(id);
+
+        if (!request) {
+            return { status: "unknown" };
+        }
+
+        if (this.waiters.has(id)) {
+            return { status: "waiting" };
+        }
+
+        this.pending.delete(id);
+        this.emit({ type: "request-withdrawn", id, reason });
+
+        return { status: "withdrawn", request };
+    }
+
     /** Settled requests whose answer message is not confirmed in the session yet. */
     getUndeliveredRequests(): readonly Readonly<AskQuestionRequest>[] {
         return Array.from(this.outbox.values()).sort(
@@ -200,6 +300,12 @@ export class QuestionManager {
     /** Drop every request, pending or not; a session starts from its own branch. */
     clearAll(): void {
         this.persistedSnapshot = undefined;
+
+        // A waiting tool call must not outlive the state it waits on; the branch being restored
+        // brings the request back as pending, to be answered by message.
+        for (const id of [...this.waiters.keys()]) {
+            this.releaseWaiter(id, { status: "interrupted" });
+        }
 
         if (this.pending.size === 0 && this.outbox.size === 0) {
             return;
@@ -280,7 +386,50 @@ export class QuestionManager {
         request.questions = request.questions.map(toAnswerMessageQuestion);
         request.draft = emptyDraft(request.questions.length);
         this.pending.delete(request.id);
-        this.outbox.set(request.id, request);
+
+        // A waiting tool call returns the answer as its result; an outbox entry would deliver it a
+        // second time as a message.
+        if (!this.releaseWaiter(request.id, { status: "settled", request })) {
+            this.outbox.set(request.id, request);
+        }
+    }
+
+    /** Resolve and drop the waiter of `id`; returns whether there was one. */
+    private releaseWaiter(id: string, outcome: QuestionWaitOutcome): boolean {
+        const resolve = this.waiters.get(id);
+
+        if (!resolve) {
+            return false;
+        }
+
+        this.waiters.delete(id);
+        resolve(outcome);
+
+        return true;
+    }
+
+    /**
+     * Eight hex digits are short enough for the model to copy into `withdraw_user_questions`.
+     * Requests restored from older sessions keep their UUIDs.
+     */
+    private newRequestId(reservedIds: ReadonlySet<string>): string {
+        for (;;) {
+            const id = randomBytes(4).toString("hex");
+
+            if (!this.hasRequest(id) && !reservedIds.has(id)) {
+                return id;
+            }
+        }
+    }
+
+    private showsBefore(left: AskQuestionRequest, right: AskQuestionRequest): boolean {
+        const leftWaits = this.waiters.has(left.id);
+
+        if (leftWaits !== this.waiters.has(right.id)) {
+            return leftWaits;
+        }
+
+        return shownOrder(left) < shownOrder(right);
     }
 
     /** Returns whether anything was restored; the caller emits the event. */

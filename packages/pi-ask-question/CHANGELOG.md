@@ -6,6 +6,10 @@
 
 - **Optional Lune Dock integration.** Pending request counts join the unified status row when its host is active, and Enter opens the same panel as `/question`. The unified item shows the count, name and status dot without a leading module icon. Without the host, the existing question dock remains available.
 
+- **Blocking questions.** `ask_user_questions` takes `mode: "block"` to wait for the answer, which then becomes the tool result instead of a follow-up message. The default `continue` mode does not change. The dock shows `agent waiting`, and `/question` opens that request first; when the run is aborted, the question stays pending and its answer arrives as a message.
+
+- **Withdraw a pending question.** The new `withdraw_user_questions` tool lets the model take back its own pending request by id, for example when a file or a chat message answered it. An open panel closes and shows `The agent withdrew: <header> (<reason>)`. A request that the user already answered or skipped is not withdrawn, and its answer still reaches the model.
+
 ### Changed
 
 - **Published Core dependency.** Require `@lune_99/pi-lune-core@^0.1.0` from npm instead of a sibling checkout. Core remains a mandatory runtime dependency for shared infrastructure and settings.
@@ -27,6 +31,8 @@
 - **Shorter tool prompt.** Each `ask_user_questions` rule is stated once, either in the guidelines or in the field description, which cuts the prompt by about a quarter.
 
 - **Smaller npm package.** Only the gallery image `docs/question-panel.png` is published; the README already loads its images from GitHub.
+
+- **Short request ids in the tool result.** New requests get an eight-digit hex id, and the `ask_user_questions` result now shows it (`Request id: 3f2a9c1e`), so the model can pass it to `withdraw_user_questions`. Requests restored from older sessions keep their UUIDs.
 
 ### Fixed
 

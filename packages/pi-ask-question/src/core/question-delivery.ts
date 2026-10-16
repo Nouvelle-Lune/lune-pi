@@ -35,6 +35,8 @@ export function registerQuestionAnswerNotifications(
 
         const request = questionManager.get(event.id);
 
+        // A request answered into a waiting tool call has no outbox entry: the tool result
+        // already carries the answer.
         if (!request) {
             return;
         }
@@ -126,7 +128,7 @@ export function releaseDeliveredQuestions(ctx: ExtensionContext): Readonly<AskQu
 }
 
 /** Request ids of the answer messages the active branch really holds. */
-function committedRequestIds(ctx: ExtensionContext): Set<string> {
+export function committedRequestIds(ctx: ExtensionContext): Set<string> {
     const ids = new Set<string>();
 
     for (const entry of ctx.sessionManager.getBranch()) {

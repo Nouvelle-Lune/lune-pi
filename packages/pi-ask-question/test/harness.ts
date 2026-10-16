@@ -384,7 +384,7 @@ export interface AnyToolDefinition {
         toolCallId: string,
         params: unknown,
         signal: AbortSignal | undefined,
-        onUpdate: undefined,
+        onUpdate: ((partial: { content: unknown; details: unknown }) => void) | undefined,
         ctx: ExtensionContext,
     ): Promise<{
         content: Array<{ type: string; text?: string }>;
@@ -393,6 +393,12 @@ export interface AnyToolDefinition {
     }>;
     /** Pi calls this with partial arguments while the model still streams the call. */
     renderCall?(args: unknown, theme: Theme, context: unknown): Component;
+    renderResult?(
+        result: { content: Array<{ type: string; text?: string }>; details: unknown },
+        options: unknown,
+        theme: Theme,
+        context: unknown,
+    ): Component;
 }
 
 export function requireTool(host: FakePiHost, name: string): AnyToolDefinition {

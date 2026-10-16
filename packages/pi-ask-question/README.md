@@ -6,7 +6,7 @@
 
 **Structured questions for [Pi](https://pi.dev): the model asks, the panel opens, and your answer reaches it when you are ready.**
 
-`ask_user_questions` is for the decisions the model should not make on its own. Asking is asynchronous: the question waits in the session while the model keeps working on everything that does not depend on it, and your answer - or a skip - arrives back as a message that resumes it. Read the panel, take your time, and answer when you get to it.
+`ask_user_questions` is for the decisions the model should not make on its own. By default, asking is asynchronous: the question waits in the session while the model keeps working on everything that does not depend on it, and your answer - or a skip - arrives back as a message that resumes it. When the next step depends on the answer, the model can ask in block mode and wait for you instead. Read the panel, take your time, and answer when you get to it.
 
 ## Quick start
 
@@ -25,11 +25,20 @@ pi
 ## What it does
 
 - **Asks without stopping the turn.** The panel opens over the session the moment a decision is needed, and the model carries on with the parts that do not depend on the answer instead of waiting for you.
+- **Waits when the answer must come first.** With `mode: "block"` the model waits for your answer, for example before a delete, a push or a migration, or when the choice controls most of the later work. Your answer becomes the result of the tool call, not a separate message. `Esc` on the panel only closes it, and the model keeps waiting. To stop the model, press `Esc` in the editor as usual: the question then stays pending, and your answer arrives as a message.
+- **Takes back a question that no longer matters.** `withdraw_user_questions` lets the model withdraw its own pending question when a file, a tool or your chat message answered it, or when the plan changed. An open panel closes and tells you what the agent withdrew and why. A question that you already answered or skipped cannot be withdrawn.
 - **Brings the answer back into the session.** Answering or skipping adds a `Questions answered` or `Questions skipped` row to the transcript and resumes the model from there.
 - **A question waits as long as you need.** `Esc` closes the panel without settling anything: a dock below the editor says a question is still pending, and `/question` reopens it with the focused row and your drafts intact.
 - **Survives a restart.** A pending question and what you had written come back after `/reload`, `/resume` or `/tree`.
 - **Compares options before answering.** An option can carry a Markdown preview - a diff, a config block, a mockup - in a pane beside the options, side by side on a wide terminal and stacked under them on a narrow one. A preview is only for you: it never becomes the answer.
 - **Only as tall as its content.** A short question covers as little of the transcript as possible; a long one scrolls, with the tab strip pinned above the body. While you are writing an answer, the body scrolls with you to keep the whole input box - and its cursor - in view instead of clipping the newest lines.
+
+## Tools
+
+| Tool                      |                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ask_user_questions`      | Ask one to four questions in one panel. `mode` is `continue` (the default) or `block`. The result gives a short request id, such as `Request id: 3f2a9c1e`. |
+| `withdraw_user_questions` | Withdraw a pending request by its `requestId`, with a short `reason` that the panel shows to you. No message is sent; the tool result is the record.        |
 
 ## Panel
 
@@ -68,7 +77,7 @@ Answers land in the transcript and resume the model:
 
 ## Pending questions
 
-`Esc` is a defer, not a dismissal: the panel closes, the request stays pending, and the dock under the editor says which question `/question` would show next.
+`Esc` is a defer, not a dismissal: the panel closes, the request stays pending, and the dock under the editor says which question `/question` would show next. While a blocking call waits, the dock shows `agent waiting`, and `/question` opens that request first.
 
 With the optional **Lune Dock** host active, this independent row is replaced by a shared one-line dock. Press Down in an empty main editor, select a module with Left/Right, and press Enter to open its panel directly. Closing the panel returns to dock focus. The plugin publishes its own single-line `base`, `detail`, and `full` Components through the Dock protocol in `@lune_99/pi-lune-extensions-core/dock`; `/dock` controls density, visibility and order. Idle state remains available in the shared Dock, and hiding the plugin keeps its snapshots current. Removing the host restores the independent row.
 
