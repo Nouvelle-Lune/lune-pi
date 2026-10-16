@@ -100,3 +100,7 @@ All notable changes are documented here using
   instead of on every re-render, so hovering, startup and theme changes stay fast as history
   grows. The thinking animation now runs at 30 fps through Pi's render throttle instead of
   forcing 120 full-transcript renders per second.
+- **Codemode code flash while streaming.** A collapsed codemode card showed the streamed
+  script as raw code, then replaced it with the call tree when the first nested call
+  started, so the card flashed and jumped. The collapsed card now keeps its heading and
+  adds one row per call; expand the card to read the script.

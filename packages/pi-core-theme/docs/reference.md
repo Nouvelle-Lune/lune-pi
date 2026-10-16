@@ -49,8 +49,9 @@ The same **Theme** tab configures:
   the command. Headings and tree rows share one mark: a moon phase that turns while
   running, `●` for done (success color) or failed (error color, also labelled) and
   `○` for cancelled; composite headings give failures priority. Tool names stay
-  unchanged. Expanded cards list arguments as aligned key/value rows. Codemode shows its script before calls arrive, merges live call events
-  with partial results, and keeps nested edit/write calls as summaries. Nested tool
+  unchanged. Expanded cards list arguments as aligned key/value rows. Codemode shows its script only when expanded;
+  collapsed, it adds one row per nested call as calls arrive. It merges live call events
+  with partial results and keeps nested edit/write calls as summaries. Nested tool
   progress updates repaint immediately; expanded call ledgers show bounded child
   output previews and link hidden lines to the full-output browser. Partial output
   follows the latest lines in standalone and grouped tools. Thinking's run assembly,

@@ -442,18 +442,9 @@ class ToolCard implements Component {
         if (this.slot === "call") {
             const status = callStatus(context.isPartial, context.isError);
             const lines = [this.heading(width, open, grouped, status)];
+            // Collapsed codemode has no script preview: its first nested call would replace the
+            // streamed code, so the card would flash code and then jump to a call tree.
             if (open) lines.push(...this.input(width));
-            else if (this.name === "codemode" && !this.calls().length) {
-                const script =
-                    typeof context.args.code === "string" && context.args.code.trim()
-                        ? sanitizeToolResultText(context.args.code, 2000)
-                        : "Preparing script…";
-                lines.push(
-                    ...wrapTextWithAnsi(script, Math.max(1, width - 3))
-                        .slice(0, 5)
-                        .map((row) => truncateToWidth(`   ${theme.fg("dim", row)}`, width, "")),
-                );
-            }
             if (!state(context).result) {
                 lines.push(
                     ...this.callRows(Math.max(1, width - 3), open, lines.length).map((row) =>

@@ -215,6 +215,19 @@ function fixture(t: TestContext, mode: "on" | "compact" = "on", nativeMouse = fa
         }),
     );
     let sequence = 0;
+    const create = (name: string, args: Record<string, unknown>) => {
+        const native = nativeTools.get(name) as ToolRenderers | undefined;
+        const renderers = resolver(name, () => native);
+        return new ToolExecutionComponent(
+            name,
+            `tool-${sequence++}`,
+            args,
+            { showImages: false },
+            renderers,
+            tui as never,
+            process.cwd(),
+        );
+    };
     const add = (
         name: string,
         args: Record<string, unknown> = { path: "file.ts" },
@@ -226,22 +239,20 @@ function fixture(t: TestContext, mode: "on" | "compact" = "on", nativeMouse = fa
         running = false,
         started = true,
     ) => {
-        const native = nativeTools.get(name) as ToolRenderers | undefined;
-        const renderers = resolver(name, () => native);
-        const card = new ToolExecutionComponent(
-            name,
-            `tool-${sequence++}`,
-            args,
-            { showImages: false },
-            renderers,
-            tui as never,
-            process.cwd(),
-        );
+        const card = create(name, args);
         if (started) card.markExecutionStarted();
         card.setArgsComplete();
         card.updateResult({ ...result, isError: false }, running);
         if (running) runningTools.add(card);
         if (separator) chat.addChild(new Text("Separator", 0, 0));
+        chat.addChild(card);
+        return card;
+    };
+    // Pi mounts a card while the model is still writing its arguments: no result, not executing.
+    const stream = (name: string, args: Record<string, unknown> = {}) => {
+        const card = create(name, args);
+        runningTools.add(card);
+        chat.addChild(new Text("Separator", 0, 0));
         chat.addChild(card);
         return card;
     };
@@ -254,6 +265,7 @@ function fixture(t: TestContext, mode: "on" | "compact" = "on", nativeMouse = fa
     };
     return {
         add,
+        stream,
         target,
         emit,
         chat,
@@ -1605,7 +1617,12 @@ test("codemode shows live nested calls despite empty or stale partial metadata a
     );
     runtime.emit("tool_execution_start", { toolCallId: parent, toolName: "codemode", args: {} });
     assert.match(output(card), /1 call · 1 running/);
-    assert.match(output(card), /tools.read/);
+    assert.doesNotMatch(output(card), /tools\.read|Preparing script/, "No script preview");
+    assert.equal(
+        lines(card).filter((row) => row.trim()).length,
+        1,
+        "Only the heading row shows until the first nested call",
+    );
     runtime.emit("tool_execution_start", {
         toolCallId: "nested-read",
         parentToolCallId: parent,
@@ -1659,6 +1676,99 @@ test("codemode shows live nested calls despite empty or stale partial metadata a
     assert.doesNotMatch(output(card), /running/);
     assert.match(output(card), /● bash {2}npm run build · failed · 90ms/);
 });
+
+for (const mode of ["on", "compact"] as const) {
+    test(`${mode} streaming codemode keeps its collapsed card script-free and only adds call rows`, (t) => {
+        const runtime = fixture(t, mode);
+        const parent = "tool-0";
+        const script = [
+            "const listing = await tools.bash({ command: 'ls -la' });",
+            "const source = await tools.read({ path: 'src/index.ts' });",
+            "text(listing + source);",
+        ].join("\n");
+        // Raw code or the empty-script placeholder would flash before the call tree replaces it.
+        const scriptPreview = /const |tools\.|text\(|Preparing script/;
+        // Status marks and durations change in place; the call name and summary identify the row.
+        const callLabel = (row: string) =>
+            row.replace(/^\s*[├└] \S /, "").replace(/ · \d+ms$/, "");
+        const card = runtime.stream("codemode");
+        const frames: string[][] = [];
+        const capture = () => {
+            const rows = lines(card);
+            const previous = frames.at(-1) ?? [];
+            assert.doesNotMatch(
+                rows.join("\n"),
+                scriptPreview,
+                "The collapsed card never previews the script",
+            );
+            assert.ok(
+                rows.length >= previous.length,
+                `The card shrank from ${previous.length} to ${rows.length} rows`,
+            );
+            assert.match(rows[1]!, /codemode/);
+            for (const [index, row] of previous.entries())
+                if (index >= 2)
+                    assert.equal(callLabel(rows[index]!), callLabel(row), `Row ${index} moved`);
+            frames.push(rows);
+            return rows;
+        };
+        capture();
+        // The first update can arrive before any code has streamed.
+        for (const code of ["", "const lis", script.slice(0, 70), script]) {
+            card.updateArgs({ code });
+            capture();
+        }
+        card.setArgsComplete();
+        card.markExecutionStarted();
+        runtime.emit("tool_execution_start", {
+            toolCallId: parent,
+            toolName: "codemode",
+            args: { code: script },
+        });
+        assert.equal(capture().length, 2, "Only the heading follows the leading spacer");
+        const nested = [
+            { id: "nested-bash", name: "bash", args: { command: "ls -la" } },
+            { id: "nested-read", name: "read", args: { path: "src/index.ts" } },
+        ];
+        for (const call of nested) {
+            runtime.emit("tool_execution_start", {
+                toolCallId: call.id,
+                parentToolCallId: parent,
+                toolName: call.name,
+                args: call.args,
+            });
+            capture();
+            runtime.emit("tool_execution_end", {
+                toolCallId: call.id,
+                parentToolCallId: parent,
+                isError: false,
+                durationMs: 20,
+            });
+            capture();
+        }
+        card.updateResult({
+            content: [
+                { type: "text", text: "Script completed\nWall time 0.1 seconds\nOutput:\ndone" },
+            ],
+            details: {
+                calls: nested.map((call) => ({
+                    name: call.name,
+                    args: JSON.stringify(call.args),
+                    status: "done",
+                })),
+            },
+            isError: false,
+        });
+        runtime.emit("tool_execution_end", { toolCallId: parent, isError: false });
+        const actual = capture().slice(2).map(callLabel);
+        const expected = ["bash  ls -la", "read  src/index.ts"];
+        assert.deepEqual(actual, expected);
+        card.setExpanded(true);
+        const expanded = output(card);
+        assert.match(expanded, SCRIPT_LABEL);
+        for (const row of script.split("\n")) assert.ok(expanded.includes(row), row);
+    });
+}
 
 test("expanded tool and group hidden rows open wrapped output and scrolling reaches its final line", async (t) => {
     for (const mode of ["on", "compact"] as const) {
