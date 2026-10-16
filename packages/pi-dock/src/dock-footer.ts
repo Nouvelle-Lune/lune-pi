@@ -8,6 +8,7 @@ import {
     renderInfoRow,
     renderModelSegment,
     renderStatusRow,
+    statColumns,
     type DockStatus,
 } from "./dock-status.ts";
 
@@ -50,6 +51,14 @@ interface Rows {
     info: string | undefined;
     statuses: string | undefined;
 }
+
+/** What the dock row draws on its right; `width` is the span it occupies, at least the text's own. */
+interface RightSegment {
+    text: string;
+    width: number;
+}
+
+const SEPARATOR_WIDTH = visibleWidth(CELL_SEPARATOR);
 
 /**
  * Takes over Pi's footer: the module cells beside the model, then the working directory beside
@@ -155,9 +164,10 @@ export class DockFooter {
     ): string | undefined {
         const hasCells = input.entries.length > 0;
         const right = this.renderRightSegment(width, theme, input, inlineHints);
-        if (!hasCells && !right) return undefined;
+        if (!hasCells && !right.text) return undefined;
 
-        const tail = (hasCells && right ? theme.fg("dim", CELL_SEPARATOR) : "") + right;
+        const segment = right.text + " ".repeat(Math.max(0, right.width - visibleWidth(right.text)));
+        const tail = (hasCells && right.text ? theme.fg("dim", CELL_SEPARATOR) : "") + segment;
         const left = hasCells
             ? (this.cells.render(input.entries, width - visibleWidth(tail), theme, input.selectedId, input.mode)[0] ?? "")
             : "";
@@ -170,30 +180,58 @@ export class DockFooter {
         theme: Theme,
         input: DockFooterInput,
         inlineHints: boolean,
-    ): string {
+    ): RightSegment {
         const { status, layout } = input;
         const minimal = layout.style === "minimal";
+        const flush = (text: string): RightSegment => ({ text, width: visibleWidth(text) });
         // Minimal has no info row to share the line with, so the right side may claim more of it.
-        const budget = Math.floor(width * (minimal ? 0.6 : 0.5)) - visibleWidth(CELL_SEPARATOR);
+        const budget = Math.floor(width * (minimal ? 0.6 : 0.5)) - SEPARATOR_WIDTH;
         if (inlineHints && input.selectedId !== undefined) {
             const hint = KEY_HINTS.find((candidate) => visibleWidth(candidate) <= budget);
-            if (hint) return theme.fg("dim", hint);
+            if (hint) return flush(theme.fg("dim", hint));
         }
-        if (!status || width < MIN_MODEL_ROW_WIDTH) return "";
-        if (!minimal || !layout.showUsage) {
-            return layout.showModel ? renderModelSegment(status, theme, budget) : "";
+        if (!status || width < MIN_MODEL_ROW_WIDTH) return flush("");
+        if (minimal && layout.showUsage) {
+            // Context use outranks the provider prefix: drop the provider before the counter.
+            const context = renderContextCell(status, theme);
+            for (const showProvider of new Set([status.showProvider, false])) {
+                const model = layout.showModel
+                    ? renderModelSegment({ ...status, showProvider }, theme, Infinity)
+                    : "";
+                const combined = model ? model + theme.fg("dim", CELL_SEPARATOR) + context : context;
+                if (visibleWidth(combined) <= budget) return flush(combined);
+            }
         }
+        if (!layout.showModel) return flush("");
+        // Only an info row with statistics has bars for the model to line up with.
+        return !minimal && layout.showUsage
+            ? this.placeModel(width, theme, status, layout.showWorkspace, budget)
+            : flush(renderModelSegment(status, theme, budget));
+    }
 
-        // Context use outranks the provider prefix: drop the provider before the counter.
-        const context = renderContextCell(status, theme);
+    /**
+     * Starts the model on one of the info row's bars, so the bar before it continues a bar below
+     * instead of floating between two. The rightmost bar with room wins; the provider goes before
+     * the alignment does, and a model too wide for any bar within budget sits flush right instead.
+     */
+    private placeModel(
+        width: number,
+        theme: Theme,
+        status: DockStatus,
+        workspace: boolean,
+        budget: number,
+    ): RightSegment {
+        const spans = statColumns(status, width, workspace)
+            .map((column) => column - SEPARATOR_WIDTH)
+            .filter((span) => span <= budget)
+            .sort((a, b) => a - b);
         for (const showProvider of new Set([status.showProvider, false])) {
-            const model = layout.showModel
-                ? renderModelSegment({ ...status, showProvider }, theme, Infinity)
-                : "";
-            const combined = model ? model + theme.fg("dim", CELL_SEPARATOR) + context : context;
-            if (visibleWidth(combined) <= budget) return combined;
+            const text = renderModelSegment({ ...status, showProvider }, theme, Infinity);
+            const span = spans.find((candidate) => candidate >= visibleWidth(text));
+            if (span !== undefined) return { text, width: span };
         }
-        return layout.showModel ? renderModelSegment(status, theme, budget) : "";
+        const text = renderModelSegment(status, theme, budget);
+        return { text, width: visibleWidth(text) };
     }
 
     /** The hint rides the rule under the cells, so it never takes width from a cell or the model. */

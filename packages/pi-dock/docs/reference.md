@@ -8,9 +8,9 @@ keyboard and press Enter to open its existing interface directly; there is no ac
 
 ```text
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ○ Shell · idle │ ○ Ask · idle                                        │ (anthropic) claude-opus-5-5 • max
+ ○ Shell · idle │ ○ Ask · idle                                                  │ (anthropic) claude-opus-5-5 • max
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   …/local-extensions/pi-recap   (main)    │ ↑ 28k ↓5.6k │ R187k │ CH98.9% │  $0.008 │ 27k/1.0M · 2.7% │ (auto)
+   …/local-extensions/pi-recap   (main)      │ R187k │ CH 98.9% │ ↑28k  ↓5.6k │ $0.008  │  27k/1.0M · 2.7%  │ (auto)
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
@@ -19,20 +19,27 @@ The dock **replaces Pi's built-in footer**, so every statistic it showed stays v
 | Row | Left | Right |
 | --- | --- | --- |
 | Dock | Module cells, one per contributing extension | `(provider) model • thinking level` |
-| Info | Working directory, git branch, session name | Tokens `↑in ↓out`, cache `R`ead / `W`rite, `CH` cache hit, cost, context use (`used/window · share`), `(auto)` |
+| Info | Working directory, git branch, session name | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
 
 Statuses set by other extensions through `ctx.ui.setStatus()` follow on a row of their own.
-Every statistic owns a slot of fixed width, right-aligned, so a changing number never moves the
-ones beside it. A slot with no data yet is not drawn: a fresh session shows only context use and
-`(auto)`, and the others appear once Pi reports tokens, cache or cost. A new slot never moves the
-ones to its right or the right edge; only slots to its left make way.
+The statistics sit on a fixed grid against the right edge. Every statistic owns a slot of fixed
+width and keeps it whether or not it has data, so no bar or label ever moves while a session runs.
+Text starts one column after its bar, with the label attached to its number; a growing number uses
+only the padding behind it. A slot with no data yet stays blank: a fresh session shows only context
+use and `(auto)`, and the others fill their own columns once Pi reports tokens, cache or cost.
+Slots that often stay blank, such as cache writes for providers that do not report them, sit on
+the left, so their blank columns join the gap after the directory.
 
-Which slots are reserved depends on the terminal width alone: a narrow terminal drops cache, hit
-rate, tokens, cost and `(auto)` in that order, always keeps context use, and gives the rest to the
-working directory, which is shortened from the left against the full reservation so it does not
-move either. Below 40 columns the model is hidden so the cells keep the whole row. Provider shows
-only when more than one is available, and `(auto)` reflects the compaction setting read when the
-session starts.
+The model starts on one of the info row's bars, so the bar before it continues a bar below. It takes
+the rightmost bar that leaves room for it within half the row, drops the provider before it gives up
+that alignment, and sits flush right only when no bar fits even the bare model.
+
+Which slots are reserved depends on the terminal width alone: a narrow terminal drops cache writes,
+cache reads, hit rate, tokens, cost and `(auto)` in that order, always keeps context use, and gives
+the rest to the working directory, which is shortened from the left against the full reservation so
+it does not move either. Below 40 columns the model is hidden so the cells keep the whole row.
+Provider shows only when more than one is available, and `(auto)` reflects the compaction setting
+read when the session starts.
 
 Every cell composes exactly one physical row. Plugins own their complete text, markers and theme
 styling. Dock selects a level, allocates horizontal width, separates cells with a dim bar and
@@ -58,13 +65,13 @@ Choose a style in `/dock`; the panel previews it, focused, before you commit.
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
-│ ○ Shell · idle │ ○ Ask · idle         │ model • max      │   boxed
+│ ○ Shell · idle │ ○ Ask · idle        │ model • max       │   boxed
 ├──────────────────────────────────────────────────────────┤
-│  ~/proj  (main)       │ ↑28k ↓5.6k │ 27k/1.0M · 2.7%    │
+│  ~/proj  (main)        │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%  │
 ╰──────────────────────────────────────────────────────────╯
 
- ○ Shell · idle │ ○ Ask · idle              │ model • max       compact
-  ~/proj  (main)       │ ↑28k ↓5.6k │ 27k/1.0M · 2.7%
+ ○ Shell · idle │ ○ Ask · idle         │ model • max         compact
+  ~/proj  (main)         │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%
 ```
 
 Every style except `classic` takes over Pi's footer. Three switches trim what those styles

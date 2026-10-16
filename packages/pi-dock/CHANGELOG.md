@@ -46,6 +46,12 @@
 
 ### Changed
 
+- **The info row keeps every statistic in place.** Each statistic keeps its own columns whether or
+  not it has data, so bars and labels no longer move when tokens, cache or cost first arrive, and
+  the model on the dock row now starts on one of the info row's bars. Cache writes have their own
+  slot on the far left, so providers that never report them leave only blank space there. All
+  statistics now need 120 columns instead of 117.
+
 - **Context use reads `used/window · share`.** The cell shows the tokens in use over the window, then
   the share (`209k/272k · 76.8%`), instead of the share over the window. It is 7 columns wider, so
   narrow terminals now drop the cache, hit-rate, token and cost slots a little earlier.

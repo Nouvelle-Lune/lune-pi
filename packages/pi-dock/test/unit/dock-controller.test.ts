@@ -83,7 +83,7 @@ describe("dock controller", () => {
         const lines = componentOf(ui).render(100);
 
         assert.equal(lines.length, 5, "rule, dock row, rule, info row, rule");
-        assert.match(dockRowOf(componentOf(ui)), /^ 2 shells │ 1 question +│ claude-test • medium$/);
+        assert.match(dockRowOf(componentOf(ui)), /^ 2 shells │ 1 question +│ claude-test • medium *$/);
         assert.deepEqual(
             ui.widgetCalls
                 .filter((call) => call.content !== undefined)
@@ -595,9 +595,9 @@ describe("dock controller footer", () => {
 
         const first = component.render(120).map(stripTerminalSequences);
 
-        assert.match(first[1]!, /\(openai\) gpt-test$/);
+        assert.match(first[1]!, /\(openai\) gpt-test *$/);
         assert.match(first[3]!, /\/work\/project .*\(feature\)/);
-        assert.match(first[3]!, / │ ↑1\.5k ↓ {2}20 │ {2}\$0\.500 │ {2}80k\/200k · 40\.0% │ \(auto\)$/);
+        assert.match(first[3]!, / │ ↑1\.5k ↓20 {3}│ \$0\.500 {2}│ {2}80k\/200k · 40\.0% │ \(auto\)$/);
         assert.equal(first[4], " 3 warnings");
 
         session.sessionManager.appendMessage(assistantMessage(createUsage({ input: 500, cost: 0.25 })));
@@ -606,7 +606,7 @@ describe("dock controller footer", () => {
         const second = component.render(120).map(stripTerminalSequences);
 
         assert.match(second[3]!, /\(main\)/);
-        assert.match(second[3]!, / │ ↑2\.0k ↓ {2}20 │ {2}\$0\.750 │ /);
+        assert.match(second[3]!, / │ ↑2\.0k ↓20 {3}│ \$0\.750 {2}│ /);
         assert.equal(second.length, 5, "a cleared status must remove its row");
     });
 

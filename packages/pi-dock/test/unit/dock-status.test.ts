@@ -38,7 +38,7 @@ function statsOf(row: string): string | undefined {
     return stripTerminalSequences(row).match(/^.*? +│ (.*)$/)?.[1];
 }
 
-/** Each statistic slot of the right-hand block, in order. */
+/** Each drawn statistic slot of the right-hand block, in order, padding included; blank slots between them merge into the slot on their left. */
 function slotsOf(row: string): string[] {
     return (statsOf(row) ?? "").split(" │ ");
 }
@@ -337,14 +337,34 @@ describe("dock model segment", () => {
     });
 });
 
-/** Reserved columns of each statistic slot, as the info row documents them. */
-const SLOT_WIDTH = { tokens: 11, cache: 11, cacheHit: 7, cost: 7, context: 17, auto: 6 } as const;
+/** Reserved columns of each statistic slot, leftmost first, as the info row documents them. */
+const SLOT_WIDTH = { write: 5, read: 5, cacheHit: 8, tokens: 11, cost: 7, context: 17, auto: 6 } as const;
+type SlotName = keyof typeof SLOT_WIDTH;
+const ALL_SLOTS = Object.keys(SLOT_WIDTH) as SlotName[];
+const WITHOUT_AUTO = ALL_SLOTS.filter((slot) => slot !== "auto");
+/** Every slot is introduced by its own bar, the first one dividing the statistics from the directory. */
 const BAR = 3;
-/** Columns the workspace keeps before any statistic is placed, plus the bar that introduces them. */
-const WORKSPACE_RESERVE = 40 + BAR;
+/** Columns the workspace keeps before any statistic is placed. */
+const WORKSPACE_RESERVE = 40;
 
-function blockWidth(...slots: (keyof typeof SLOT_WIDTH)[]): number {
-    return slots.reduce((sum, slot) => sum + SLOT_WIDTH[slot], 0) + BAR * (slots.length - 1);
+function blockWidth(...slots: SlotName[]): number {
+    return slots.reduce((sum, slot) => sum + BAR + SLOT_WIDTH[slot], 0);
+}
+
+/**
+ * Each reserved slot with the bar before it, cut from the right edge by the reserved widths alone and
+ * stripped of trailing padding, so a blank slot reads as "". Every statistic is one column per character.
+ */
+function cellsOf(row: string, reserved: readonly SlotName[]): Record<SlotName, string | undefined> {
+    const plain = stripTerminalSequences(row);
+    const cells: Partial<Record<SlotName, string>> = {};
+    let end = plain.length;
+    for (const slot of [...reserved].reverse()) {
+        const start = end - BAR - SLOT_WIDTH[slot];
+        cells[slot] = plain.slice(start, end).trimEnd();
+        end = start;
+    }
+    return cells as Record<SlotName, string | undefined>;
 }
 
 describe("dock info row", () => {
@@ -357,42 +377,29 @@ describe("dock info row", () => {
         cacheHitRate: 50,
     };
 
-    it("puts the directory, branch and session name left and every statistic right", () => {
+    it("puts the directory, branch and session name left and every statistic on a grid against the right edge", () => {
         const status = createStatus({ sessionName: "my-session", usage: fullUsage, autoCompact: true });
 
-        const row = renderInfoRow(status, 160, identityTheme);
+        const row = stripTerminalSequences(renderInfoRow(status, 160, identityTheme));
 
-        assert.match(
-            stripTerminalSequences(row),
-            /^ \S {2}\/work\/project {2}\S \(main\) • my-session +│ /,
-        );
-        assert.deepEqual(slotsOf(row), [
-            "↑1.5k ↓  20",
-            "R3.0k W 400",
-            "CH50.0%",
-            " $0.123",
-            " 25k/200k · 12.3%",
-            "(auto)",
-        ]);
-        assert.equal(visibleWidth(row), 160, "the statistics must be right-aligned to the edge");
+        assert.match(row, /^ \S {2}\/work\/project {2}\S \(main\) • my-session +│ /);
+        const expected =
+            " │ W400  │ R3.0k │ CH 50.0% │ ↑1.5k ↓20   │ $0.123  │  25k/200k · 12.3% │ (auto)";
+        assert.equal(row.slice(-expected.length), expected);
+        assert.equal(visibleWidth(row), 160);
     });
 
     it("reserves a fixed number of columns for each slot", () => {
         const status = createStatus({ usage: fullUsage, autoCompact: true });
+        const row = renderInfoRow(status, 160, identityTheme);
 
-        const actual = slotsOf(renderInfoRow(status, 160, identityTheme)).map((slot) => slot.length);
+        const actual = separatorColumns(row).map((column) => 160 - column);
 
-        assert.deepEqual(actual, [
-            SLOT_WIDTH.tokens,
-            SLOT_WIDTH.cache,
-            SLOT_WIDTH.cacheHit,
-            SLOT_WIDTH.cost,
-            SLOT_WIDTH.context,
-            SLOT_WIDTH.auto,
-        ]);
+        // Columns from each bar to the right edge: W, R, CH, tokens, cost, context, (auto).
+        assert.deepEqual(actual, [79, 71, 63, 52, 38, 28, 8]);
     });
 
-    it("draws only the context and (auto) in a fresh session, right-aligned", () => {
+    it("draws only the context and (auto) in a fresh session, against the right edge", () => {
         const row = renderInfoRow(createStatus({ autoCompact: true }), 160, identityTheme);
 
         assert.deepEqual(slotsOf(row), [" 25k/200k · 12.3%", "(auto)"]);
@@ -417,31 +424,36 @@ describe("dock info row", () => {
     it("shows an unknown context share as a question mark in its slot", () => {
         const status = createStatus({ context: { tokens: null, percent: null, window: 256_000 } });
 
-        assert.equal(slotsOf(renderInfoRow(status, 160, identityTheme)).at(-1), "   ?/256k ·     ?");
+        const actual = cellsOf(renderInfoRow(status, 160, identityTheme), WITHOUT_AUTO).context;
+
+        assert.equal(actual, " │    ?/256k · ?");
     });
 
-    it("shows input and output tokens independently, right-aligned in their fields", () => {
-        const input = renderInfoRow(createStatus({ usage: { input: 1500 } }), 160, identityTheme);
-        const output = renderInfoRow(createStatus({ usage: { output: 20 } }), 160, identityTheme);
+    it("puts each token counter right after its label, in columns of its own", () => {
+        const rowFor = (usage: Partial<typeof fullUsage>) =>
+            cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO).tokens;
 
-        assert.equal(slotsOf(input)[0], "↑1.5k");
-        assert.equal(slotsOf(output)[0], "↓  20");
+        const actual = [
+            rowFor({ input: 1500 }),
+            rowFor({ output: 20 }),
+            rowFor({ input: 1500, output: 20 }),
+            rowFor({ input: 28_000, output: 5600 }),
+        ];
+
+        assert.deepEqual(actual, [" │ ↑1.5k", " │       ↓20", " │ ↑1.5k ↓20", " │ ↑28k  ↓5.6k"]);
     });
 
-    it("shows cache reads and writes independently", () => {
-        const read = renderInfoRow(
-            createStatus({ usage: { cacheRead: 3000, cacheHitRate: 40 } }),
-            160,
-            identityTheme,
-        );
-        const write = renderInfoRow(
-            createStatus({ usage: { cacheWrite: 400, cacheHitRate: 0 } }),
-            160,
-            identityTheme,
-        );
+    it("gives cache reads and cache writes a slot each", () => {
+        const cellsFor = (usage: Partial<typeof fullUsage>) =>
+            cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO);
 
-        assert.deepEqual(slotsOf(read).slice(0, 2), ["R3.0k", "CH40.0%"]);
-        assert.deepEqual(slotsOf(write).slice(0, 2), ["W 400", "CH 0.0%"]);
+        const read = cellsFor({ cacheRead: 3000, cacheHitRate: 40 });
+        const write = cellsFor({ cacheWrite: 400, cacheHitRate: 0 });
+        const both = cellsFor({ cacheRead: 187_000, cacheWrite: 4_500_000, cacheHitRate: 4 });
+
+        assert.deepEqual([read.write, read.read, read.cacheHit], ["", " │ R3.0k", " │ CH 40.0%"]);
+        assert.deepEqual([write.write, write.read, write.cacheHit], [" │ W400", "", " │ CH 0.0%"]);
+        assert.deepEqual([both.write, both.read, both.cacheHit], [" │ W4.5M", " │ R187k", " │ CH 4.0%"]);
     });
 
     it("quotes a cache-hit rate only when the cache was used and a rate exists", () => {
@@ -452,84 +464,96 @@ describe("dock info row", () => {
             identityTheme,
         );
 
-        assert.deepEqual(slotsOf(unused), [" 25k/200k · 12.3%"], "no cache traffic draws no CH slot");
-        assert.deepEqual(slotsOf(unknown), ["R3.0k", " 25k/200k · 12.3%"], "no rate draws no CH slot");
+        assert.equal(cellsOf(unused, WITHOUT_AUTO).cacheHit, "", "no cache traffic draws no CH slot");
+        assert.deepEqual(
+            [cellsOf(unknown, WITHOUT_AUTO).read, cellsOf(unknown, WITHOUT_AUTO).cacheHit],
+            [" │ R3.0k", ""],
+            "no rate draws no CH slot",
+        );
     });
 
-    it("right-aligns the cost and spends fewer decimals as it grows", () => {
+    it("puts the cost right after its bar and spends fewer decimals as it grows", () => {
         const costs: [number, string][] = [
-            [0.008, " $0.008"],
-            [12.3456, "$12.346"],
-            [123.456, "$123.46"],
-            [1234.56, "$1234.6"],
-            [12_345.67, " $12346"],
+            [0.008, " │ $0.008"],
+            [12.3456, " │ $12.346"],
+            [123.456, " │ $123.46"],
+            [1234.56, " │ $1234.6"],
+            [12_345.67, " │ $12346"],
         ];
 
         for (const [cost, expected] of costs) {
             const row = renderInfoRow(createStatus({ usage: { cost } }), 160, identityTheme);
-            assert.equal(slotsOf(row)[0], expected, `cost ${cost}`);
+            assert.equal(cellsOf(row, WITHOUT_AUTO).cost, expected, `cost ${cost}`);
         }
     });
 
-    it("leaves out a zero part of a token or cache slot without a dash or a gap", () => {
-        const cases: [string, Partial<typeof fullUsage>, string][] = [
-            ["input only", { input: 28_000 }, "↑ 28k"],
-            ["output only", { output: 5600 }, "↓5.6k"],
-            ["both tokens", { input: 28_000, output: 5600 }, "↑ 28k ↓5.6k"],
-            ["reads only", { cacheRead: 187_000 }, "R187k"],
-            ["writes only", { cacheWrite: 4_500_000 }, "W4.5M"],
-            ["both cache parts", { cacheRead: 187_000, cacheWrite: 3500 }, "R187k W3.5k"],
+    it("leaves a zero counter blank, without a dash", () => {
+        const cases: Partial<typeof fullUsage>[] = [
+            { input: 28_000 },
+            { output: 5600 },
+            { cacheRead: 187_000 },
+            { cacheWrite: 4_500_000 },
         ];
 
-        for (const [name, usage, expected] of cases) {
+        for (const usage of cases) {
             const row = renderInfoRow(createStatus({ usage }), 160, identityTheme);
 
-            assert.equal(slotsOf(row)[0], expected, name);
-            assert.doesNotMatch(statsOf(row)!, /-/, name);
+            assert.doesNotMatch(statsOf(row)!, /-|\b0\b/, JSON.stringify(usage));
         }
     });
 
-    it("shows only the cache read in an ordinary session whose provider reports no cache writes", () => {
-        const status = createStatus({ usage: { input: 900, output: 40, cacheRead: 187_000, cacheHitRate: 99 } });
+    it("keeps the drawn slots together in an ordinary session whose provider reports no cache writes", () => {
+        const status = createStatus({
+            usage: { input: 900, output: 40, cacheRead: 187_000, cacheHitRate: 99, cost: 0.01 },
+        });
+        const row = renderInfoRow(status, 160, identityTheme);
 
-        const actual = slotsOf(renderInfoRow(status, 160, identityTheme));
+        const actual = statsOf(row);
 
-        assert.deepEqual(actual, ["↑ 900 ↓  40", "R187k", "CH99.0%", " 25k/200k · 12.3%"]);
+        // The blank cache-write slot sits left of every drawn one, inside the gap after the directory.
+        assert.equal(actual, "R187k │ CH 99.0% │ ↑900  ↓40   │ $0.010  │  25k/200k · 12.3%");
+        assert.equal(cellsOf(row, WITHOUT_AUTO).write, "");
     });
 
-    it("draws no slot for data that is absent", () => {
-        const cases: [string, Partial<typeof fullUsage>, string[]][] = [
-            ["tokens", { input: 1500 }, ["↑1.5k", " 25k/200k · 12.3%"]],
-            ["cost", { cost: 0.5 }, [" $0.500", " 25k/200k · 12.3%"]],
-            ["cache and CH", { cacheWrite: 400, cacheHitRate: 0 }, ["W 400", "CH 0.0%", " 25k/200k · 12.3%"]],
+    it("draws nothing in a reserved slot until it has data", () => {
+        const cases: [string, Partial<typeof fullUsage>, SlotName[]][] = [
+            ["tokens", { input: 1500 }, ["tokens", "context"]],
+            ["cost", { cost: 0.5 }, ["cost", "context"]],
+            ["cache writes and CH", { cacheWrite: 400, cacheHitRate: 0 }, ["write", "cacheHit", "context"]],
         ];
 
         for (const [name, usage, expected] of cases) {
-            const row = renderInfoRow(createStatus({ usage }), 160, identityTheme);
-            assert.deepEqual(slotsOf(row), expected, name);
+            const cells = cellsOf(renderInfoRow(createStatus({ usage }), 160, identityTheme), WITHOUT_AUTO);
+
+            const actual = WITHOUT_AUTO.filter((slot) => cells[slot] !== "");
+
+            assert.deepEqual(actual, expected, name);
         }
     });
 
     it("formats token counts like Pi's footer, within four columns, carrying into the next unit", () => {
         const counts: [number, string][] = [
-            [7, "   7"],
-            [999, " 999"],
+            [7, "7"],
+            [999, "999"],
             [1234, "1.2k"],
             [9949, "9.9k"],
-            [9950, " 10k"],
-            [12_345, " 12k"],
+            [9950, "10k"],
+            [12_345, "12k"],
             [999_499, "999k"],
             [999_500, "1.0M"],
             [999_999, "1.0M"],
             [1_500_000, "1.5M"],
-            [12_000_000, " 12M"],
+            [12_000_000, "12M"],
             [999_999_999, "1.0G"],
             [2_500_000_000, "2.5G"],
         ];
 
         for (const [input, expected] of counts) {
-            const row = renderInfoRow(createStatus({ usage: { input } }), 160, identityTheme);
-            assert.equal(slotsOf(row)[0]!.slice(1, 5), expected, `${input} tokens`);
+            const row = renderInfoRow(createStatus({ usage: { input, output: 1 } }), 160, identityTheme);
+            const tokens = cellsOf(row, WITHOUT_AUTO).tokens!;
+
+            assert.equal(tokens.slice(BAR, BAR + 5), `↑${expected}`.padEnd(5), `${input} tokens`);
+            assert.equal(tokens.indexOf("↓"), BAR + 6, `${input} tokens moved the output counter`);
         }
     });
 
@@ -585,24 +609,26 @@ describe("dock info row", () => {
             }
         });
 
-        /** Thresholds follow from the reserved widths alone: 43 for the workspace plus each slot and its join. */
-        function reservedAt(width: number): string[] {
-            if (width >= 117) return ["cache", "cacheHit", "tokens", "cost", "context", "auto"];
-            if (width >= 103) return ["cacheHit", "tokens", "cost", "context", "auto"];
+        /** Thresholds follow from the reserved widths alone: 40 for the workspace plus each slot and its bar. */
+        function reservedAt(width: number): SlotName[] {
+            if (width >= 120) return ALL_SLOTS;
+            if (width >= 112) return ["read", "cacheHit", "tokens", "cost", "context", "auto"];
+            if (width >= 104) return ["cacheHit", "tokens", "cost", "context", "auto"];
             if (width >= 93) return ["tokens", "cost", "context", "auto"];
             if (width >= 79) return ["cost", "context", "auto"];
             if (width >= 69) return ["context", "auto"];
             return ["context"];
         }
 
-        const markers = {
-            cache: "R",
+        const markers: Record<SlotName, string> = {
+            write: "W",
+            read: "R",
             cacheHit: "CH",
             tokens: "↑",
             cost: "$",
             context: "/200k ·",
             auto: "(auto)",
-        } as const;
+        };
         const drawn = (row: string): string[] =>
             Object.entries(markers)
                 .filter(([, marker]) => stripTerminalSequences(row).includes(marker))
@@ -615,7 +641,7 @@ describe("dock info row", () => {
 
                     assert.deepEqual(
                         actual.sort(),
-                        reservedAt(width).sort(),
+                        [...reservedAt(width)].sort(),
                         `${name} at ${width} columns`,
                     );
                 }
@@ -636,45 +662,42 @@ describe("dock info row", () => {
             }
         });
 
-        it("keeps the slots that are already drawn in place when another one gains data", () => {
-            // Slots are ordered tokens, cache, CH, cost, context, (auto); data arriving in that order
-            // right to left keeps every drawn slot flush against the ones to its right.
-            const cost = { cost: 0.1234 };
-            const cache = { cacheRead: 3000, cacheWrite: 400, cacheHitRate: 50 };
+        it("keeps every bar and label in place as data arrives, in whatever order", () => {
             const tokens = { input: 1500, output: 20 };
-            const steps = [
-                { usage: {} },
-                { usage: { ...cost } },
-                { usage: { ...cost, ...cache } },
-                { usage: { ...cost, ...cache, ...tokens } },
-            ];
-            const texts = [" 25k/200k · 12.3%", "(auto)", " $0.123", "R3.0k W 400", "CH50.0%", "↑1.5k ↓  20"];
-            /** Columns between the start of a slot and the right edge. */
-            const fromRight = (row: string, text: string): number | undefined => {
+            const cost = { cost: 0.1234 };
+            const read = { cacheRead: 3000, cacheHitRate: 50 };
+            const write = { cacheWrite: 400 };
+            // A session reports tokens and cost first; cache reads and writes follow when the provider has them.
+            const orders = {
+                session: [{}, { ...tokens, ...cost }, { ...tokens, ...cost, ...read }, { ...tokens, ...cost, ...read, ...write }],
+                reverse: [{}, { ...write }, { ...write, ...read }, { ...write, ...read, ...cost }, { ...write, ...read, ...cost, ...tokens }],
+                outputFirst: [{ output: 20 }, { ...tokens }, { ...tokens, cacheRead: 3000 }, { ...tokens, ...read }],
+            };
+            const labels = ["W", "R", "CH", "↑", "↓", "$", "/200k", "(auto)"];
+            const columnsOf = (row: string) => {
                 const plain = stripTerminalSequences(row);
-                const at = plain.lastIndexOf(text);
-                return at < 0 ? undefined : visibleWidth(plain.slice(at));
+                return Object.fromEntries(
+                    labels.filter((label) => plain.includes(label)).map((label) => [label, plain.indexOf(label)]),
+                );
             };
 
-            for (const width of [160, 120]) {
-                const rows = steps.map(({ usage }) =>
-                    renderInfoRow(createStatus({ ...base, usage }), width, identityTheme),
-                );
+            for (const width of [160, 120, 100]) {
+                for (const [name, steps] of Object.entries(orders)) {
+                    const rows = steps.map((usage) =>
+                        renderInfoRow(createStatus({ ...base, usage }), width, identityTheme),
+                    );
 
-                const appeared = rows.map((row) => texts.filter((t) => fromRight(row, t) !== undefined));
-                assert.deepEqual(
-                    appeared.map((slots) => slots.length),
-                    [2, 3, 5, 6],
-                    "each step adds slots to the left of the existing ones",
-                );
-                for (const row of rows) assert.equal(visibleWidth(row), width);
-                for (let step = 1; step < rows.length; step++) {
-                    for (const text of appeared[step - 1]!) {
-                        assert.equal(
-                            fromRight(rows[step]!, text),
-                            fromRight(rows[step - 1]!, text),
-                            `"${text}" moved at step ${step}, width ${width}`,
-                        );
+                    for (let step = 1; step < rows.length; step++) {
+                        const before = rows[step - 1]!;
+                        const after = rows[step]!;
+                        const where = `${name} step ${step} at ${width} columns`;
+                        assert.equal(visibleWidth(after), width, where);
+                        for (const column of separatorColumns(before)) {
+                            assert.ok(separatorColumns(after).includes(column), `bar at ${column} moved, ${where}`);
+                        }
+                        for (const [label, column] of Object.entries(columnsOf(before))) {
+                            assert.equal(columnsOf(after)[label], column, `"${label}" moved, ${where}`);
+                        }
                     }
                 }
             }
@@ -697,21 +720,22 @@ describe("dock info row", () => {
             }
         });
 
-        it("keeps the right block where it is when only the context share changes", () => {
+        it("keeps the slash and the dot of the context slot in place when only the share changes", () => {
             const at = (percent: number | null) =>
-                slotsOf(
+                cellsOf(
                     renderInfoRow(
                         createStatus({ context: { tokens: 25_000, percent, window: 256_000 } }),
                         160,
                         identityTheme,
                     ),
-                ).at(-1);
+                    WITHOUT_AUTO,
+                ).context;
 
             assert.deepEqual([at(9.9), at(12.3), at(100), at(null)], [
-                " 25k/256k ·  9.9%",
-                " 25k/256k · 12.3%",
-                " 25k/256k ·  100%",
-                " 25k/256k ·     ?",
+                " │  25k/256k · 9.9%",
+                " │  25k/256k · 12.3%",
+                " │  25k/256k · 100%",
+                " │  25k/256k · ?",
             ]);
         });
     });
@@ -721,14 +745,15 @@ describe("dock info row", () => {
             usage: { ...fullUsage },
             autoCompact: true,
         });
-        const markers = {
-            cache: "R3.0k",
-            cacheHit: "CH50.0%",
+        const markers: Record<SlotName, string> = {
+            write: "W400",
+            read: "R3.0k",
+            cacheHit: "CH 50.0%",
             tokens: "↑1.5k",
             cost: "$0.123",
             auto: "(auto)",
             context: " 25k/200k · 12.3%",
-        } as const;
+        };
 
         function present(width: number, subject = status): string[] {
             const stats = statsOf(renderInfoRow(subject, width, identityTheme)) ?? "";
@@ -738,22 +763,21 @@ describe("dock info row", () => {
         }
 
         it("keeps every slot once the workspace reserve and all reserved widths fit", () => {
-            const needed =
-                WORKSPACE_RESERVE +
-                blockWidth("tokens", "cache", "cacheHit", "cost", "context", "auto");
+            const needed = WORKSPACE_RESERVE + blockWidth(...ALL_SLOTS);
 
-            assert.equal(needed, 117);
+            assert.equal(needed, 120);
             assert.deepEqual(present(needed).sort(), Object.keys(markers).sort());
         });
 
-        it("drops cache, then CH, then tokens, then cost, then (auto) as the width shrinks", () => {
-            const survivors = [
-                ["tokens", "cacheHit", "cost", "context", "auto"],
+        it("drops cache writes, then reads, then CH, then tokens, then cost, then (auto) as the width shrinks", () => {
+            const survivors: SlotName[][] = [
+                ["read", "cacheHit", "tokens", "cost", "context", "auto"],
+                ["cacheHit", "tokens", "cost", "context", "auto"],
                 ["tokens", "cost", "context", "auto"],
                 ["cost", "context", "auto"],
                 ["context", "auto"],
                 ["context"],
-            ] as const;
+            ];
 
             for (const remaining of survivors) {
                 const width = WORKSPACE_RESERVE + blockWidth(...remaining);
@@ -763,9 +787,10 @@ describe("dock info row", () => {
         });
 
         it("keeps a slot at the exact width where it fits and drops it one column earlier", () => {
-            const thresholds: [keyof typeof markers, number][] = [
-                ["cache", WORKSPACE_RESERVE + blockWidth("tokens", "cache", "cacheHit", "cost", "context", "auto")],
-                ["cacheHit", WORKSPACE_RESERVE + blockWidth("tokens", "cacheHit", "cost", "context", "auto")],
+            const thresholds: [SlotName, number][] = [
+                ["write", WORKSPACE_RESERVE + blockWidth(...ALL_SLOTS)],
+                ["read", WORKSPACE_RESERVE + blockWidth("read", "cacheHit", "tokens", "cost", "context", "auto")],
+                ["cacheHit", WORKSPACE_RESERVE + blockWidth("cacheHit", "tokens", "cost", "context", "auto")],
                 ["tokens", WORKSPACE_RESERVE + blockWidth("tokens", "cost", "context", "auto")],
                 ["cost", WORKSPACE_RESERVE + blockWidth("cost", "context", "auto")],
                 ["auto", WORKSPACE_RESERVE + blockWidth("context", "auto")],
@@ -773,7 +798,7 @@ describe("dock info row", () => {
 
             assert.deepEqual(
                 thresholds.map(([, width]) => width),
-                [117, 103, 93, 79, 69],
+                [120, 112, 104, 93, 79, 69],
             );
             for (const [name, width] of thresholds) {
                 assert.ok(present(width).includes(name), `${name} at ${width}`);
@@ -792,14 +817,11 @@ describe("dock info row", () => {
 
         it("does not reserve room for (auto) when auto-compaction is off", () => {
             const without = createStatus({ usage: { ...fullUsage } });
-            const needed = WORKSPACE_RESERVE + blockWidth("tokens", "cache", "cacheHit", "cost", "context");
+            const needed = WORKSPACE_RESERVE + blockWidth(...WITHOUT_AUTO);
 
-            assert.equal(needed, 108);
-            assert.deepEqual(
-                present(needed, without).sort(),
-                ["cache", "cacheHit", "tokens", "cost", "context"].sort(),
-            );
-            assert.ok(!present(needed - 1, without).includes("cache"));
+            assert.equal(needed, 111);
+            assert.deepEqual(present(needed, without).sort(), [...WITHOUT_AUTO].sort());
+            assert.ok(!present(needed - 1, without).includes("write"));
         });
 
         it("shows no tokens slot at 80 columns however large the counts, and only context and (auto) for zeros", () => {
@@ -930,32 +952,48 @@ describe("dock extension status row", () => {
 describe("dock info row parts", () => {
     const usage = { input: 1500, output: 20, cost: 0.5 };
 
-    it("draws the statistics alone, right-aligned and without a leading bar", () => {
+    it("draws the statistics alone, against the right edge and without a leading bar", () => {
         const status = createStatus({ usage });
 
         const row = renderInfoRow(status, 70, identityTheme, { workspace: false, usage: true });
 
         assert.equal(
             stripTerminalSequences(row).trim(),
-            "↑1.5k ↓  20 │  $0.500 │  25k/200k · 12.3%",
+            "↑1.5k ↓20   │ $0.500  │  25k/200k · 12.3%",
         );
         assert.equal(visibleWidth(row), 70);
         assert.match(stripTerminalSequences(row), /^ +↑/, "the row starts with padding, not a separator");
     });
 
+    it("draws the bar of the leftmost slot once a slot further left gains data", () => {
+        const parts = { workspace: false, usage: true };
+        const before = renderInfoRow(createStatus({ usage }), 80, identityTheme, parts);
+        const after = renderInfoRow(
+            createStatus({ usage: { ...usage, cacheRead: 3000 } }),
+            80,
+            identityTheme,
+            parts,
+        );
+
+        const expected = stripTerminalSequences(before).replace(/ {3}↑/, " │ ↑");
+        const actual = stripTerminalSequences(after).replace(/R3\.0k/, "     ");
+
+        assert.equal(actual, expected);
+    });
+
     it("gives the statistics the whole width when the directory is hidden", () => {
         const cached = { ...usage, cacheRead: 3000, cacheWrite: 400, cacheHitRate: 50 };
         const status = createStatus({ usage: cached, autoCompact: true });
-        const all = blockWidth("tokens", "cache", "cacheHit", "cost", "context", "auto");
+        const all = blockWidth(...ALL_SLOTS);
         const parts = { workspace: false, usage: true };
 
         const fits = stripTerminalSequences(renderInfoRow(status, all, identityTheme, parts));
         const oneShort = stripTerminalSequences(renderInfoRow(status, all - 1, identityTheme, parts));
 
-        assert.equal(all, 74);
-        assert.match(fits, /^↑.*R.*CH.*\(auto\)$/);
-        assert.doesNotMatch(oneShort, /R {3}- W/, "the cache slot goes first");
-        assert.match(oneShort, /CH/);
+        assert.equal(all, 80);
+        assert.match(fits, /^ {3}W400 .*R3\.0k.*CH.*\(auto\)$/);
+        assert.doesNotMatch(oneShort, /W400/, "the cache-write slot goes first");
+        assert.match(oneShort, /^ +R3\.0k │ CH/);
     });
 
     it("draws the directory and branch alone", () => {
@@ -1020,36 +1058,36 @@ describe("dock context cell", () => {
     it("shows used tokens, the window and the share, in that order", () => {
         const actual = cell(25_000, 9.8);
 
-        assert.equal(actual, " 25k/256k ·  9.8%");
+        assert.equal(actual, " 25k/256k · 9.8% ");
         assert.ok(actual.indexOf("25k") < actual.indexOf("256k") && actual.indexOf("256k") < actual.indexOf("9.8%"));
     });
 
-    it("right-aligns the share in a field of fixed width", () => {
+    it("right-aligns the used tokens, so the slash and the share keep their columns", () => {
         assert.deepEqual([cell(0, 0), cell(25_000, 9.9), cell(88_000, 34.34), cell(179_200, 70)], [
-            "   0/256k ·  0.0%",
-            " 25k/256k ·  9.9%",
+            "   0/256k · 0.0% ",
+            " 25k/256k · 9.9% ",
             " 88k/256k · 34.3%",
             "179k/256k · 70.0%",
         ]);
     });
 
     it("separates the window from the share with a middle dot", () => {
-        assert.match(cell(25_000, 9.8), /256k · +9\.8%$/);
+        assert.match(cell(25_000, 9.8), /256k · 9\.8% *$/);
     });
 
     it("shows a whole percentage from 99.95 so 100% costs no extra column", () => {
         assert.deepEqual([cell(255_800, 99.94), cell(255_900, 99.95), cell(256_000, 100)], [
             "256k/256k · 99.9%",
-            "256k/256k ·  100%",
-            "256k/256k ·  100%",
+            "256k/256k · 100% ",
+            "256k/256k · 100% ",
         ]);
     });
 
     it("shows unknown tokens and an unknown share as question marks in their own fields", () => {
         assert.deepEqual([cell(null, 12.3), cell(25_000, null), cell(null, null, 1_000_000)], [
             "   ?/256k · 12.3%",
-            " 25k/256k ·     ?",
-            "   ?/1.0M ·     ?",
+            " 25k/256k · ?    ",
+            "   ?/1.0M · ?    ",
         ]);
     });
 
