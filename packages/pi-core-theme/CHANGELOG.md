@@ -117,3 +117,6 @@ All notable changes are documented here using
   and a collapsed group added a blank output row for each running call, then removed the
   rows when the calls finished. In fullscreen this moved the whole transcript up and back
   down on most turns with parallel calls. Groups now skip empty output, as standalone cards do.
+- **Underline on every copy of a path.** Pointing at a link underlined every link with the
+  same target, so the same path in a tool call or a user message was underlined too. Now only
+  the link under the pointer is underlined, with all rows of a link that wraps.
