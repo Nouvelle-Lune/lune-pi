@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { config } from "../config/config.ts";
 import { HoverState, installHoverTracking } from "../ui/hover.ts";
+import { installLinkHover } from "../ui/link-hover.ts";
 import { createOutputBrowser } from "../ui/output-panel.ts";
 import { ExpansionState } from "../ui/expansion.ts";
 import {
@@ -178,7 +179,12 @@ export function createThemeRendererHost(
                 if (tui !== next) {
                     stopHoverTracking();
                     tui = next;
-                    stopHoverTracking = installHoverTracking(host, hover, repaint);
+                    const stopHover = installHoverTracking(host, hover, repaint);
+                    const stopLinkHover = installLinkHover(host, repaint);
+                    stopHoverTracking = () => {
+                        stopLinkHover();
+                        stopHover();
+                    };
                 }
                 syncMouse();
                 return {
