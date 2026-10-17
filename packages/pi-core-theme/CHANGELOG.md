@@ -38,6 +38,11 @@ All notable changes are documented here using
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
+- **Cmd+click paths and links.** When the terminal supports OSC 8 links, existing file
+  paths in messages, path-tool headings and tool output become `file://` links, and URLs in
+  tool output become links. Markdown links to local paths, such as `cards.ts:42`, also get
+  `file://` targets, so Cmd+click opens them. Terminals without OSC 8 support show the same
+  text as before.
 
 ### Changed
 

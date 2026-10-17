@@ -19,12 +19,13 @@ import {
     richDiffSummary,
     type WriteExecutionMetadataStore,
 } from "./tool/diff/index.ts";
-import { toolSummary, singleLine } from "./tool/summary.ts";
+import { toolHref, toolSummary, singleLine } from "./tool/summary.ts";
 import { renderToolLine } from "./tool/presentation.ts";
 import {
     animationFrame,
     callStatus,
     nestedCalls,
+    nestedHref,
     nestedSummary,
     type CallStatus,
     type NestedCall,
@@ -269,6 +270,7 @@ class ToolCard implements Component {
                         {
                             name: call.name,
                             summary: nestedSummary(call, this.context.cwd),
+                            href: nestedHref(call, this.context.cwd),
                             status: call.status,
                             durationMs: call.durationMs,
                             detail: this.callDetail(call, open),
@@ -286,6 +288,7 @@ class ToolCard implements Component {
                     Math.max(1, width - NESTED_INDENT.length),
                     config.previewLines,
                     call.status === "running",
+                    this.context.cwd,
                 );
                 lines.push(
                     ...preview.lines.map(
@@ -499,6 +502,7 @@ class ToolCard implements Component {
                     Math.max(1, width - 3),
                     config.previewLines,
                     true,
+                    context.cwd,
                 );
                 rows.push(
                     ...preview.lines.map((row) =>
@@ -545,6 +549,7 @@ class ToolCard implements Component {
                 Math.max(1, width - 3),
                 config.expandedOutputMaxLines,
                 context.isPartial,
+                context.cwd,
             );
             lines.push(
                 ...preview.lines.map((row) =>
@@ -638,6 +643,7 @@ class ToolCard implements Component {
         const line = renderToolLine(theme, (open ? inner : width - 1) - reserve, {
             name: this.name,
             summary: toolSummary(this.name, context.args, context.cwd),
+            href: toolHref(this.name, context.args, context.cwd),
             status,
             durationMs: durationMs(context),
             detail: this.detail(status),

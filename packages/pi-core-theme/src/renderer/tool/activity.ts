@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { config } from "../../config/config.ts";
 import { resultText } from "./output.ts";
-import { singleLine, toolSummary } from "./summary.ts";
+import { singleLine, toolHref, toolSummary } from "./summary.ts";
 
 type ToolResult = Parameters<NonNullable<ToolRenderers["renderResult"]>>[0];
 
@@ -173,16 +173,24 @@ export function nestedCalls(
     });
 }
 
-export function nestedSummary(call: NestedCall, cwd: string) {
+function nestedArgs(call: NestedCall): Record<string, unknown> | undefined {
     let args = call.args;
     if (typeof args === "string") {
         try {
             args = JSON.parse(args);
         } catch {
-            return singleLine(args);
+            return undefined;
         }
     }
     return args && typeof args === "object" && !Array.isArray(args)
-        ? toolSummary(call.name, args as Record<string, unknown>, cwd)
-        : singleLine(call.args);
+        ? (args as Record<string, unknown>)
+        : undefined;
+}
+export function nestedSummary(call: NestedCall, cwd: string) {
+    const args = nestedArgs(call);
+    return args ? toolSummary(call.name, args, cwd) : singleLine(call.args);
+}
+export function nestedHref(call: NestedCall, cwd: string) {
+    const args = nestedArgs(call);
+    return args && toolHref(call.name, args, cwd);
 }

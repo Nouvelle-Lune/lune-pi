@@ -18,7 +18,7 @@ import type { HoverState } from "../ui/hover.ts";
 import type { ExpansionState } from "../ui/expansion.ts";
 import { animationFrame, callStatus } from "./tool/activity.ts";
 import { renderToolLine } from "./tool/presentation.ts";
-import { toolSummary } from "./tool/summary.ts";
+import { toolHref, toolSummary } from "./tool/summary.ts";
 import { richDiffSummary } from "./tool/diff/index.ts";
 import { outputPreview, resultText } from "./tool/output.ts";
 import { branch } from "../ui/style.ts";
@@ -377,6 +377,7 @@ export function installTranscriptGroups(
                             {
                                 name: item.toolName,
                                 summary: toolSummary(item.toolName, item.args, context.cwd),
+                                href: toolHref(item.toolName, item.args, context.cwd),
                                 status: statuses[start + index]!,
                                 durationMs: item.result?.durationMs,
                                 detail: diff,
@@ -393,6 +394,7 @@ export function installTranscriptGroups(
                         Math.max(1, width - 7),
                         config.previewLines,
                         true,
+                        context.cwd,
                     );
                     lines.push(
                         ...preview.lines.map((row) =>
