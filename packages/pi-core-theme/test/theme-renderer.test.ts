@@ -1502,6 +1502,57 @@ for (const mode of ["on", "compact"] as const) {
     });
 }
 
+// Compact mode wraps a single tool in a group, so standalone failures are checked in on mode only.
+test(`on failed standalone collapsed card carries the error on its heading without growing`, (t) => {
+    const runtime = fixture(t, "on");
+    const partial = {
+        content: [{ type: "text" as const, text: "building..." }],
+        details: undefined,
+    };
+    const card = runtime.add("bash", { command: "npm test" }, partial, true, true);
+    const target = runtime.target(card);
+    const runningRows = target.render(120).length;
+    card.updateResult({
+        content: [{ type: "text", text: "Error: boom\nmore detail" }],
+        details: undefined,
+        isError: true,
+    });
+    const failed = lines(target);
+    assert.equal(failed.length, runningRows, "Failing must not add a row");
+    const errorRows = failed.filter((row) => row.includes("Error: boom"));
+    assert.equal(errorRows.length, 1, "Error text appears on exactly one row");
+    assert.match(errorRows[0]!, /npm test/);
+    assert.match(errorRows[0]!, /failed/);
+    clickDisclosure(target);
+    const expanded = lines(target);
+    assert.ok(
+        expanded.some((row) => /^│?\s*Error: boom\s*│?$/.test(row)),
+        "Body shows first line",
+    );
+    assert.ok(
+        expanded.some((row) => /^│?\s*more detail\s*│?$/.test(row)),
+        "Body shows full output",
+    );
+    assert.doesNotMatch(expanded.find((row) => row.includes("failed")) ?? "", /Error: boom/);
+});
+
+test(`on failed collapsed card clips a very long error so the command stays visible`, (t) => {
+    const runtime = fixture(t, "on");
+    const partial = { content: [], details: undefined };
+    const card = runtime.add("bash", { command: "npm run lint" }, partial, true, true);
+    const target = runtime.target(card);
+    card.updateResult({
+        content: [{ type: "text", text: `Error: ${"x".repeat(400)}` }],
+        details: undefined,
+        isError: true,
+    });
+    const heading = lines(target).find((row) => row.includes("failed"));
+    assert.ok(heading, "Heading row exists");
+    assert.match(heading, /npm run lint/);
+    assert.match(heading, /…/);
+    assert.doesNotMatch(heading, /x{200}/);
+});
+
 for (const name of ["codemode", "multi_tool_use.parallel"]) {
     test(`${name} nested partial events repaint output and expose all hidden lines`, async (t) => {
         const runtime = fixture(t, "compact");

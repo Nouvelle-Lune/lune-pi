@@ -498,14 +498,6 @@ class ToolCard implements Component {
                         .render(Math.max(1, width - 3))
                         .map((row) => truncateToWidth(`   ${row}`, width, "")),
                 );
-            if (!rich && !this.composite && context.isError && output.trim())
-                rows.push(
-                    truncateToWidth(
-                        `   ${theme.fg("error", singleLine(output.slice(0, 512)))}`,
-                        width,
-                        "…",
-                    ),
-                );
             if (!grouped) this.addControls(rows, width, false);
             return rows;
         }
@@ -634,7 +626,7 @@ class ToolCard implements Component {
             href: toolHref(this.name, context.args, context.cwd),
             status,
             durationMs: durationMs(context),
-            detail: this.detail(status),
+            detail: this.detail(status, open, width),
         });
         if (open) return framedRow(theme, line, width);
         if (!hint) return truncateToWidth(` ${line}`, width, "");
@@ -654,8 +646,19 @@ class ToolCard implements Component {
         );
     }
     /** Settled results summarize on the heading so collapsed cards stay one row. */
-    private detail(status: CallStatus): string | undefined {
+    private detail(status: CallStatus, open: boolean, width: number): string | undefined {
         const current = state(this.context);
+        if (status === "failed") {
+            // Expanded cards show the whole output under the heading; a third of the row
+            // leaves room for the command.
+            const error = open ? "" : singleLine((current.output ?? "").slice(0, 512));
+            return error
+                ? this.theme.fg(
+                      "error",
+                      truncateToWidth(error, Math.max(8, Math.floor(width / 3)), "…"),
+                  )
+                : undefined;
+        }
         if (status !== "done" || !current.result) return undefined;
         const diff = richDiffSummary(
             this.theme,
