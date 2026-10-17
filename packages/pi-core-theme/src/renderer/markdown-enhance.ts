@@ -1,5 +1,6 @@
 import type { ExtensionAPI, MarkdownTransformer } from "@earendil-works/pi-coding-agent";
 import { render as renderMermaid, sourceBox } from "grok-mermaid";
+import { fileHref, hyperlinksEnabled, replaceLinks } from "../utils/links.ts";
 
 const diagrams = new Map<string, ReturnType<typeof renderMermaid> | undefined>();
 const MAX_DIAGRAMS = 48;
@@ -20,31 +21,35 @@ const admonitions: Record<string, string> = {
     CAUTION: "!",
 };
 const protectedInline = /(`+).*?\1|!?\[[^\]]*\]\([^\n]*?\)|<https?:\/\/[^>]+>/g;
-const urlPattern = /https?:\/\/[^\s<>"'`|，。；：！？、」』】（）【】《》『』「」]+/g;
-function trimUrl(value: string) {
-    let url = value.replace(/[.,;:!?}"']+$/, "");
-    for (const [open, close] of [
-        ["(", ")"],
-        ["[", "]"],
-    ] as const) {
-        while (url.endsWith(close) && url.split(close).length > url.split(open).length)
-            url = url.slice(0, -1);
+const linkTarget = (text: string, href: string) =>
+    href.startsWith("file:") ? `[${text}](<${href}>)` : `[${text}](${href})`;
+/**
+ * Code and existing links keep their text. With OSC 8 links, a code span that names an existing
+ * path becomes its link text, and a link to a local path gets a file URL that terminals can open.
+ */
+function linkProtected(segment: string, cwd: string | undefined): string {
+    if (cwd === undefined) return segment;
+    const code = /^(`+)(.*?)\1$/.exec(segment)?.[2]?.trim();
+    if (code !== undefined) {
+        // Only code with a slash or a file extension costs a file-system check.
+        const href = /\/|\.[A-Za-z\d]+(?::[\d:-]+|#.*)?$/.test(code) && fileHref(code, cwd);
+        return href ? `[${segment}](<${href}>)` : segment;
     }
-    return url;
+    const link = /^(\[[^\]]*\]\()<?([^\s<>()]+)>?((?:\s[^)]*)?\))$/.exec(segment);
+    // `name:<digits>` is a path location such as `README.md:12`, not a URL scheme.
+    if (!link || /^[a-z][a-z\d+.-]*:(?!\d)/i.test(link[2]!)) return segment;
+    const href = fileHref(link[2]!, cwd);
+    return href ? `${link[1]}<${href}>${link[3]}` : segment;
 }
-function prose(value: string): string {
+function prose(value: string, cwd: string | undefined): string {
     const convert = (text: string) => {
         text = text.replace(/[①-⑳]/g, (character) => `(${character.codePointAt(0)! - 0x2460 + 1})`);
-        text = text.replace(urlPattern, (value) => {
-            const url = trimUrl(value);
-            return url ? `[${url}](${url})${value.slice(url.length)}` : value;
-        });
-        return text;
+        return replaceLinks(text, cwd, linkTarget);
     };
     let start = 0;
     const parts: string[] = [];
     for (const match of value.matchAll(protectedInline)) {
-        parts.push(convert(value.slice(start, match.index)), match[0]);
+        parts.push(convert(value.slice(start, match.index)), linkProtected(match[0], cwd));
         start = match.index + match[0].length;
     }
     parts.push(convert(value.slice(start)));
@@ -82,6 +87,8 @@ export function clearMarkdownCache() {
 /** Code, existing links and streaming-incomplete structures must never be rewritten as prose. */
 export const transformMarkdown: MarkdownTransformer = (markdown, context) => {
     if (context.messageType === "assistant-thinking") return markdown;
+    // Paths resolve from Pi's working directory, like its native tools.
+    const cwd = hyperlinksEnabled() ? process.cwd() : undefined;
     const lines = markdown.split("\n");
     const output: string[] = [];
     for (let index = 0; index < lines.length; index++) {
@@ -118,9 +125,9 @@ export const transformMarkdown: MarkdownTransformer = (markdown, context) => {
         if (alert) {
             const name = alert[1]!.toUpperCase();
             output.push(
-                `> **${admonitions[name]} ${name}**${alert[2] ? ` ${prose(alert[2])}` : ""}`,
+                `> **${admonitions[name]} ${name}**${alert[2] ? ` ${prose(alert[2], cwd)}` : ""}`,
             );
-        } else output.push(prose(line));
+        } else output.push(prose(line, cwd));
     }
     return output.join("\n");
 };

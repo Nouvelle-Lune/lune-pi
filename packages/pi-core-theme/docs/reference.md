@@ -72,7 +72,14 @@ The same **Theme** tab configures:
 The following are enabled automatically with Core theme and have no separate settings:
 
 - **Markdown:** additional Mermaid dialect fences, GitHub admonitions, clickable bare
-  URLs and terminal-safe numbering. Code and existing links are left intact.
+  URLs and terminal-safe numbering. Code and existing links keep their text.
+- **Links:** when Pi detects OSC 8 link support (for example in Ghostty, iTerm2,
+  WezTerm or Kitty, or with `PI_HYPERLINKS=1`), existing file paths in messages, path-tool
+  headings and tool output become `file://` links, and URLs in tool output become links.
+  This includes inline code such as `src/index.ts:12` and Markdown links to local paths.
+  Relative paths resolve from Pi's working directory. A `:line` or `#anchor` suffix stays
+  in the text, but the link opens the file itself. Text that is not an existing path or
+  a URL does not change. In fullscreen mode, Pi opens a link on a plain click.
 - **Context:** `/context` shows Pi context usage separately from estimated category
   sizes, with browsable System prompt, Memory, Skills, Tool definitions, Tool results
   and Messages categories. A persistent usage meter, category token counts and an

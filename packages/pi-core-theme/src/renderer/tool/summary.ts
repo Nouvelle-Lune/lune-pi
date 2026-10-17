@@ -1,5 +1,6 @@
 import { posix, win32 } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { fileHref, hyperlinksEnabled } from "../../utils/links.ts";
 
 export function singleLine(value: unknown): string {
     return typeof value === "string"
@@ -220,6 +221,17 @@ export function toolSummary(name: string, args: Record<string, unknown>, cwd?: s
         if (typeof value === "string" && value) return singleLine(value);
     }
     return "";
+}
+/** The file URL for a summary that shows only a path; a search pattern keeps the summary unlinked. */
+export function toolHref(
+    name: string,
+    args: Record<string, unknown>,
+    cwd?: string,
+): string | undefined {
+    if (name === "codemode" || typeof args.command === "string" || singleLine(args.pattern))
+        return undefined;
+    const path = singleLine(args.path ?? args.file_path);
+    return path && cwd && hyperlinksEnabled() ? fileHref(path, cwd) : undefined;
 }
 export function fitSummary(value: string, width: number, limit: number): string {
     return clip(value, Math.max(0, limit > 0 ? Math.min(width, limit) : width));

@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { hyperlink, visibleWidth } from "@earendil-works/pi-tui";
 import { config } from "../../config/config.ts";
 import { meta, SEPARATOR, statusLabel, statusMark } from "../../ui/style.ts";
 import type { CallStatus } from "./activity.ts";
@@ -25,6 +25,8 @@ export function renderToolLine(
         status: CallStatus;
         durationMs?: number;
         detail?: string;
+        /** Links the summary after clipping, which would otherwise cut the OSC 8 sequence. */
+        href?: string;
     },
     prefix = "",
 ): string {
@@ -37,7 +39,8 @@ export function renderToolLine(
     const tailWidth = tail ? visibleWidth(SEPARATOR) + visibleWidth(tail) : 0;
     const room = Math.max(0, width - visibleWidth(title) - tailWidth - 2);
     const summary = fitSummary(call.summary, room, config.toolLabelClip || 80);
-    const head = summary ? `${title}  ${theme.fg("muted", summary)}` : title;
+    const text = theme.fg("muted", summary);
+    const head = summary ? `${title}  ${call.href ? hyperlink(text, call.href) : text}` : title;
     return tail ? `${head}${theme.fg("dim", SEPARATOR)}${tail}` : head;
 }
 

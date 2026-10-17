@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { sanitizeToolResultText } from "../../utils/tool-result-sanitize.ts";
+import { linkText } from "../../utils/links.ts";
 import type { ToolRenderers } from "@earendil-works/pi-coding-agent";
 
 type ToolResult = Parameters<NonNullable<ToolRenderers["renderResult"]>>[0];
@@ -10,10 +11,21 @@ export function resultText(result: ToolResult): string {
         .map((block) => block.text)
         .join("\n");
 }
-export function outputPreview(text: string, width: number, limit: number, running = false) {
+// Links are added after sanitizing, which strips every escape, and before wrapping, which
+// carries an open link onto the next row.
+export function outputPreview(
+    text: string,
+    width: number,
+    limit: number,
+    running: boolean,
+    cwd: string,
+) {
     const budget = Math.min(64_000, Math.max(1024, Math.max(1, width) * limit * 4));
     const source = running ? text.slice(-budget) : text.slice(0, budget);
-    const rows = wrapTextWithAnsi(sanitizeToolResultText(source), Math.max(1, width));
+    const rows = wrapTextWithAnsi(
+        linkText(sanitizeToolResultText(source), cwd),
+        Math.max(1, width),
+    );
     return {
         lines: limit <= 0 ? [] : running ? rows.slice(-limit) : rows.slice(0, limit),
         hidden: text.length > source.length || rows.length > limit,

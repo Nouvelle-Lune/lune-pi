@@ -32,6 +32,7 @@ Open `/lune-core-settings core-theme` and turn **Core theme** on in the **Theme*
 - **Follows work as it happens.** Tool groups show their latest calls, partial output follows the newest lines, and thinking updates without keeping everything expanded.
 - **Opens longer output when you need it.** Fullscreen interactions let you expand cards and open hidden output in a separate browser with scrolling and copy controls.
 - **Adds detail to the conversation.** Markdown gains additional Mermaid dialects, GitHub admonitions and clickable bare URLs. `/context` browses the prompt, memory, skills, tools and messages behind the session.
+- **Opens paths and links with Cmd+click.** URLs and existing file paths in messages, tool headings and tool output become terminal links. Files and directories open in their default app. Terminals without OSC 8 link support show the same text as before.
 
 ## Rich diffs
 
