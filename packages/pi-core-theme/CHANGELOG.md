@@ -116,9 +116,9 @@ All notable changes are documented here using
 - **Screen jumps while tools run.** Collapsed cards and tool groups showed live output under
   running calls, then removed it when the calls finished, so in fullscreen the whole
   transcript moved up and back down. Collapsed call lists with more than five calls also
-  jumped from their newest calls back to the first ones when they finished. Collapsed cards
-  now keep one row per call and call lists keep their newest calls; expand a card to follow
-  its output.
+  jumped from their newest calls back to the first ones when they finished, and a failed
+  card added an error row. Collapsed cards now keep one row per call, show a failure on the
+  heading, and call lists keep their newest calls; expand a card to follow its output.
 - **Underline on every copy of a path.** Pointing at a link underlined every link with the
   same target, so the same path in a tool call or a user message was underlined too. Now only
   the link under the pointer is underlined, with all rows of a link that wraps.
