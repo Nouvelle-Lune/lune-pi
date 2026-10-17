@@ -41,8 +41,8 @@ All notable changes are documented here using
 - **Cmd+click paths and links.** When the terminal supports OSC 8 links, existing file
   paths in messages, path-tool headings and tool output become `file://` links, and URLs in
   tool output become links. Markdown links to local paths, such as `cards.ts:42`, also get
-  `file://` targets, so Cmd+click opens them. Terminals without OSC 8 support show the same
-  text as before.
+  `file://` targets, so Cmd+click opens them. Links have no underline until the pointer is
+  on them. Terminals without OSC 8 support show the same text as before.
 
 ### Changed
 

@@ -40,21 +40,35 @@ export class HoverState {
     }
 }
 
+/** Wraps one method of a TUI instance; the undo leaves a newer wrapper in place. */
+export function patchMethod<F extends (...args: never[]) => unknown>(
+    host: object,
+    name: string,
+    wrap: (original: F) => F,
+) {
+    const target = host as Record<string, unknown>;
+    const original = target[name];
+    if (typeof original !== "function") return () => {};
+    const owned = Object.hasOwn(target, name);
+    const patched = wrap(original as F);
+    target[name] = patched;
+    return () => {
+        if (target[name] !== patched) return;
+        if (owned) target[name] = original;
+        else delete target[name];
+    };
+}
+
 /** Fullscreen consumes motion before extension listeners; observe its session instance before native dispatch. */
 export function installHoverTracking(tui: object, hover: HoverState, repaint: () => void) {
-    const host = tui as { handleViewportInput?: (data: string) => unknown };
-    const original = host.handleViewportInput;
-    if (typeof original !== "function") return () => {};
-    const owned = Object.hasOwn(host, "handleViewportInput");
-    const handler = function (this: typeof host, data: string) {
-        const mouse = /^\x1b\[<(\d+);\d+;\d+M$/.exec(data);
-        if (mouse && (Number(mouse[1]) & 32) !== 0) hover.beginMove(repaint);
-        return original.call(this, data);
-    };
-    host.handleViewportInput = handler;
-    return () => {
-        if (host.handleViewportInput !== handler) return;
-        if (owned) host.handleViewportInput = original;
-        else delete host.handleViewportInput;
-    };
+    return patchMethod<(data: string) => unknown>(
+        tui,
+        "handleViewportInput",
+        (original) =>
+            function (this: unknown, data) {
+                const mouse = /^\x1b\[<(\d+);\d+;\d+M$/.exec(data);
+                if (mouse && (Number(mouse[1]) & 32) !== 0) hover.beginMove(repaint);
+                return original.call(this, data);
+            },
+    );
 }

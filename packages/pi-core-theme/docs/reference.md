@@ -80,6 +80,9 @@ The following are enabled automatically with Core theme and have no separate set
   Relative paths resolve from Pi's working directory. A `:line` or `#anchor` suffix stays
   in the text, but the link opens the file itself. Text that is not an existing path or
   a URL does not change. In fullscreen mode, Pi opens a link on a plain click.
+  Links have no underline. In fullscreen mode with mouse tracking on, the link under the
+  pointer is underlined. In other modes, the terminal shows its own hover, for example
+  while Cmd is held in Ghostty.
 - **Context:** `/context` shows Pi context usage separately from estimated category
   sizes, with browsable System prompt, Memory, Skills, Tool definitions, Tool results
   and Messages categories. A persistent usage meter, category token counts and an
