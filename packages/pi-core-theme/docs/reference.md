@@ -53,8 +53,9 @@ The same **Theme** tab configures:
   collapsed, it adds one row per nested call as calls arrive. It merges live call events
   with partial results and keeps nested edit/write calls as summaries. Nested tool
   progress updates repaint immediately; expanded call ledgers show bounded child
-  output previews and link hidden lines to the full-output browser. Partial output
-  follows the latest lines in standalone and grouped tools. Thinking's run assembly,
+  output previews and link hidden lines to the full-output browser. Expanded cards and
+  groups follow the latest lines of partial output; collapsed ones add no output rows, and
+  their call lists keep the newest calls, so finishing a call does not move the transcript. Thinking's run assembly,
   plain-text preview and latest summary-stage selection work as follows:
   streaming text takes precedence over stale OpenAI signatures, while completed
   signatures select the final compact summary. Collapsed thinking follows the latest

@@ -20,10 +20,8 @@ import { animationFrame, callStatus } from "./tool/activity.ts";
 import { renderToolLine } from "./tool/presentation.ts";
 import { toolHref, toolSummary } from "./tool/summary.ts";
 import { richDiffSummary } from "./tool/diff/index.ts";
-import { outputPreview, resultText } from "./tool/output.ts";
 import { branch } from "../ui/style.ts";
 import { stripTerminalSequencesPreservingLayout } from "../utils/ansi-text.ts";
-import { sanitizeToolResultText } from "../utils/tool-result-sanitize.ts";
 
 // Expanded group children sit after three spaces and their tree branch.
 const CHILD_INDENT = 4;
@@ -366,6 +364,8 @@ export function installTranscriptGroups(
                     );
                     continue;
                 }
+                // A collapsed call is one row without live output: rows that grow while a tool
+                // runs and go when it settles move the bottom-pinned transcript twice.
                 const diff =
                     !item.isPartial && !item.result?.isError
                         ? richDiffSummary(palette, item.toolName, item.args, item.result?.details)
@@ -389,26 +389,6 @@ export function installTranscriptGroups(
                         "…",
                     ),
                 );
-                // Bash reports an empty partial result as it starts; a blank row here would grow
-                // the group and shrink it moments later, shifting the bottom-pinned transcript.
-                const output =
-                    item.isPartial && item.result
-                        ? sanitizeToolResultText(resultText(item.result))
-                        : "";
-                if (output.trim()) {
-                    const preview = outputPreview(
-                        output,
-                        Math.max(1, width - 7),
-                        config.previewLines,
-                        true,
-                        context.cwd,
-                    );
-                    lines.push(
-                        ...preview.lines.map((row) =>
-                            truncateToWidth(`       ${palette.fg("toolOutput", row)}`, width, ""),
-                        ),
-                    );
-                }
             }
             lines.push(
                 ...this.callList.renderOverflow(
