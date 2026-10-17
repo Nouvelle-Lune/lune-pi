@@ -1328,6 +1328,51 @@ for (const mode of ["on", "compact"] as const) {
         assert.equal(group.render(120), expected, "Completed groups reuse their rendered rows");
     });
 
+    test(`${mode} collapsed group adds no output rows for empty or blank partial results`, (t) => {
+        const runtime = fixture(t, mode);
+        const cards = [0, 1].map((index) => {
+            // Pi's bash reports an empty partial result as soon as it starts.
+            const card = runtime.add(
+                "bash",
+                { command: `sleep ${index}` },
+                { content: [], details: undefined },
+                index === 0,
+                true,
+            );
+            runtime.emit("tool_execution_start", {
+                toolCallId: `tool-${index}`,
+                toolName: "bash",
+                args: {},
+            });
+            return card;
+        });
+        const group = runtime.target(cards[1]!);
+        const update = (index: number, text?: string) => {
+            const partialResult = {
+                content: text === undefined ? [] : [{ type: "text" as const, text }],
+                details: undefined,
+            };
+            runtime.emit("tool_execution_update", {
+                toolCallId: `tool-${index}`,
+                toolName: "bash",
+                partialResult,
+            });
+            cards[index]!.updateResult({ ...partialResult, isError: false }, true);
+        };
+        assert.match(output(group), /2 calls · 2 running/);
+        update(0);
+        update(1, "\n  \n");
+        // The header and one tree row per child; no output row for either blank result.
+        const actual = lines(group);
+        assert.equal(actual.length, 3, `Unexpected rows: ${actual.join("|")}`);
+        assert.match(actual[1]!, /├.*sleep 0/);
+        assert.match(actual[2]!, /└.*sleep 1/);
+        update(1, "visible-partial-token");
+        const rows = lines(group);
+        assert.equal(rows.length, 4);
+        assert.match(rows[3]!, /visible-partial-token/);
+    });
+
     test(`${mode} standalone partial output follows its newest lines collapsed and expanded`, (t) => {
         const runtime = fixture(t, mode);
         setConfig({ ...config, expandedOutputMaxLines: 3 });

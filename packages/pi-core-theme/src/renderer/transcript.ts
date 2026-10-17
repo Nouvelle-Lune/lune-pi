@@ -23,6 +23,7 @@ import { richDiffSummary } from "./tool/diff/index.ts";
 import { outputPreview, resultText } from "./tool/output.ts";
 import { branch } from "../ui/style.ts";
 import { stripTerminalSequencesPreservingLayout } from "../utils/ansi-text.ts";
+import { sanitizeToolResultText } from "../utils/tool-result-sanitize.ts";
 
 // Expanded group children sit after three spaces and their tree branch.
 const CHILD_INDENT = 4;
@@ -387,9 +388,15 @@ export function installTranscriptGroups(
                         "…",
                     ),
                 );
-                if (item.isPartial && item.result) {
+                // Bash reports an empty partial result as it starts; a blank row here would grow
+                // the group and shrink it moments later, shifting the bottom-pinned transcript.
+                const output =
+                    item.isPartial && item.result
+                        ? sanitizeToolResultText(resultText(item.result))
+                        : "";
+                if (output.trim()) {
                     const preview = outputPreview(
-                        resultText(item.result),
+                        output,
                         Math.max(1, width - 7),
                         config.previewLines,
                         true,
