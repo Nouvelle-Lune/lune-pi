@@ -113,3 +113,7 @@ All notable changes are documented here using
   tools, for example one that only used `ALL_TOOLS`, `searchTools()` or `text()`, showed
   `1 call` with no call row under it, because the heading counted the codemode call
   itself. The heading now counts only nested calls and shows `0 calls` for such a script.
+- **Screen jump when grouped tools start.** Bash reports an empty result as it starts,
+  and a collapsed group added a blank output row for each running call, then removed the
+  rows when the calls finished. In fullscreen this moved the whole transcript up and back
+  down on most turns with parallel calls. Groups now skip empty output, as standalone cards do.
