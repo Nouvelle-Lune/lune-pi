@@ -9,7 +9,7 @@ import {
     wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { patchMethod } from "../src/ui/hover.ts";
-import { installLinkHover, underlineHoveredLinks } from "../src/ui/link-hover.ts";
+import { findLinks, hoveredLinks, installLinkHover, underlineLinks } from "../src/ui/link-hover.ts";
 
 const URL_A = "file:///a";
 const URL_B = "file:///b";
@@ -55,87 +55,223 @@ const underlined = (line: string) =>
 
 const styled = `${BLUE}\x1b[4mtext\x1b[24m\x1b[39m`;
 
-test("underlineHoveredLinks returns a line without OSC 8 unchanged", () => {
+const FIRST = new Set([0]);
+
+test("underlineLinks returns a line without OSC 8 unchanged", () => {
     const line = "\x1b[4munderlined\x1b[24m plain";
-    assert.equal(underlineHoveredLinks(line, URL_A), line);
-    assert.equal(underlineHoveredLinks(line, undefined), line);
+    assert.equal(underlineLinks(line, FIRST), line);
+    assert.equal(underlineLinks(line), line);
 });
 
-test("underlineHoveredLinks drops a Markdown link's underline unless it is hovered", (t) => {
+test("underlineLinks drops a Markdown link's underline unless it is picked", (t) => {
     hyperlinks(t);
     const line = `go ${hyperlink(styled, URL_A)} now`;
-    assert.equal(underlined(underlineHoveredLinks(line, undefined)), "");
-    assert.equal(underlined(underlineHoveredLinks(line, URL_B)), "");
+    assert.equal(underlined(underlineLinks(line)), "");
+    assert.equal(underlined(underlineLinks(line, new Set())), "");
+    assert.equal(underlined(underlineLinks(line, new Set([1]))), "");
 });
 
-test("underlineHoveredLinks underlines every character of the hovered link only", (t) => {
+test("underlineLinks underlines every character of the picked link only", (t) => {
     hyperlinks(t);
     const line = `go ${hyperlink(styled, URL_A)} now`;
-    assert.equal(underlined(underlineHoveredLinks(line, URL_A)), "text");
+    assert.equal(underlined(underlineLinks(line, FIRST)), "text");
     const plain = `go ${hyperlink("text", URL_A)} now`;
-    assert.equal(underlined(underlineHoveredLinks(plain, URL_A)), "text");
-    assert.equal(underlined(underlineHoveredLinks(plain, undefined)), "");
+    assert.equal(underlined(underlineLinks(plain, FIRST)), "text");
+    assert.equal(underlined(underlineLinks(plain)), "");
 });
 
-test("underlineHoveredLinks keeps underline on text outside links", (t) => {
+test("underlineLinks keeps underline on text outside links", (t) => {
     hyperlinks(t);
     const line = `\x1b[4mbefore\x1b[24m ${hyperlink("link", URL_A)} \x1b[4mafter\x1b[24m`;
-    for (const hovered of [undefined, URL_A]) {
-        const actual = underlined(underlineHoveredLinks(line, hovered));
-        assert.equal(actual, hovered ? "beforelinkafter" : "beforeafter");
+    for (const picked of [undefined, FIRST]) {
+        const actual = underlined(underlineLinks(line, picked));
+        assert.equal(actual, picked ? "beforelinkafter" : "beforeafter");
     }
 });
 
-test("underlineHoveredLinks does not underline text after a hovered link", (t) => {
+test("underlineLinks does not underline text after a picked link", (t) => {
     hyperlinks(t);
     const line = `${hyperlink("link", URL_A)} tail`;
-    const output = cells(underlineHoveredLinks(line, URL_A));
+    const output = cells(underlineLinks(line, FIRST));
     assert.equal(output.filter((c) => c.href === undefined && c.underline).length, 0);
 });
 
-test("underlineHoveredLinks handles each wrapped line of a link the same way", (t) => {
+test("underlineLinks handles each wrapped line of a link the same way", (t) => {
     hyperlinks(t);
     const text = "alpha beta gamma delta epsilon zeta eta theta";
     const lines = wrapTextWithAnsi(hyperlink(`${BLUE}\x1b[4m${text}\x1b[24m\x1b[39m`, URL_A), 20);
     assert.ok(lines.length > 1);
     for (const line of lines) {
         const visible = stripTerminalSequences(line);
-        assert.equal(underlined(underlineHoveredLinks(line, undefined)), "");
-        assert.equal(underlined(underlineHoveredLinks(line, URL_A)), visible);
+        assert.equal(underlined(underlineLinks(line)), "");
+        assert.equal(underlined(underlineLinks(line, FIRST)), visible);
     }
 });
 
-test("underlineHoveredLinks treats the 4 in 38;5;4 as a color, not underline", (t) => {
+test("underlineLinks treats the 4 in 38;5;4 as a color, not underline", (t) => {
     hyperlinks(t);
     const line = hyperlink("\x1b[38;5;4mtext\x1b[39m", URL_A);
     assert.equal(underlined(line), "");
-    assert.equal(underlined(underlineHoveredLinks(line, undefined)), "");
-    assert.equal(underlined(underlineHoveredLinks(line, URL_A)), "text");
+    assert.equal(underlined(underlineLinks(line)), "");
+    assert.equal(underlined(underlineLinks(line, FIRST)), "text");
 });
 
-test("underlineHoveredLinks underlines only the hovered link among several", (t) => {
+test("underlineLinks underlines only the picked ordinal among several links", (t) => {
     hyperlinks(t);
     const line = `${hyperlink(styled, URL_A)} ${hyperlink("other", URL_B)}`;
-    assert.equal(underlined(underlineHoveredLinks(line, URL_A)), "text");
-    assert.equal(underlined(underlineHoveredLinks(line, URL_B)), "other");
+    assert.equal(underlined(underlineLinks(line, new Set([0]))), "text");
+    assert.equal(underlined(underlineLinks(line, new Set([1]))), "other");
+    assert.equal(underlined(underlineLinks(line, new Set([0, 1]))), "textother");
 });
 
-test("underlineHoveredLinks keeps visible text and link columns", (t) => {
+test("underlineLinks underlines by position, not by target", (t) => {
+    hyperlinks(t);
+    const line = `${hyperlink("one", URL_A)} ${hyperlink("two", URL_A)}`;
+    assert.equal(underlined(underlineLinks(line, new Set([1]))), "two");
+});
+
+test("underlineLinks keeps visible text and link columns", (t) => {
     hyperlinks(t);
     const line = `ab ${hyperlink(styled, URL_A)} ${hyperlink("other", URL_B)} z`;
-    for (const hovered of [undefined, URL_A, URL_B]) {
-        const output = underlineHoveredLinks(line, hovered);
+    for (const picked of [undefined, new Set([0]), new Set([1])]) {
+        const output = underlineLinks(line, picked);
         assert.equal(stripTerminalSequences(output), stripTerminalSequences(line));
         for (let column = 0; column < 20; column++)
             assert.equal(getOsc8LinkAtColumn(output, column), getOsc8LinkAtColumn(line, column));
     }
-    assert.equal(getOsc8LinkAtColumn(underlineHoveredLinks(line, URL_A), 4), URL_A);
+    assert.equal(getOsc8LinkAtColumn(underlineLinks(line, FIRST), 4), URL_A);
 });
 
-// A fake TUI whose screen has a link "text" at row 2 (1-based), columns 4-7 (1-based).
-function fakeTui() {
+test("findLinks returns nothing for a line without OSC 8", () => {
+    assert.deepEqual(findLinks("plain \x1b[4mtext\x1b[24m"), []);
+    assert.deepEqual(findLinks(""), []);
+});
+
+test("findLinks numbers the links on a row and reports their columns", (t) => {
+    hyperlinks(t);
+    const line = `go ${hyperlink("text", URL_A)} and ${hyperlink(styled, URL_B)} now`;
+    const actual = findLinks(line).map(({ href, ordinal, start, end }) => ({
+        href,
+        ordinal,
+        start,
+        end,
+    }));
+    const expected = [
+        { href: URL_A, ordinal: 0, start: 3, end: 7 },
+        { href: URL_B, ordinal: 1, start: 12, end: 16 },
+    ];
+    assert.deepEqual(actual, expected);
+});
+
+test("findLinks counts a wide character as two columns", (t) => {
+    hyperlinks(t);
+    const [span] = findLinks(`中${hyperlink("文x", URL_A)}`);
+    assert.equal(span?.start, 2);
+    assert.equal(span?.end, 5);
+});
+
+test("findLinks marks a link at the row start as leading but not trailing before words", (t) => {
+    hyperlinks(t);
+    const [span] = findLinks(`${hyperlink("link", URL_A)} tail`);
+    assert.equal(span?.leading, true);
+    assert.equal(span?.trailing, false);
+});
+
+test("findLinks marks a link in the middle with words around it as neither", (t) => {
+    hyperlinks(t);
+    const [span] = findLinks(`head ${hyperlink("link", URL_A)} tail`);
+    assert.equal(span?.leading, false);
+    assert.equal(span?.trailing, false);
+});
+
+test("findLinks marks a link at the row end as trailing but not leading after words", (t) => {
+    hyperlinks(t);
+    const [span] = findLinks(`head ${hyperlink("link", URL_A)}`);
+    assert.equal(span?.leading, false);
+    assert.equal(span?.trailing, true);
+});
+
+test("findLinks ignores spaces, punctuation and styling around a link", (t) => {
+    hyperlinks(t);
+    const [span] = findLinks(`\x1b[2m > \x1b[22m${hyperlink("link", URL_A)} ...`);
+    assert.equal(span?.leading, true);
+    assert.equal(span?.trailing, true);
+});
+
+test("hoveredLinks picks only the link under the pointer, not the same target on other rows", (t) => {
+    hyperlinks(t);
+    const link = hyperlink("src/a.ts", URL_A);
+    const lines = [`assistant: ${link}`, `tool call: read ${link}`, `user: ${link}`];
+    const actual = hoveredLinks(lines, { row: 0, column: 12 });
+    const expected = new Map([[0, new Set([0])]]);
+    assert.deepEqual(actual, expected);
+    // "tool call: read " and "user: " are 16 and 6 columns wide.
+    for (const [row, column] of [
+        [1, 17],
+        [2, 7],
+    ] as const) {
+        const other = hoveredLinks(lines, { row, column });
+        assert.deepEqual(other, new Map([[row, new Set([0])]]));
+    }
+});
+
+test("hoveredLinks picks the right ordinal among several links on a row", (t) => {
+    hyperlinks(t);
+    const lines = [`${hyperlink("one", URL_A)} ${hyperlink("two", URL_B)}`];
+    assert.deepEqual(hoveredLinks(lines, { row: 0, column: 5 }), new Map([[0, new Set([1])]]));
+});
+
+test("hoveredLinks picks every row of a link wrapped over three rows", (t) => {
+    hyperlinks(t);
+    const text = "alpha beta gamma delta epsilon zeta eta theta";
+    const rows = wrapTextWithAnsi(hyperlink(`${BLUE}\x1b[4m${text}\x1b[24m\x1b[39m`, URL_A), 20);
+    assert.equal(rows.length, 3);
+    const lines = rows.map((row) => ` ${row}`);
+    const expected = new Map([
+        [0, new Set([0])],
+        [1, new Set([0])],
+        [2, new Set([0])],
+    ]);
+    for (let row = 0; row < lines.length; row++)
+        assert.deepEqual(hoveredLinks(lines, { row, column: 2 }), expected);
+});
+
+test("hoveredLinks does not extend to an unrelated row with the same target", (t) => {
+    hyperlinks(t);
+    const text = "alpha beta gamma delta epsilon";
+    const rows = wrapTextWithAnsi(hyperlink(text, URL_A), 20).map((row) => ` ${row}`);
+    assert.equal(rows.length, 2);
+    const lines = [...rows, `see ${hyperlink("alpha", URL_A)}`];
+    const expected = new Map([
+        [0, new Set([0])],
+        [1, new Set([0])],
+    ]);
+    assert.deepEqual(hoveredLinks(lines, { row: 0, column: 2 }), expected);
+    assert.deepEqual(hoveredLinks(lines, { row: 2, column: 5 }), new Map([[2, new Set([0])]]));
+});
+
+test("hoveredLinks picks nothing off a link, below the rows, or on a row without links", (t) => {
+    hyperlinks(t);
+    const lines = ["no link", `abc ${hyperlink("text", URL_A)} end`];
+    assert.equal(hoveredLinks(lines, { row: 1, column: 0 }).size, 0);
+    assert.equal(hoveredLinks(lines, { row: 1, column: 8 }).size, 0);
+    assert.equal(hoveredLinks(lines, { row: 2, column: 5 }).size, 0);
+    assert.equal(hoveredLinks(lines, { row: 0, column: 2 }).size, 0);
+    assert.equal(hoveredLinks(lines, undefined).size, 0);
+});
+
+test("hoveredLinks treats both cells of a wide character as the character", (t) => {
+    hyperlinks(t);
+    const lines = [`中${hyperlink("文x", URL_A)}`];
+    assert.equal(hoveredLinks(lines, { row: 0, column: 1 }).size, 0);
+    for (const column of [2, 3, 4])
+        assert.deepEqual(hoveredLinks(lines, { row: 0, column }), new Map([[0, new Set([0])]]));
+    assert.equal(hoveredLinks(lines, { row: 0, column: 5 }).size, 0);
+});
+
+// A fake TUI whose default screen has a link "text" at row 2 (1-based), columns 5-8 (1-based).
+function fakeTui(screen: string[] = ["no link", `abc ${hyperlink("text", URL_A)} end`]) {
     const calls = { input: [] as string[], resets: 0 };
-    const screen = ["no link", `abc ${hyperlink("text", URL_A)} end`];
     const originalReset = (lines: string[]) => {
         calls.resets++;
         return [...lines, "marker"];
@@ -167,7 +303,7 @@ test("installLinkHover decorates lines before the original and passes its result
     assert.equal(underlined(actual.join("")), "");
 });
 
-test("installLinkHover hovers the link under no-button motion and repaints once", (t) => {
+test("installLinkHover repaints once on motion over a link and underlines only it", (t) => {
     hyperlinks(t);
     const { tui, calls, screen } = fakeTui();
     let repaints = 0;
@@ -175,24 +311,57 @@ test("installLinkHover hovers the link under no-button motion and repaints once"
     assert.equal(tui.handleViewportInput(move(5, 2)), "handled");
     assert.equal(repaints, 1);
     assert.equal(frameUnderlined(tui, screen), "text");
+    assert.equal(calls.input.length, 1);
+});
+
+test("installLinkHover does not repaint when the pointer moves inside the same link", (t) => {
+    hyperlinks(t);
+    const { tui, screen } = fakeTui();
+    let repaints = 0;
+    installLinkHover(tui, () => repaints++);
+    tui.handleViewportInput(move(5, 2));
     tui.handleViewportInput(move(6, 2));
+    tui.handleViewportInput(move(8, 2));
     assert.equal(repaints, 1);
+    assert.equal(frameUnderlined(tui, screen), "text");
+});
+
+test("installLinkHover repaints when the pointer moves to another link", (t) => {
+    hyperlinks(t);
+    const screen = ["no link", `abc ${hyperlink("text", URL_A)} ${hyperlink("other", URL_B)}`];
+    const { tui } = fakeTui(screen);
+    let repaints = 0;
+    installLinkHover(tui, () => repaints++);
+    tui.handleViewportInput(move(5, 2));
+    assert.equal(frameUnderlined(tui, screen), "text");
+    tui.handleViewportInput(move(11, 2));
+    assert.equal(repaints, 2);
+    assert.equal(frameUnderlined(tui, screen), "other");
+});
+
+test("installLinkHover repaints when the pointer moves off all links", (t) => {
+    hyperlinks(t);
+    const { tui, screen } = fakeTui();
+    let repaints = 0;
+    installLinkHover(tui, () => repaints++);
+    tui.handleViewportInput(move(5, 2));
     tui.handleViewportInput(move(1, 2));
     assert.equal(repaints, 2);
     assert.equal(frameUnderlined(tui, screen), "");
-    assert.equal(calls.input.length, 3);
+    tui.handleViewportInput(move(1, 1));
+    assert.equal(repaints, 2);
 });
 
-test("installLinkHover clears the hover on a wheel event", (t) => {
+test("installLinkHover keeps the hover on a wheel event", (t) => {
     hyperlinks(t);
     for (const code of [64, 65]) {
         const { tui, screen } = fakeTui();
         let repaints = 0;
         installLinkHover(tui, () => repaints++);
         tui.handleViewportInput(move(5, 2));
-        tui.handleViewportInput(`\x1b[<${code};5;2M`);
-        assert.equal(repaints, 2);
-        assert.equal(frameUnderlined(tui, screen), "");
+        tui.handleViewportInput(`\x1b[<${code};1;1M`);
+        assert.equal(repaints, 1);
+        assert.equal(frameUnderlined(tui, screen), "text");
     }
 });
 
@@ -212,11 +381,37 @@ test("installLinkHover ignores drags and clicks", (t) => {
     assert.equal(frameUnderlined(tui, screen), "text");
 });
 
+test("installLinkHover underlines only the hovered row when rows share a target", (t) => {
+    hyperlinks(t);
+    const link = hyperlink("path", URL_A);
+    const screen = [`assistant: ${link}`, `tool call: read ${link}`, `user: ${link}`];
+    const { tui } = fakeTui(screen);
+    installLinkHover(tui, () => {});
+    tui.handleViewportInput(move(13, 1));
+    const frame = tui.applyLineResets([...screen]);
+    assert.deepEqual(frame.slice(0, 3).map(underlined), ["path", "", ""]);
+    tui.handleViewportInput(move(18, 2));
+    const next = tui.applyLineResets([...screen]);
+    assert.deepEqual(next.slice(0, 3).map(underlined), ["", "path", ""]);
+});
+
+test("installLinkHover underlines the link under the pointer when lines change between frames", (t) => {
+    hyperlinks(t);
+    const { tui, screen } = fakeTui();
+    installLinkHover(tui, () => {});
+    tui.handleViewportInput(move(5, 2));
+    assert.equal(frameUnderlined(tui, screen), "text");
+    const plain = ["no link", "abc plain end"];
+    assert.equal(frameUnderlined(tui, plain), "");
+    const moved = ["no link", `${hyperlink("other", URL_B)} x`];
+    assert.equal(frameUnderlined(tui, moved), "other");
+});
+
 test("installLinkHover passes every input to the original unchanged", (t) => {
     hyperlinks(t);
     const { tui, calls } = fakeTui();
     installLinkHover(tui, () => {});
-    const inputs = ["a", "\x1b[A", move(5, 2), "\x1b[<64;1;1M"];
+    const inputs = ["a", "\x1b[A", move(5, 2), "\x1b[<64;1;1M", move(5, 2, 32), move(5, 2, 0)];
     for (const data of inputs) assert.equal(tui.handleViewportInput(data), "handled");
     assert.deepEqual(calls.input, inputs);
 });
