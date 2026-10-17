@@ -666,7 +666,18 @@ test("reused streaming result and diff objects refresh rather than retaining cac
     assert.match(output(card), /● read {2}file\.ts · 1 line · /);
     result.content[0]!.text = "one\ntwo\nthree\nfour\nfive\nsix";
     card.updateResult(result, true);
-    assert.match(output(card), /six/, "Streaming shows the newest lines of the reused result");
+    assert.doesNotMatch(output(card), /six/, "A collapsed streaming card shows no output rows");
+    clickDisclosure(card);
+    assert.match(
+        output(card),
+        /six/,
+        "Expanded streaming shows the newest lines of the reused result",
+    );
+    result.content[0]!.text += "\nseven";
+    card.updateResult(result, true);
+    assert.match(output(card), /seven/, "The reused, mutated result refreshes the expanded card");
+    result.content[0]!.text = "one\ntwo\nthree\nfour\nfive\nsix";
+    click(card, 1, 1);
     assert.doesNotMatch(output(card), /1 line\b/);
     card.updateResult(result);
     assert.match(output(card), /● read {2}file\.ts · 6 lines · /);
@@ -704,10 +715,12 @@ test("call trees show five rows, overflow opens every call, and panel clicks clo
     runtime.add("bash", { command: "echo six" }, undefined, false);
     const collapsed = output(group);
     assert.match(collapsed, /… 1 more call\b/);
-    assert.doesNotMatch(collapsed, /echo six/);
+    assert.match(collapsed, /echo six/, "A settled list keeps its newest calls");
+    assert.doesNotMatch(collapsed, /file-0\.ts/);
     const rendered = lines(group);
     const row = rendered.findIndex((line) => line.includes("… 1 more call"));
     click(group, row, rendered[row]!.indexOf("1 more call"));
+    assert.match(output(group), /file-0\.ts/);
     assert.match(output(group), /echo six/);
     assert.doesNotMatch(output(group), /Collapse|click to show more|more call/);
     click(group, 3, 100);
@@ -742,8 +755,9 @@ test("codemode replays a compact call ledger without nested write or edit diffs"
     const collapsed = output(card);
     assert.match(collapsed, /● codemode {2}6 calls · 1 failed · click to show more/);
     assert.doesNotMatch(collapsed, /0 running|0 failed|\(|:/);
-    assert.match(collapsed, /├ ● write {2}file-0\.ts · \+1 -1 · 60ms/);
-    assert.doesNotMatch(collapsed, /file-5.ts|old_content|new_content|diff|↳/);
+    assert.match(collapsed, /├ ● edit {2}file-1\.ts · \+1 -1 · 60ms/);
+    assert.match(collapsed, /└ ● edit {2}file-5\.ts · failed · 60ms/);
+    assert.doesNotMatch(collapsed, /file-0.ts|old_content|new_content|diff|↳/);
     assert.match(collapsed, /… 1 more call\b/);
     clickDisclosure(card);
     const expanded = output(card);
@@ -1228,6 +1242,9 @@ for (const mode of ["on", "compact"] as const) {
                 durationMs: 10,
             });
         }
+        const callRows = (component: Component) =>
+            lines(component).filter((row) => /step-\d|more call/.test(row));
+        const running = callRows(card);
         // The parent script is still running even though all eight nested calls settled.
         assert.match(
             output(card),
@@ -1241,11 +1258,15 @@ for (const mode of ["on", "compact"] as const) {
         click(card, 2, 95);
         card.updateResult({ content: [], details: { calls: [] }, isError: false });
         runtime.emit("tool_execution_end", { toolCallId: "tool-0", isError: false });
-        assert.match(output(card), /● read {2}step-0\.ts/);
-        assert.doesNotMatch(output(card), /step-7\.ts/);
+        // Settling keeps the same calls in the same rows instead of jumping back to the first five.
+        const settled = callRows(card);
+        assert.deepEqual(settled, running);
+        assert.match(output(card), /● read {2}step-7\.ts/);
+        assert.doesNotMatch(output(card), /step-0\.ts/);
+        assert.match(output(card), /… 3 more calls/);
     });
 
-    test(`${mode} grouped tools show the newest call and keep output live after expansion`, (t) => {
+    test(`${mode} grouped tools keep the newest calls when they settle and show live output only after expansion`, (t) => {
         const runtime = fixture(t, mode);
         setConfig({ ...config, expandedOutputMaxLines: 3 });
         const cards: ToolExecutionComponent[] = [];
@@ -1295,11 +1316,12 @@ for (const mode of ["on", "compact"] as const) {
             partialResult: partial,
         });
         last.updateResult({ ...partial, isError: false }, true);
-        assert.match(output(group), /latest-group-token/);
-        assert.doesNotMatch(output(group), /earlier-group-0\b/);
+        assert.doesNotMatch(output(group), /latest-group-token/, "Collapsed groups show no output");
+        const running = lines(group);
         clickDisclosure(group);
         assert.match(output(group), /step-0/);
         assert.match(output(group), /latest-group-token/);
+        assert.doesNotMatch(output(group), /earlier-group-0\b/);
         const next = {
             ...partial,
             content: [
@@ -1324,11 +1346,19 @@ for (const mode of ["on", "compact"] as const) {
         });
         runtime.emit("tool_execution_end", { toolCallId: "tool-6", isError: false });
         assert.match(output(group), /● bash {2}7 calls$/m);
+        click(group, 0, 100);
+        const settled = lines(group);
+        assert.equal(settled.length, running.length, "Settling keeps the collapsed row count");
+        assert.deepEqual(
+            settled.filter((row) => /echo step/.test(row)),
+            running.filter((row) => /echo step/.test(row)).map((row) => row.replace(/[◐◓◑◒]/, "●")),
+            "Settling keeps the same calls in the same rows",
+        );
         const expected = group.render(120);
         assert.equal(group.render(120), expected, "Completed groups reuse their rendered rows");
     });
 
-    test(`${mode} collapsed group adds no output rows for empty or blank partial results`, (t) => {
+    test(`${mode} collapsed group keeps its height while children stream output and complete`, (t) => {
         const runtime = fixture(t, mode);
         const cards = [0, 1].map((index) => {
             // Pi's bash reports an empty partial result as soon as it starts.
@@ -1369,11 +1399,20 @@ for (const mode of ["on", "compact"] as const) {
         assert.match(actual[2]!, /└.*sleep 1/);
         update(1, "visible-partial-token");
         const rows = lines(group);
-        assert.equal(rows.length, 4);
-        assert.match(rows[3]!, /visible-partial-token/);
+        assert.equal(rows.length, 3, "Nonempty partial output adds no row to a collapsed group");
+        assert.doesNotMatch(output(group), /visible-partial-token/);
+        for (const index of [0, 1]) {
+            cards[index]!.updateResult({
+                content: [{ type: "text", text: "done" }],
+                details: undefined,
+                isError: false,
+            });
+            runtime.emit("tool_execution_end", { toolCallId: `tool-${index}`, isError: false });
+        }
+        assert.equal(lines(group).length, 3, "Completing keeps the collapsed group height");
     });
 
-    test(`${mode} standalone partial output follows its newest lines collapsed and expanded`, (t) => {
+    test(`${mode} standalone collapsed card keeps its height while streaming and expanded output follows the newest lines`, (t) => {
         const runtime = fixture(t, mode);
         setConfig({ ...config, expandedOutputMaxLines: 3 });
         const partial = {
@@ -1390,8 +1429,24 @@ for (const mode of ["on", "compact"] as const) {
         };
         const card = runtime.add("bash", { command: "npm run build" }, partial, true, true);
         const target = runtime.target(card);
-        assert.match(output(target), /latest-output-token/);
-        assert.doesNotMatch(output(target), /earlier-output-0\b/);
+        const height = target.render(120).length;
+        assert.doesNotMatch(output(target), /latest-output-token/, "Collapsed cards hide output");
+        for (const step of ["one", "two", "three"]) {
+            card.updateResult(
+                {
+                    content: [{ type: "text", text: `${step}\n`.repeat(30) + "tail" }],
+                    details: undefined,
+                    isError: false,
+                },
+                true,
+            );
+            assert.equal(
+                target.render(120).length,
+                height,
+                `Height changed while streaming ${step}`,
+            );
+        }
+        card.updateResult({ ...partial, isError: false }, true);
         clickDisclosure(target);
         assert.match(output(target), /latest-output-token/);
         assert.doesNotMatch(output(target), /earlier-output-0\b/);
@@ -1408,6 +1463,42 @@ for (const mode of ["on", "compact"] as const) {
         assert.match(output(target), /expanded-output-token/);
         card.updateResult({ ...next, isError: false });
         assert.match(output(target), /earlier-output-0\b/);
+        click(target, 1, 1);
+        assert.equal(target.render(120).length, height, "Settling keeps the collapsed height");
+    });
+
+    test(`${mode} collapsed call lists keep the same newest calls when seven tool calls settle`, (t) => {
+        const runtime = fixture(t, mode);
+        const cards = Array.from({ length: 7 }, (_, index) => {
+            const card = runtime.add(
+                "read",
+                { path: `list-${index}.ts` },
+                { content: [], details: undefined },
+                index === 0,
+                true,
+            );
+            runtime.emit("tool_execution_start", {
+                toolCallId: `tool-${index}`,
+                toolName: "read",
+                args: {},
+            });
+            return card;
+        });
+        const group = runtime.target(cards[6]!);
+        const callRows = () => lines(group).filter((row) => /list-\d|more call/.test(row));
+        for (const [index, card] of cards.entries()) {
+            card.updateResult({
+                content: [{ type: "text", text: "ok" }],
+                details: undefined,
+                isError: false,
+            });
+            runtime.emit("tool_execution_end", { toolCallId: `tool-${index}`, isError: false });
+        }
+        const settled = callRows();
+        assert.equal(settled.length, 6, "Five calls and the overflow row");
+        assert.match(settled[0]!, /list-2\.ts/);
+        assert.match(settled[4]!, /list-6\.ts/);
+        assert.match(settled[5]!, /… 2 more calls/);
     });
 }
 

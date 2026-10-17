@@ -490,26 +490,14 @@ class ToolCard implements Component {
         const output = current.output ?? "";
         if (!open) {
             const rows = calls.map((row) => truncateToWidth(`   ${row}`, width, ""));
+            // Live output stays in expanded cards: collapsed rows that grow while a tool runs and
+            // go when it settles move the bottom-pinned transcript twice.
             if (rich)
                 rows.push(
                     ...rich
                         .render(Math.max(1, width - 3))
                         .map((row) => truncateToWidth(`   ${row}`, width, "")),
                 );
-            else if (context.isPartial && output.trim()) {
-                const preview = outputPreview(
-                    output,
-                    Math.max(1, width - 3),
-                    config.previewLines,
-                    true,
-                    context.cwd,
-                );
-                rows.push(
-                    ...preview.lines.map((row) =>
-                        truncateToWidth(`   ${theme.fg("toolOutput", row)}`, width, ""),
-                    ),
-                );
-            }
             if (!rich && !this.composite && context.isError && output.trim())
                 rows.push(
                     truncateToWidth(

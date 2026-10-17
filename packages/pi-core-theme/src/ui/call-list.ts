@@ -20,10 +20,15 @@ export class CallList {
     previewCount(total: number, expanded: boolean): number {
         return expanded ? total : Math.min(total, PREVIEW_LIMIT, config.previewLines);
     }
+    /**
+     * A running list follows its current call and a settled list keeps its newest calls, so the
+     * last call settling does not swap every visible row back to the first calls.
+     */
     previewStart(total: number, expanded: boolean, running: boolean, current = total - 1): number {
-        if (expanded || !running) return 0;
+        if (expanded) return 0;
         const count = this.previewCount(total, expanded);
-        return Math.max(0, Math.min(total - count, current - count + 1));
+        const focus = running ? current : total - 1;
+        return Math.max(0, Math.min(total - count, focus - count + 1));
     }
     /** `indent` is part of the returned row so hint hit-testing matches what is painted. */
     renderHeader(

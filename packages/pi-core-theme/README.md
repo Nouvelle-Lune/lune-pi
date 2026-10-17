@@ -29,7 +29,7 @@ Open `/lune-core-settings core-theme` and turn **Core theme** on in the **Theme*
 - **Starts with a little moonlight.** A pixel crescent sits beside the Lune wordmark, versions and configured shortcuts. The header reflows for narrow terminals, and Pi's tool-output toggle reveals the longer help.
 - **Keeps tool activity readable.** Individual cards, call trees and compact tool rounds share the same status marks. Collapsed cards take one heading row; expanded cards show arguments and output.
 - **Shows the actual change.** Edit and write results use rich diffs with syntax highlighting and inline changes. Automatic layout switches between split and unified views with the terminal width.
-- **Follows work as it happens.** Tool groups show their latest calls, partial output follows the newest lines, and thinking updates without keeping everything expanded.
+- **Follows work as it happens.** Tool groups show their latest calls, expanded cards follow the newest output lines, and thinking updates without keeping everything expanded.
 - **Opens longer output when you need it.** Fullscreen interactions let you expand cards and open hidden output in a separate browser with scrolling and copy controls.
 - **Adds detail to the conversation.** Markdown gains additional Mermaid dialects, GitHub admonitions and clickable bare URLs. `/context` browses the prompt, memory, skills, tools and messages behind the session.
 - **Opens paths and links with Cmd+click.** URLs and existing file paths in messages, tool headings and tool output become terminal links. Files and directories open in their default app. A link is underlined only while the pointer is on it. Terminals without OSC 8 link support show the same text as before.
