@@ -122,3 +122,7 @@ All notable changes are documented here using
 - **Underline on every copy of a path.** Pointing at a link underlined every link with the
   same target, so the same path in a tool call or a user message was underlined too. Now only
   the link under the pointer is underlined, with all rows of a link that wraps.
+- **Slow frames outside fullscreen.** Outside fullscreen, Pi passes the whole transcript to
+  every frame, and removing link underlines re-parsed every row each time, so frames in long
+  sessions took about four times as long, including 30 times a second while thinking. Rows
+  without a hovered link now reuse the previous frame's result.

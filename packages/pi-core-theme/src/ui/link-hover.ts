@@ -172,14 +172,29 @@ export function hoveredLinks(
 export function installLinkHover(tui: object, repaint: () => void) {
     const host = tui as { getScreenLines?: () => string[] };
     let pointer: Pointer | undefined;
+    // The main screen passes the whole transcript on every frame, almost all of it unchanged, so
+    // rows without a hovered link reuse the last frame's result. Keeping only that frame's rows
+    // bounds the cache by what is rendered.
+    let previous = new Map<string, string>();
     const stopFrames = patchMethod<(lines: string[]) => string[]>(
         tui,
         "applyLineResets",
         (original) =>
             function (this: unknown, lines) {
                 const picked = hoveredLinks(lines, pointer);
-                for (let row = 0; row < lines.length; row++)
-                    lines[row] = underlineLinks(lines[row]!, picked.get(row));
+                const next = new Map<string, string>();
+                for (let row = 0; row < lines.length; row++) {
+                    const line = lines[row]!;
+                    const hovered = picked.get(row);
+                    if (hovered) {
+                        lines[row] = underlineLinks(line, hovered);
+                        continue;
+                    }
+                    const plain = previous.get(line) ?? underlineLinks(line);
+                    next.set(line, plain);
+                    lines[row] = plain;
+                }
+                previous = next;
                 return original.call(this, lines);
             },
     );
