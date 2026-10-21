@@ -180,3 +180,26 @@ test("Lune palette themes tint the crescent with their moon colors, other themes
         .join("\n");
     assert.ok(light.includes("157;204;255"), "light default moon1 #9dccff");
 });
+
+test("the second hint row offers @ for files and sessions, and the model picker moves to the shortcut list", (t) => {
+    const previous = getKeybindings();
+    t.after(() => setKeybindings(previous));
+    setKeybindings(
+        new KeybindingsManager({
+            "app.tools.expand": { defaultKeys: "ctrl+o" },
+            "app.interrupt": { defaultKeys: "escape" },
+            "app.model.select": { defaultKeys: "ctrl+l" },
+        }),
+    );
+    const header = createLuneHeader(theme(), headerOptions);
+
+    const compact = header.render(120).map(stripTerminalSequences).join("\n");
+    header.setExpanded(true);
+    const expanded = header.render(120).map(stripTerminalSequences).join("\n");
+
+    assert.match(compact, /@ files and sessions/);
+    assert.doesNotMatch(compact, /ctrl\+l/);
+    assert.doesNotMatch(compact, /select model/);
+    assert.match(expanded, /@ files and sessions/);
+    assert.match(expanded, /ctrl\+l select model/);
+});

@@ -69,6 +69,9 @@ All notable changes are documented here using
   (`readGlobalSettings`) and ignore project overrides for that first frame. The rest of the
   theme still follows project overrides in trusted projects. Settings now live in
   `<agentDir>/lune-settings/lune-core-theme.json`.
+- **Header shows `@ files and sessions`.** The second hint row advertises `@` completion,
+  which Core extends with earlier sessions, in place of the model picker
+  key. That key moves to the expanded shortcut list as `select model`.
 
 ### Fixed
 

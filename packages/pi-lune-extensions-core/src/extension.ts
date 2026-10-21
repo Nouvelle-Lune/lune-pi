@@ -1,15 +1,18 @@
 /**
- * Optional Pi package entry for the shared command and Core's own settings section.
+ * Optional Pi package entry for the shared command, Core's own settings section and `@`
+ * session mentions.
  *
  * SDK consumers do not need this extension for Host discovery or settings storage.
  * Consumer plugins register their own sections; this entry owns only Core's Settings
- * binding and Panel registration. It opts into /panel/tui and terminal peers.
+ * binding and Panel registration. It opts into /panel/tui and terminal peers. Session
+ * mentions live only behind this entry, so importing the SDK never activates them.
  */
 import { corePanel } from "./core/panel.ts";
 import { coreSettings } from "./core/settings.ts";
 import { registerSettingsPanel } from "./panel/registration.ts";
 import { openSettingsPanel } from "./panel/tui.ts";
 import { scopedExtension } from "./resources/scoped-extension.ts";
+import { installMentions } from "./mention/index.ts";
 import { bindSettings } from "./settings/binding.ts";
 
 /**
@@ -32,4 +35,5 @@ export default scopedExtension((pi, resources) => {
             await openSettingsPanel(ctx, { section: args.trim() || undefined });
         },
     });
+    installMentions(pi, resources);
 });

@@ -173,7 +173,7 @@ export function createLuneHeader(
                 [
                     hint(keyText("app.tools.expand"), expanded ? "less" : "more"),
                     hint(keyText("app.interrupt"), "interrupt"),
-                    hint(keyText("app.model.select"), "models"),
+                    hint("@", "files and sessions"),
                 ],
             ];
 
@@ -203,6 +203,7 @@ export function createLuneHeader(
                     hint(keyText("app.exit"), "exit on empty editor"),
                     hint(keyText("app.suspend"), "suspend"),
                     hint(keyText("app.thinking.cycle"), "cycle thinking level"),
+                    hint(keyText("app.model.select"), "select model"),
                     hint(
                         [keyText("app.model.cycleForward"), keyText("app.model.cycleBackward")]
                             .filter(Boolean)

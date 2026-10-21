@@ -157,15 +157,15 @@ Compaction is on by default. Tool-history review and automatic recaps are off un
 
 Each package has its own README with all settings and behavior.
 
-| Package                                                                                                  | What it gives you                                                                                                           |
-| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes. |
-| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.   |
-| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.    |
-| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                       |
-| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                       |
-| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                           |
-| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup and Dock contracts. Other extension authors can use it too.             |
+| Package                                                                                                  | What it gives you                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes.           |
+| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.             |
+| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.              |
+| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                                 |
+| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                                 |
+| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                                     |
+| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup, Dock contracts and `@` session mentions. Other extension authors can use it too. |
 
 <br>
 
