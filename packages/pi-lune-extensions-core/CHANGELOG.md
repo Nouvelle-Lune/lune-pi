@@ -21,6 +21,11 @@ All notable changes are documented here using
 
 ### Added
 
+- **Codex and Claude Code session mentions.** Both tools' local main sessions now appear
+  alongside Pi sessions in the same `@` and `@@` lists, with source labels and source-specific
+  reference tokens. References preserve an exact JSONL copy and filter the active conversation
+  into Markdown; Codex archives and both tools' subagents are excluded. Existing catalog,
+  search and reference caches are reused, with unchanged external files parsed only once.
 - **Grouped, conditional and custom-edited Panel fields.** `group` lists fields under a
   heading, `visible` hides a field (keeping its stored value), and `disabled` returns the
   reason a field cannot be changed right now. `customEditor` renders your own pi-tui

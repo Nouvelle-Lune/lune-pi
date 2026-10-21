@@ -77,16 +77,46 @@ test("mentionToken prefixes the short id with @session:", () => {
     assert.equal(mentionToken(sessions[0]!, sessions), `@session:${ID_A.slice(0, 13)}`);
 });
 
+test("source-specific tokens resolve identical ids independently across all three tools", () => {
+    const sessions = [
+        sessionInfo({ id: ID_A, source: "pi" }),
+        sessionInfo({ id: ID_A, source: "codex" }),
+        sessionInfo({ id: ID_A, source: "claude" }),
+    ];
+    const tokens = sessions.map((session) => mentionToken(session, sessions));
+    assert.deepEqual(tokens, [
+        `@session:${ID_A.slice(0, 13)}`,
+        `@codex:${ID_A.slice(0, 13)}`,
+        `@claude:${ID_A.slice(0, 13)}`,
+    ]);
+    const mentions = findMentions(tokens.join("，"));
+    assert.deepEqual(
+        mentions.map((mention) => mention.source),
+        ["pi", "codex", "claude"],
+    );
+    assert.deepEqual(
+        mentions.map((mention) => resolveMention(mention, sessions)),
+        sessions,
+    );
+    assert.throws(
+        () => resolveMention({ source: "claude", idPrefix: "ffff" }, sessions),
+        /No local session matches @claude:ffff/,
+    );
+});
+
 test("resolveMention returns the single matching session", () => {
     const sessions = [sessionInfo({ id: ID_A }), sessionInfo({ id: "ffff0000-0000-7000-8000-0" })];
-    assert.equal(resolveMention("01a14931", sessions).id, ID_A);
+    assert.equal(resolveMention({ source: "pi", idPrefix: "01a14931" }, sessions).id, ID_A);
 });
 
 test("resolveMention reports different errors for no match and for several matches", () => {
     const sessions = [sessionInfo({ id: ID_A }), sessionInfo({ id: ID_B })];
-    assert.throws(() => resolveMention("zzzz", sessions), /No local session matches @session:zzzz/);
     assert.throws(
-        () => resolveMention("01a14931", sessions),
+        () => resolveMention({ source: "pi", idPrefix: "zzzz" }, sessions),
+        /No local session matches @session:zzzz/,
+    );
+    assert.throws(
+        () => resolveMention({ source: "pi", idPrefix: "01a14931" }, sessions),
         /@session:01a14931 matches 2 sessions; type more of the id/,
     );
 });

@@ -10,7 +10,13 @@ import type {
 } from "@earendil-works/pi-tui";
 import { createMentionAutocomplete, SESSION_TRIGGER } from "../../src/mention/autocomplete.ts";
 import { SessionCatalog } from "../../src/mention/catalog.ts";
-import { SessionFile } from "../harness/session-fixtures.ts";
+import {
+    claudeMessage,
+    codexMeta,
+    codexMessage,
+    jsonl,
+} from "../harness/external-session-fixtures.ts";
+import { isolateExternalSessions, SessionFile } from "../harness/session-fixtures.ts";
 
 const HOUR = 3_600_000;
 
@@ -49,6 +55,7 @@ async function environment(
     } = {},
 ) {
     const root = await mkdtemp(path.join(os.tmpdir(), "mention-autocomplete-"));
+    const externalHomes = isolateExternalSessions(t, root);
     t.after(() => rm(root, { recursive: true, force: true }));
     const previous = process.env["PI_CODING_AGENT_DIR"];
     process.env["PI_CODING_AGENT_DIR"] = path.join(root, "agent");
@@ -124,8 +131,50 @@ async function environment(
     });
     const suggest = (text: string, signal = new AbortController().signal) =>
         mention.getSuggestions([text], 0, text.length, { signal, force: false });
-    return { mention, suggest, underlying, applied, ownResult, catalog };
+    return { mention, suggest, underlying, applied, ownResult, catalog, ...externalHomes };
 }
+
+test("external sessions appear in @ and @@ with source labels, body search and source-specific completions", async (t) => {
+    const env = await environment(t, { sessions: [{ id: "pi-source-session001" }] });
+    const id = "01a14931-31bb-7000-8000-aaaaaaaaaaaa";
+    const codexDir = path.join(env.codexHome, "sessions");
+    const claudeDir = path.join(env.claudeHome, "projects", "--project--");
+    await mkdir(codexDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(
+        path.join(codexDir, "rollout-main.jsonl"),
+        jsonl([
+            codexMeta(id),
+            codexMessage("user", "First question"),
+            codexMessage("assistant", "Searchable body"),
+        ]),
+    );
+    await writeFile(
+        path.join(claudeDir, `${id}.jsonl`),
+        jsonl([
+            claudeMessage(id, "u", null, "user", "Other question"),
+            claudeMessage(id, "a", "u", "assistant", "Searchable body"),
+        ]),
+    );
+    await env.catalog.reload();
+
+    const plain = await env.suggest("@");
+    assert.deepEqual(
+        plain?.items.map((item) => item.label.split(" ")[0]),
+        ["[session]", "[claude]", "[codex]"],
+    );
+    assert.deepEqual(
+        (await env.suggest("@@"))?.items.map((item) => item.label.split(" ")[0]),
+        ["[session]", "[claude]", "[codex]"],
+    );
+    assert.deepEqual(values(await env.suggest("@@Searchable")), [
+        `@claude:${id.slice(0, 13)}`,
+        `@codex:${id.slice(0, 13)}`,
+    ]);
+    assert.deepEqual(values(await env.suggest("@@codex")), [`@codex:${id.slice(0, 13)}`]);
+    const result = env.mention.applyCompletion(["@"], 0, 1, plain!.items[1]!, "@");
+    assert.deepEqual(result.lines, [`@claude:${id.slice(0, 13)} `]);
+});
 
 test("text without an @ token goes to the underlying provider and its answer comes back as is", async (t) => {
     const env = await environment(t, { sessions: [{ id: "alpha-session-1" }] });

@@ -6,7 +6,7 @@ Each directory under `packages/` is an independently versioned npm package. Keep
 
 Core provides shared infrastructure. Feature packages depend on Core; Core must not depend on feature packages or make decisions based on their names or internal state. Keep business state and feature workflows in their owning extensions. Public APIs should expose deliberate contracts with explicit ownership and lifecycle.
 
-One exception: Core's optional Pi entry also adds earlier sessions to Pi's `@` completion, in `src/mention/`. This small editor convenience builds on Pi's own completion and `SessionManager`, keeps no settings and no state beyond caches owned by the current session, and stays out of the SDK exports. Do not add other features to Core on this basis; a feature that needs its own settings, model requests or a state machine belongs in its own package.
+One exception: Core's optional Pi entry also adds local Pi, Codex and Claude Code sessions to Pi's `@` completion, in `src/mention/`. This small editor convenience builds on Pi's own completion and `SessionManager`, reads external transcripts locally, keeps no settings and no state beyond caches owned by the current session, and stays out of the SDK exports. Do not add other features to Core on this basis; a feature that needs its own settings, model requests or a state machine belongs in its own package.
 
 Use package imports such as `@lune_99/pi-lune-extensions-core/settings` for cross-package access. Do not import another package's private source files. Internal dependencies use normal semver ranges so the same manifests work in the workspace and in published packages.
 
