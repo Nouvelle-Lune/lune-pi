@@ -14,16 +14,30 @@ const ID_A = "01a14931-31bb-7000-8000-aaaaaaaaaaaa";
 const ID_B = "01a14931-31bb-7000-8000-bbbbbbbbbbbb";
 const ID_C = "01c24931-31bb-7000-8000-cccccccccccc";
 
-async function setup(t: TestContext, options: { hasUI?: boolean; mode?: string } = {}) {
+async function setup(
+    t: TestContext,
+    options: { hasUI?: boolean; mode?: string; tempDirName?: string } = {},
+) {
     const root = await mkdtemp(path.join(os.tmpdir(), "session-mention-"));
     t.after(() => rm(root, { recursive: true, force: true }));
-    const previous = process.env["PI_CODING_AGENT_DIR"];
     const agentDir = path.join(root, "agent");
-    process.env["PI_CODING_AGENT_DIR"] = agentDir;
+    const tempDir = path.join(root, options.tempDirName ?? "tmp");
+    // Cover both POSIX and Windows temp-directory precedence without sharing real temp files.
+    const directories = {
+        PI_CODING_AGENT_DIR: agentDir,
+        TMPDIR: tempDir,
+        TMP: tempDir,
+        TEMP: tempDir,
+    };
+    const previous = new Map(Object.keys(directories).map((key) => [key, process.env[key]]));
+    for (const [key, directory] of Object.entries(directories)) process.env[key] = directory;
     t.after(() => {
-        if (previous === undefined) delete process.env["PI_CODING_AGENT_DIR"];
-        else process.env["PI_CODING_AGENT_DIR"] = previous;
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
     });
+    await mkdir(tempDir, { recursive: true });
     const sessionDir = path.join(root, "custom-sessions");
     await mkdir(sessionDir, { recursive: true });
 
@@ -70,7 +84,7 @@ async function setup(t: TestContext, options: { hasUI?: boolean; mode?: string }
         return target;
     };
     return {
-        agentDir,
+        tempDir,
         call,
         notices,
         editorTexts,
@@ -129,7 +143,7 @@ test("a mention becomes a file reference to a filtered transcript of that sessio
     const match = /^Continue from @(.+\.md) please$/.exec(result.text);
     assert.ok(match, result.text);
     const file = match[1]!;
-    assert.ok(file.startsWith(path.join(env.agentDir, "tmp", "session-refs", ID_A + ".")));
+    assert.ok(file.startsWith(path.join(env.tempDir, "pi-lune-session-refs", ID_A + ".")));
     const markdown = await readFile(file, "utf8");
     assert.match(markdown, /\[User\]: request /);
     assert.match(markdown, /\[Assistant\]: later/);
@@ -150,14 +164,12 @@ test("a repeated mention reuses one file and two sessions get two files", async 
     const files = result.text.split(" ").map((part) => part.slice(1));
     assert.equal(files[0], files[1]);
     assert.notEqual(files[0], files[2]);
-    const written = await readdir(path.join(env.agentDir, "tmp", "session-refs"));
+    const written = await readdir(path.join(env.tempDir, "pi-lune-session-refs"));
     assert.equal(written.length, 2);
 });
 
 test("a temp path with whitespace is quoted in the reference", async (t) => {
-    const env = await setup(t);
-    // The agent dir is where transcripts are written, so a space there reaches the reference.
-    process.env["PI_CODING_AGENT_DIR"] = path.join(path.dirname(env.agentDir), "agent dir");
+    const env = await setup(t, { tempDirName: "system temp" });
     await env.writeSession(ID_A);
     await env.call("session_start", {});
 
@@ -287,6 +299,23 @@ test("a copy that was deleted is written again at the same path", async (t) => {
         await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
     );
     await rm(first);
+
+    const second = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+
+    assert.equal(second, first);
+    assert.match(await readFile(second, "utf8"), /\[User\]: request /);
+});
+
+test("a temp directory that was removed is recreated on the next mention", async (t) => {
+    const env = await setup(t);
+    await env.writeSession(ID_A);
+    await env.call("session_start", {});
+    const first = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+    await rm(path.join(env.tempDir, "pi-lune-session-refs"), { recursive: true });
 
     const second = referencedFile(
         await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),

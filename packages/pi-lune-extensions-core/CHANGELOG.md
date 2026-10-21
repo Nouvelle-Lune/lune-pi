@@ -74,7 +74,7 @@ All notable changes are documented here using
   name contains the query stay above them, and file matches are Pi's own. `@@` lists only
   sessions, searching every local session by title, project, id and message text. When you
   send, each `@session:<id>` becomes an `@` reference to a filtered copy under
-  `<agentDir>/tmp/session-refs/`, so the agent reads it only when it needs it. The copy
+  `<os.tmpdir()>/pi-lune-session-refs/`, so the agent reads it only when it needs it. The copy
   comes from Pi's `SessionManager.open()` and `buildSessionProjection()` (active branch,
   compaction summary, context edits) and keeps only user prompts, assistant text and the
   compaction summary. The list comes from `SessionManager.listAll()`, reloads in the
@@ -83,6 +83,10 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Session mention copies use the system temporary directory.** Store filtered transcripts
+  under `<os.tmpdir()>/pi-lune-session-refs/` so the operating system can reclaim them according
+  to its temporary-file policy. Existing copies under `<agentDir>/tmp/session-refs/` can be
+  removed manually once their old references are no longer needed.
 - **Deterministic settings tabs.** The renderer pins Core first and orders the other
   sections by label using JavaScript string comparison, with section ID breaking ties,
   so tab order no longer follows registration timing. Registration and removal reapply

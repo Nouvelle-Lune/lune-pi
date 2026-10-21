@@ -1,11 +1,7 @@
 import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-    getAgentDir,
-    type ExtensionAPI,
-    type ExtensionContext,
-    type SessionInfo,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { ResourceScope } from "../resources/resources.ts";
 import { createMentionAutocomplete } from "./autocomplete.ts";
 import { SessionCatalog } from "./catalog.ts";
@@ -100,7 +96,7 @@ class TranscriptCache {
 
 async function writeTranscript(session: SessionInfo): Promise<string> {
     const transcript = buildTranscript(session);
-    const directory = join(getAgentDir(), "tmp", "session-refs");
+    const directory = join(tmpdir(), "pi-lune-session-refs");
     await mkdir(directory, { recursive: true });
     // One file per session state: earlier messages keep pointing at the copy they referenced.
     const file = join(directory, `${session.id}.${transcript.leafId ?? "empty"}.md`);
