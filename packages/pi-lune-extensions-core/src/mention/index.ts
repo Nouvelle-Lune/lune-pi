@@ -13,7 +13,7 @@ import {
     resolveMention,
     type Mention,
 } from "./mention.ts";
-import type { LocalSession } from "./session.ts";
+import { ExternalSessionParseError, type LocalSession } from "./session.ts";
 import { buildTranscript } from "./transcript.ts";
 
 /**
@@ -56,7 +56,7 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
             if (mentions.length === 0) return { action: "continue" };
             try {
                 if (!catalog) throw new Error("Session mentions have no active session");
-                const files = new Map<string, string>();
+                const files = new Map<string, string | undefined>();
                 for (const mention of mentions) {
                     if (files.has(mention.token)) continue;
                     const session = await findSession(catalog, mention);
@@ -64,9 +64,10 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
                 }
                 return {
                     action: "transform",
-                    text: replaceMentions(event.text, mentions, (mention) =>
-                        fileReference(files.get(mention.token)!),
-                    ),
+                    text: replaceMentions(event.text, mentions, (mention) => {
+                        const file = files.get(mention.token);
+                        return file === undefined ? mention.token : fileReference(file);
+                    }),
                     images: event.images,
                 };
             } catch (error) {
@@ -100,22 +101,28 @@ interface TranscriptFiles {
  * last mention reuses the copy written then.
  */
 class TranscriptCache {
-    private readonly written = new Map<string, TranscriptFiles & { version: string }>();
+    private readonly written = new Map<string, { version: string; files?: TranscriptFiles }>();
 
-    async file(session: LocalSession): Promise<string> {
+    async file(session: LocalSession): Promise<string | undefined> {
         const stats = await stat(session.path);
         const version = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${session.name ?? ""}`;
         const cached = this.written.get(session.path);
-        if (
-            cached?.version === version &&
-            (await exists(cached.file)) &&
-            (await exists(cached.rawFile))
-        ) {
-            return cached.file;
+        if (cached?.version === version) {
+            if (!cached.files) return undefined;
+            if ((await exists(cached.files.file)) && (await exists(cached.files.rawFile))) {
+                return cached.files.file;
+            }
         }
-        const files = await writeTranscript(session);
-        this.written.set(session.path, { version, ...files });
-        return files.file;
+        try {
+            const files = await writeTranscript(session);
+            this.written.set(session.path, { version, files });
+            return files.file;
+        } catch (error) {
+            if (!(error instanceof ExternalSessionParseError)) throw error;
+            // TODO: Record invalid external reference snapshots in Core Log when it is available.
+            this.written.set(session.path, { version });
+            return undefined;
+        }
     }
 }
 

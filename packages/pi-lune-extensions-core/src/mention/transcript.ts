@@ -5,9 +5,13 @@ import {
     SessionManager,
     type SessionInfo,
 } from "@earendil-works/pi-coding-agent";
-import { parseClaudeSession } from "./claude.ts";
-import { parseCodexSession } from "./codex.ts";
-import { SOURCE_NAMES, type ConversationMessage, type LocalSession } from "./session.ts";
+import { parseExternalSession } from "./external.ts";
+import {
+    ExternalSessionParseError,
+    SOURCE_NAMES,
+    type ConversationMessage,
+    type LocalSession,
+} from "./session.ts";
 import { clip, cleanBody, sessionTitle } from "./text.ts";
 
 /** Pi's read tool returns at most 50 KB per call; stay under it so one read gets everything. */
@@ -38,12 +42,11 @@ export function buildTranscript(session: LocalSession): SessionTranscript {
         conversation = piConversation(session);
     } else {
         const content = readFileSync(session.path, "utf8");
-        const parsed =
-            session.source === "codex"
-                ? parseCodexSession(content, session.path)
-                : parseClaudeSession(content, session.path);
+        const parsed = parseExternalSession(session.source, content, session.path);
         if (!parsed || parsed.session.id !== session.id) {
-            throw new Error(`Session copy does not match ${session.source}:${session.id}`);
+            throw new ExternalSessionParseError(
+                `Session copy does not match ${session.source}:${session.id}`,
+            );
         }
         conversation = parsed;
     }

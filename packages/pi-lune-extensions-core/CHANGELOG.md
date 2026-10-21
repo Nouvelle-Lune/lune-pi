@@ -26,6 +26,8 @@ All notable changes are documented here using
   reference tokens. References preserve an exact JSONL copy and filter the active conversation
   into Markdown; Codex archives and both tools' subagents are excluded. Existing catalog,
   search and reference caches are reused, with unchanged external files parsed only once.
+  External parser errors are skipped silently so valid sessions and prompt submission remain
+  usable; Core Log integration is marked for follow-up.
 - **Grouped, conditional and custom-edited Panel fields.** `group` lists fields under a
   heading, `visible` hides a field (keeping its stored value), and `disabled` returns the
   reason a field cannot be changed right now. `customEditor` renders your own pi-tui

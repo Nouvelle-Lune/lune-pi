@@ -253,9 +253,11 @@ than one minute, so a new session can take up to a minute to appear. Typing neve
 the list. External files whose inode, size and modification time have not changed reuse their
 parsed metadata and searchable text; searching also reuses the existing lower-case text cache.
 Unchanged reference snapshots reuse `TranscriptCache`. A typed reference that is not in the
-list makes Core reload it before sending the prompt. Invalid or unsupported external files
-are reported with their paths and excluded; unchanged rejected files are reported once per
-Pi session. Other valid sessions remain available.
+list makes Core reload it before sending the prompt. Invalid or unsupported Codex and Claude
+Code files are silently excluded, and failed parses are cached until their files change.
+An invalid Codex title index leaves titles derived from the session messages. If an external
+session becomes invalid after selection, its reference stays as typed while the rest of the
+prompt is sent normally. Parser failures will be recorded in Core Log once it is available.
 
 Mentions are part of Core's Pi entry only; importing the SDK does not activate them.
 

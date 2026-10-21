@@ -348,14 +348,17 @@ test("the combined catalog discovers only main unarchived sessions, merges activ
     );
 });
 
-test("a rejected external file is reported once per version while valid sessions remain usable", async (t) => {
+test("invalid Codex and Claude files are silently excluded and reparsed after changing", async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "mention-external-error-"));
     t.after(() => rm(root, { recursive: true, force: true }));
-    const { codexHome } = isolateExternalSessions(t, root);
+    const { codexHome, claudeHome } = isolateExternalSessions(t, root);
     const piDir = path.join(root, "pi-sessions");
     const codexDir = path.join(codexHome, "sessions");
     await mkdir(piDir);
     await mkdir(codexDir, { recursive: true });
+    const claudeDir = path.join(claudeHome, "projects", "--project--");
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(path.join(claudeDir, "broken.jsonl"), "broken\n");
     const broken = path.join(codexDir, "rollout-broken.jsonl");
     await writeFile(broken, "broken\n");
     await writeFile(
@@ -367,10 +370,55 @@ test("a rejected external file is reported once per version while valid sessions
     t.after(() => catalog.dispose());
 
     assert.equal((await catalog.reload()).length, 1);
-    assert.equal(errors.length, 1);
-    assert.ok(errors[0]!.message.includes(broken + ":1"));
+    assert.deepEqual(errors, []);
     assert.equal((await catalog.reload()).length, 1);
-    assert.equal(errors.length, 1);
+    assert.deepEqual(errors, []);
     await writeFile(broken, jsonl([codexMeta("repaired"), codexMessage("user", "Repaired")]));
     assert.equal((await catalog.reload()).length, 2);
+    assert.deepEqual(errors, []);
+});
+
+test("an invalid Codex title index is silent and does not hide valid session messages", async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mention-title-error-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const { codexHome } = isolateExternalSessions(t, root);
+    const piDir = path.join(root, "pi-sessions");
+    const codexDir = path.join(codexHome, "sessions");
+    await mkdir(piDir);
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(
+        path.join(codexDir, "rollout-valid.jsonl"),
+        jsonl([codexMeta(ID), codexMessage("user", "Valid question")]),
+    );
+    const index = path.join(codexHome, "session_index.jsonl");
+    await writeFile(index, jsonl([{ id: ID, thread_name: "Partial title" }]) + "broken\n");
+    const errors: unknown[] = [];
+    const catalog = new SessionCatalog(piDir, (error) => errors.push(error));
+    t.after(() => catalog.dispose());
+
+    const sessions = await catalog.reload();
+
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0]!.name, undefined);
+    assert.equal(sessions[0]!.firstMessage, "Valid question");
+    assert.deepEqual(errors, []);
+    await writeFile(index, jsonl([{ id: ID, thread_name: "Repaired title" }]));
+    assert.equal((await catalog.reload())[0]!.name, "Repaired title");
+});
+
+test("external filesystem errors still reach the catalog error reporter", async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mention-io-error-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const { codexHome } = isolateExternalSessions(t, root);
+    const piDir = path.join(root, "pi-sessions");
+    await mkdir(piDir);
+    await mkdir(codexHome);
+    await writeFile(path.join(codexHome, "sessions"), "not a directory");
+    const errors: Error[] = [];
+    const catalog = new SessionCatalog(piDir, (error) => errors.push(error as Error));
+    t.after(() => catalog.dispose());
+
+    assert.deepEqual(await catalog.reload(), []);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]!.message, /ENOTDIR/);
 });

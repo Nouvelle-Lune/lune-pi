@@ -4,7 +4,12 @@ import { basename, join, resolve } from "node:path";
 import { parseClaudeSession } from "./claude.ts";
 import { parseCodexSession } from "./codex.ts";
 import { jsonl, string } from "./jsonl.ts";
-import { SOURCE_NAMES, type LocalSession, type SessionSource } from "./session.ts";
+import {
+    SOURCE_NAMES,
+    type ExternalSession,
+    type LocalSession,
+    type SessionSource,
+} from "./session.ts";
 
 type ExternalSource = Exclude<SessionSource, "pi">;
 
@@ -42,21 +47,12 @@ export class ExternalSessions {
                             let cached = this.cached.get(path);
                             if (cached?.version !== version) {
                                 cached = { version };
-                                try {
-                                    const content = await readFile(path, {
-                                        encoding: "utf8",
-                                        signal,
-                                    });
-                                    const parsed =
-                                        source === "codex"
-                                            ? parseCodexSession(content, path)
-                                            : parseClaudeSession(content, path);
-                                    cached.session = parsed?.session;
-                                } catch (error) {
-                                    signal.throwIfAborted();
-                                    // A rejected file is reported once per version, never disguised as a session.
-                                    errors.push(fileError(source, path, error));
-                                }
+                                const content = await readFile(path, { encoding: "utf8", signal });
+                                cached.session = parseExternalSession(
+                                    source,
+                                    content,
+                                    path,
+                                )?.session;
                                 if (!signal.aborted) this.cached.set(path, cached);
                             }
                             if (cached.session) {
@@ -158,14 +154,34 @@ export class ExternalSessions {
             throw error;
         }
         const names = new Map<string, string>();
-        for (const record of jsonl(content, path)) {
-            names.set(
-                string(record.id, "session_index.id"),
-                string(record.thread_name, "thread_name"),
-            );
+        try {
+            for (const record of jsonl(content, path)) {
+                names.set(
+                    string(record.id, "session_index.id"),
+                    string(record.thread_name, "thread_name"),
+                );
+            }
+        } catch {
+            // TODO: Record Codex title parser errors in Core Log when it is available.
+            names.clear();
         }
         if (!signal.aborted) this.titleIndex = { version, names };
         return names;
+    }
+}
+
+export function parseExternalSession(
+    source: ExternalSource,
+    content: string,
+    path: string,
+): ExternalSession | undefined {
+    try {
+        return source === "codex"
+            ? parseCodexSession(content, path)
+            : parseClaudeSession(content, path);
+    } catch {
+        // TODO: Record Codex and Claude Code parser errors in Core Log when it is available.
+        return undefined;
     }
 }
 

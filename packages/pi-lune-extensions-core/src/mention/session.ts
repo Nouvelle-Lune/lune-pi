@@ -22,3 +22,6 @@ export interface ExternalSession {
     messages: ConversationMessage[];
     leafId: string | null;
 }
+
+/** Marks an external reference that must be skipped without interrupting prompt submission. */
+export class ExternalSessionParseError extends Error {}

@@ -358,6 +358,55 @@ test("an indexed Codex rename creates a new snapshot while preserving the earlie
     assert.match(await readFile(second, "utf8"), /- Title: Renamed title/);
 });
 
+for (const source of ["codex", "claude"] as const) {
+    test(`${source} parser failures after selection are silent and allow the rest of the prompt to be sent`, async (t) => {
+        const env = await setup(t);
+        await env.writeSession(ID_C);
+        const directory =
+            source === "codex"
+                ? path.join(env.codexHome, "sessions")
+                : path.join(env.claudeHome, "projects", "--project--");
+        await mkdir(directory, { recursive: true });
+        const target = path.join(
+            directory,
+            source === "codex" ? "rollout-main.jsonl" : `${ID_A}.jsonl`,
+        );
+        await writeFile(
+            target,
+            source === "codex"
+                ? jsonl([codexMeta(ID_A), codexMessage("user", "Question")])
+                : jsonl([claudeMessage(ID_A, "u", null, "user", "Question")]),
+        );
+        await env.call("session_start", {});
+        const token = `@${source}:${ID_A}`;
+        assert.equal(
+            ((await env.call("input", { text: token })) as { action: string }).action,
+            "transform",
+        );
+        await writeFile(target, "broken\n");
+        const images = [{ type: "image", data: "unchanged" }];
+
+        const result = (await env.call("input", { text: `${token} @session:${ID_C}`, images })) as {
+            action: string;
+            text: string;
+            images: unknown[];
+        };
+
+        assert.equal(result.action, "transform");
+        assert.ok(result.text.startsWith(`${token} @`));
+        assert.ok(result.text.endsWith(".md"));
+        assert.deepEqual(result.images, images);
+        const repeated = (await env.call("input", { text: token })) as {
+            action: string;
+            text: string;
+        };
+        assert.equal(repeated.action, "transform");
+        assert.equal(repeated.text, token);
+        assert.deepEqual(env.notices, []);
+        assert.deepEqual(env.editorTexts, []);
+    });
+}
+
 test("mentioning a legacy session leaves the original and its full copy unchanged", async (t) => {
     const env = await setup(t);
     const raw = await env.writeSession(ID_A);
