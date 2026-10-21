@@ -219,21 +219,25 @@ the text of its messages, and shows up to 50 matches.
   [session]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
 ```
 
-Picking a row inserts `@session:<id>`. When you send the prompt, Core opens that session with
-Pi's `SessionManager.open()` and rebuilds it with `buildSessionProjection()`, the way Pi builds
+Picking a row inserts `@session:<id>`. When you send the prompt, Core saves a complete JSONL
+copy in the system temporary directory and rebuilds it in memory with Pi's
+`SessionManager.inMemory()` and `buildSessionProjection()`, the way Pi builds
 its model context: the active branch only, a compaction summary in place of older history, and
 context edits applied. Of that, it keeps only your prompts, the assistant's text and the
 compaction summary. Thinking, images, tool calls and output, shell commands and extension
 messages are left out. The result is written to
-`<os.tmpdir()>/pi-lune-session-refs/<session id>.<entry id>.md` (at most 40 KB), and the token
+`<os.tmpdir()>/pi-lune-session-refs/<session id>.<content hash>.md` (at most 40 KB), and the token
 becomes an `@` reference to that file, so the agent reads it only when it needs it.
+The Markdown links to the complete `<session id>.<content hash>.jsonl` copy in the same
+directory for details it leaves out; it does not expose the original session file path.
 Copies remain available across Pi restarts until the operating system reclaims them; cleanup
 timing depends on its temporary-file policy. Mentioning a session again recreates a missing
-copy. Existing copies under `<agentDir>/tmp/session-refs/` can be removed manually when their
+Markdown or JSONL copy. Changed session contents produce a new pair of copies, preserving
+earlier references. Existing copies under `<agentDir>/tmp/session-refs/` can be removed manually when their
 old references are no longer needed.
 
-Core does not write session files. Like `/resume`, `SessionManager.open()` upgrades a session
-file that uses an older Pi session format. If an id matches no session or more than one, the
+Core leaves both the original session file and the complete JSONL copy unchanged, including
+when Pi upgrades an older session format in memory. If an id matches no session or more than one, the
 prompt is not sent and your text returns to the editor.
 
 Core reads the session list with Pi's `SessionManager.listAll()` when a session starts (about

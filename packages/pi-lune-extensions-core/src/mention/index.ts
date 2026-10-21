@@ -1,4 +1,5 @@
-import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionInfo } from "@earendil-works/pi-coding-agent";
@@ -76,32 +77,47 @@ async function findSession(catalog: SessionCatalog, idPrefix: string): Promise<S
     return resolveMention(idPrefix, await catalog.reload());
 }
 
+interface TranscriptFiles {
+    file: string;
+    rawFile: string;
+}
+
 /**
  * Building a copy parses the whole session file, so a session that has not changed since its
  * last mention reuses the copy written then.
  */
 class TranscriptCache {
-    private readonly written = new Map<string, { version: string; file: string }>();
+    private readonly written = new Map<string, TranscriptFiles & { version: string }>();
 
     async file(session: SessionInfo): Promise<string> {
         const stats = await stat(session.path);
         const version = `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
         const cached = this.written.get(session.path);
-        if (cached?.version === version && (await exists(cached.file))) return cached.file;
-        const file = await writeTranscript(session);
-        this.written.set(session.path, { version, file });
-        return file;
+        if (
+            cached?.version === version &&
+            (await exists(cached.file)) &&
+            (await exists(cached.rawFile))
+        ) {
+            return cached.file;
+        }
+        const files = await writeTranscript(session);
+        this.written.set(session.path, { version, ...files });
+        return files.file;
     }
 }
 
-async function writeTranscript(session: SessionInfo): Promise<string> {
-    const transcript = buildTranscript(session);
+async function writeTranscript(session: SessionInfo): Promise<TranscriptFiles> {
+    const content = await readFile(session.path);
     const directory = join(tmpdir(), "pi-lune-session-refs");
     await mkdir(directory, { recursive: true });
-    // One file per session state: earlier messages keep pointing at the copy they referenced.
-    const file = join(directory, `${session.id}.${transcript.leafId ?? "empty"}.md`);
-    await writeFile(file, transcript.markdown, "utf8");
-    return file;
+    // Hash the full snapshot: metadata can change without moving the active branch's leaf.
+    const name = `${session.id}.${createHash("sha256").update(content).digest("hex")}`;
+    const rawFile = join(directory, `${name}.jsonl`);
+    await writeFile(rawFile, content, { mode: 0o600 });
+    const transcript = buildTranscript({ ...session, path: rawFile });
+    const file = join(directory, `${name}.md`);
+    await writeFile(file, transcript.markdown, { encoding: "utf8", mode: 0o600 });
+    return { file, rawFile };
 }
 
 async function exists(path: string): Promise<boolean> {

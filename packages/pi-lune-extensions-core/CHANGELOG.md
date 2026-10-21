@@ -75,7 +75,7 @@ All notable changes are documented here using
   sessions, searching every local session by title, project, id and message text. When you
   send, each `@session:<id>` becomes an `@` reference to a filtered copy under
   `<os.tmpdir()>/pi-lune-session-refs/`, so the agent reads it only when it needs it. The copy
-  comes from Pi's `SessionManager.open()` and `buildSessionProjection()` (active branch,
+  comes from Pi's `SessionManager.inMemory()` and `buildSessionProjection()` (active branch,
   compaction summary, context edits) and keeps only user prompts, assistant text and the
   compaction summary. The list comes from `SessionManager.listAll()`, reloads in the
   background at most once a minute, and typing never waits for it. An unknown or ambiguous id
@@ -149,6 +149,10 @@ All notable changes are documented here using
 
 ### Fixed
 
+- **Session mentions expose copies only.** The Markdown reference now points to a complete
+  JSONL copy beside it in the system temporary directory, so editing that file cannot modify
+  the original session. Projection runs in memory, preserving both files even when Pi upgrades
+  an older session format; missing copies are recreated on the next mention.
 - **Native source entry.** Pi now loads a TypeScript source entry and implementation,
   so `/reload` replaces Core's handlers; SDK consumers keep compiled exports.
 - **Optional runtime peer boundaries.** Root and `/panel` imports no longer load

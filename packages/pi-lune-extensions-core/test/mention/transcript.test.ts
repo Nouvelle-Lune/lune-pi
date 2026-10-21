@@ -8,7 +8,7 @@ import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import { buildTranscript } from "../../src/mention/transcript.ts";
 import { SessionFile, toolCall } from "../harness/session-fixtures.ts";
 
-/** Writes the session to a temp file, as buildTranscript opens the session by its path. */
+/** Writes a reference copy to disk, as buildTranscript reads it by its path. */
 function write(t: TestContext, file: SessionFile, overrides: Partial<SessionInfo> = {}) {
     const directory = mkdtempSync(path.join(os.tmpdir(), "session-transcript-"));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -163,7 +163,7 @@ test("terminal escape sequences and control characters in session text are remov
     assert.match(markdown, /world/);
 });
 
-test("the header lists the title, project, id, raw file and what was kept and removed", (t) => {
+test("the header lists the title, project, id, full copy and what was kept and removed", (t) => {
     const file = new SessionFile("sess-id-123", "/work/project");
     file.user("Hi");
     file.assistant("Hello");
@@ -174,7 +174,7 @@ test("the header lists the title, project, id, raw file and what was kept and re
     assert.match(markdown, /- Title: Named session/);
     assert.match(markdown, /- Project: \/work\/project/);
     assert.match(markdown, /- Session: sess-id-123,/);
-    assert.ok(markdown.includes(`- Raw session file (JSONL): ${info.path} (`));
+    assert.ok(markdown.includes(`- Full session copy (JSONL): ${info.path} (`));
     assert.match(markdown, /\nKept: .*user prompts and assistant text\./);
     assert.match(markdown, /\nRemoved: .*tool calls and output, shell commands/);
     assert.doesNotMatch(markdown, /Files changed/);
@@ -247,17 +247,28 @@ test("the compaction summary survives the size limit", (t) => {
     assert.match(markdown, /earlier blocks left out/);
 });
 
-test("building a transcript leaves a current-version session file unchanged", async (t) => {
-    const file = new SessionFile();
-    file.user("Hi");
-    file.assistant("Hello");
-    const info = write(t, file);
-    const before = await readFile(info.path);
-    const mtimeBefore = statSync(info.path).mtimeMs;
+for (const version of [3, 2]) {
+    test(`building a transcript leaves a version ${version} session copy unchanged`, async (t) => {
+        const file = new SessionFile();
+        file.user("Hi");
+        file.assistant("Hello");
+        const info = write(t, file);
+        writeFileSync(info.path, file.jsonl().replace('"version":3', `"version":${version}`));
+        const before = await readFile(info.path);
+        const mtimeBefore = statSync(info.path).mtimeMs;
 
-    buildTranscript(info);
+        const { markdown } = buildTranscript(info);
 
-    const after = await readFile(info.path);
-    assert.ok(after.equals(before));
-    assert.equal(statSync(info.path).mtimeMs, mtimeBefore);
+        assert.match(markdown, /\[User\]: Hi/);
+        const after = await readFile(info.path);
+        assert.ok(after.equals(before));
+        assert.equal(statSync(info.path).mtimeMs, mtimeBefore);
+    });
+}
+
+test("an invalid session copy is rejected instead of producing an empty transcript", (t) => {
+    const info = write(t, new SessionFile());
+    writeFileSync(info.path, "not a session");
+
+    assert.throws(() => buildTranscript(info), /Session file is not a valid pi session/);
 });

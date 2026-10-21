@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { contentText } from "@earendil-works/pi-ai";
-import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import {
+    parseSessionEntries,
+    SessionManager,
+    type SessionInfo,
+} from "@earendil-works/pi-coding-agent";
 import { clip, cleanBody, sessionTitle } from "./text.ts";
 
 /** Pi's read tool returns at most 50 KB per call; stay under it so one read gets everything. */
@@ -11,7 +16,7 @@ const SUMMARY_CHARACTERS = 8_000;
 
 export interface SessionTranscript {
     markdown: string;
-    /** The rebuilt branch's last entry; with the session id it names this exact snapshot. */
+    /** The rebuilt branch's last entry. */
     leafId: string | null;
 }
 
@@ -29,7 +34,12 @@ interface Block {
  * assistant's text and the compaction summary.
  */
 export function buildTranscript(session: SessionInfo): SessionTranscript {
-    const manager = SessionManager.open(session.path);
+    const entries = parseSessionEntries(readFileSync(session.path, "utf8"));
+    if (entries[0]?.type !== "session") {
+        throw new Error(`Session file is not a valid pi session: ${session.path}`);
+    }
+    // Opening a persisted session can rewrite old formats; projection must leave the copy intact.
+    const manager = SessionManager.inMemory(session.cwd, undefined, entries);
     const { messages } = manager.buildSessionProjection();
     const lastAssistant = messages.findLastIndex(
         (message) => message.role === "assistant" && contentText(message.content).trim() !== "",
@@ -66,7 +76,7 @@ function transcriptHeader(session: SessionInfo): string {
         `- Title: ${sessionTitle(session)}`,
         `- Project: ${session.cwd || "unknown"}`,
         `- Session: ${session.id}, started ${formatTime(session.created)}, last active ${formatTime(session.modified)}, ${session.messageCount} messages`,
-        `- Raw session file (JSONL): ${session.path} (read it only for a detail this copy lacks)`,
+        `- Full session copy (JSONL): ${session.path} (read it only for a detail this copy lacks)`,
         "",
         "Kept: the active branch as pi rebuilds it (a compaction summary stands for older history), user prompts and assistant text.",
         "Removed: abandoned branches, the system prompt, thinking, images, tool calls and output, shell commands and extension messages.",

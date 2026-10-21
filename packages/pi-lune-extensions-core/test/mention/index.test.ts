@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+    appendFile,
+    mkdir,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    stat,
+    writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -131,6 +140,7 @@ test("a mention becomes a file reference to a filtered transcript of that sessio
         ]),
     );
     const rawBefore = await readFile(raw);
+    const rawMtimeBefore = (await stat(raw)).mtimeMs;
     await env.call("session_start", {});
 
     const result = (await env.call("input", {
@@ -148,10 +158,19 @@ test("a mention becomes a file reference to a filtered transcript of that sessio
     assert.match(markdown, /\[User\]: request /);
     assert.match(markdown, /\[Assistant\]: later/);
     assert.doesNotMatch(markdown, /PRIVATE/);
+    assert.ok(!result.text.includes(raw));
+    assert.ok(!markdown.includes(raw));
+    const fullCopy = rawCopyFile(markdown);
+    assert.equal(path.dirname(fullCopy), path.dirname(file));
+    assert.ok((await readFile(fullCopy)).equals(rawBefore));
+    assert.match(await readFile(fullCopy, "utf8"), /PRIVATE/);
+    assert.notEqual((await stat(fullCopy)).ino, (await stat(raw)).ino);
+    await writeFile(fullCopy, "EDITED COPY");
     assert.ok((await readFile(raw)).equals(rawBefore));
+    assert.equal((await stat(raw)).mtimeMs, rawMtimeBefore);
 });
 
-test("a repeated mention reuses one file and two sessions get two files", async (t) => {
+test("a repeated mention reuses one pair of copies and two sessions get two pairs", async (t) => {
     const env = await setup(t);
     await env.writeSession(ID_A);
     await env.writeSession(ID_C);
@@ -165,7 +184,9 @@ test("a repeated mention reuses one file and two sessions get two files", async 
     assert.equal(files[0], files[1]);
     assert.notEqual(files[0], files[2]);
     const written = await readdir(path.join(env.tempDir, "pi-lune-session-refs"));
-    assert.equal(written.length, 2);
+    assert.equal(written.filter((file) => file.endsWith(".md")).length, 2);
+    assert.equal(written.filter((file) => file.endsWith(".jsonl")).length, 2);
+    assert.equal(written.length, 4);
 });
 
 test("a temp path with whitespace is quoted in the reference", async (t) => {
@@ -245,6 +266,47 @@ const referencedFile = (result: unknown) => {
     return match[1]!;
 };
 
+const rawCopyFile = (markdown: string) => {
+    const match = /^- Full session copy \(JSONL\): (.+\.jsonl) \(/m.exec(markdown);
+    assert.ok(match, markdown);
+    return match[1]!;
+};
+
+test("mentioning a legacy session leaves the original and its full copy unchanged", async (t) => {
+    const env = await setup(t);
+    const raw = await env.writeSession(ID_A);
+    const legacy = (await readFile(raw, "utf8")).replace('"version":3', '"version":2');
+    await writeFile(raw, legacy);
+    const mtimeBefore = (await stat(raw)).mtimeMs;
+    await env.call("session_start", {});
+
+    const markdown = await readFile(
+        referencedFile(await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` })),
+        "utf8",
+    );
+
+    assert.match(markdown, /\[User\]: request /);
+    assert.equal(await readFile(rawCopyFile(markdown), "utf8"), legacy);
+    assert.equal(await readFile(raw, "utf8"), legacy);
+    assert.equal((await stat(raw)).mtimeMs, mtimeBefore);
+});
+
+test("a full-copy write failure refuses the prompt and restores the editor text", async (t) => {
+    const env = await setup(t);
+    await env.writeSession(ID_A);
+    await env.call("session_start", {});
+    await writeFile(path.join(env.tempDir, "pi-lune-session-refs"), "BLOCKED");
+    const text = `@session:${ID_A.slice(0, 13)}`;
+
+    const result = await env.call("input", { text });
+
+    assert.deepEqual(result, { action: "handled" });
+    assert.deepEqual(env.editorTexts, [text]);
+    assert.equal(env.notices.length, 1);
+    assert.equal(env.notices[0]!.type, "error");
+    assert.match(env.notices[0]!.message, /^Prompt not sent\. EEXIST/);
+});
+
 test("a second mention of an unchanged session reuses the copy written before", async (t) => {
     const env = await setup(t);
     await env.writeSession(ID_A);
@@ -270,6 +332,8 @@ test("a session that grew since its last mention gets a new copy and the old one
     const first = referencedFile(
         await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
     );
+    const firstRawCopy = rawCopyFile(await readFile(first, "utf8"));
+    const rawBefore = await readFile(firstRawCopy, "utf8");
     await writeFile(first, "MARKER");
     await appendFile(
         target,
@@ -289,6 +353,52 @@ test("a session that grew since its last mention gets a new copy and the old one
     assert.notEqual(second, first);
     assert.match(await readFile(second, "utf8"), /\[User\]: appended question/);
     assert.equal(await readFile(first, "utf8"), "MARKER");
+    const secondRawCopy = rawCopyFile(await readFile(second, "utf8"));
+    assert.notEqual(secondRawCopy, firstRawCopy);
+    assert.match(await readFile(secondRawCopy, "utf8"), /appended question/);
+    assert.equal(await readFile(firstRawCopy, "utf8"), rawBefore);
+});
+
+test("a full copy that was deleted is recreated before reusing its Markdown reference", async (t) => {
+    const env = await setup(t);
+    const raw = await env.writeSession(ID_A);
+    await env.call("session_start", {});
+    const first = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+    const fullCopy = rawCopyFile(await readFile(first, "utf8"));
+    await rm(fullCopy);
+
+    const second = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+
+    assert.equal(second, first);
+    assert.equal(rawCopyFile(await readFile(second, "utf8")), fullCopy);
+    assert.ok((await readFile(fullCopy)).equals(await readFile(raw)));
+});
+
+test("session metadata changes preserve the earlier full copy even when the leaf stays", async (t) => {
+    const env = await setup(t);
+    const raw = await env.writeSession(ID_A);
+    await env.call("session_start", {});
+    const first = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+    const firstMarkdown = await readFile(first, "utf8");
+    const firstRawCopy = rawCopyFile(firstMarkdown);
+    const before = await readFile(firstRawCopy, "utf8");
+    const updated = before.replace('"/work/project"', '"/work/renamed-project"');
+    await writeFile(raw, updated);
+
+    const second = referencedFile(
+        await env.call("input", { text: `@session:${ID_A.slice(0, 13)}` }),
+    );
+
+    assert.notEqual(second, first);
+    assert.equal(await readFile(first, "utf8"), firstMarkdown);
+    assert.equal(await readFile(firstRawCopy, "utf8"), before);
+    assert.equal(await readFile(rawCopyFile(await readFile(second, "utf8")), "utf8"), updated);
 });
 
 test("a copy that was deleted is written again at the same path", async (t) => {
