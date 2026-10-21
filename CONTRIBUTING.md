@@ -21,36 +21,50 @@ Use package imports such as `@lune_99/pi-lune-extensions-core/settings` for cros
 | Urgent fix to the stable version                 | `origin/main`                          | `main`    | Create a merge commit |
 | Synchronize stable history                       | `origin/dev`, then merge `origin/main` | `dev`     | Create a merge commit |
 
-Start ordinary work from the latest remote integration branch. Use a descriptive `codex/<topic>` branch name by default, such as `codex/fix-tool-layout`:
+Topic branch names describe the change, without personal, account, assistant, or tool names. Use `<type>/<description>` in lowercase, with hyphens between description words:
+
+| Type                        | Example                     |
+| --------------------------- | --------------------------- |
+| New feature                 | `feat/session-mention`      |
+| Ordinary fix                | `fix/link-hover`            |
+| Refactor                    | `refactor/settings-state`   |
+| Performance improvement     | `perf/transcript-rendering` |
+| Documentation               | `docs/development-workflow` |
+| Tests                       | `test/session-catalog`      |
+| Tooling, dependencies or CI | `chore/branch-workflow`     |
+| Urgent stable fix           | `hotfix/startup-crash`      |
+| Synchronize stable history  | `sync/main-to-dev`          |
+
+Start ordinary work from the latest remote integration branch:
 
 ```bash
 git fetch --prune origin
-git switch -c codex/fix-tool-layout origin/dev
+git switch -c fix/tool-layout origin/dev
 # Make the change and run focused validation.
 npm run check
-git push -u origin codex/fix-tool-layout
+git push -u origin fix/tool-layout
 gh pr create --base dev
 ```
 
 Merge the PR with Squash and merge after CI succeeds, then delete its topic branch. Start the next task from the latest `origin/dev`, rather than continuing a branch whose commits were squashed.
 
-When the integrated work is ready for a stable release, open a `dev` → `main` PR and validate the complete workspace and the affected extensions in Pi. Merge with Create a merge commit; squashing or rebasing a long-lived branch rewrites its shared history and causes later promotions to repeat commits. Publish only the intended packages from the resulting `main` revision, then synchronize `main` back into `dev`.
+When the integrated work is ready for a stable release, open a `dev` → `main` PR and validate the complete workspace and the affected extensions in Pi. Use Create a merge commit to preserve shared ancestry; squashing or rebasing promotions causes later PRs to repeat commits. Publish only the intended packages from the resulting `main` revision, then synchronize `main` back into `dev`.
 
-For an urgent stable fix, create `codex/hotfix-<topic>` from `origin/main` and open its PR against `main`. This keeps unrelated development out of the stable fix. Merge with Create a merge commit, publish the affected package if needed, and synchronize the fix into `dev` before promoting more work.
+For an urgent stable fix, create `hotfix/<description>` from `origin/main` and open its PR against `main`. This keeps unrelated development out of the stable fix. Merge with Create a merge commit, publish the affected package if needed, and synchronize the fix into `dev` before promoting more work.
 
 Use a fresh synchronization branch after each promotion or hotfix:
 
 ```bash
 git fetch --prune origin
-git switch -c codex/sync-main-release origin/dev
+git switch -c sync/main-to-dev origin/dev
 git merge origin/main
-git push -u origin codex/sync-main-release
-gh pr create --base dev --head codex/sync-main-release
+git push -u origin sync/main-to-dev
+gh pr create --base dev --head sync/main-to-dev
 ```
 
 Resolve any conflicts on this topic branch, run the required checks, and merge its PR with Create a merge commit. Strict status checks require the PR head to include current `dev`; using a topic branch lets you meet that requirement without putting unreleased development into `main`. If `origin/main` is already an ancestor of `origin/dev`, synchronization is complete and no PR is needed.
 
-Both long-lived branches require PRs, resolved review threads, and up-to-date passing `Branch policy`, `check (22.19.0)` and `check (24)` checks. Rules apply to administrators, prevent deletion and force pushes, and retain the existing zero required approving reviews. The branch-policy check accepts ordinary PRs into `dev`; only this repository's `dev` and `codex/hotfix-<topic>` branches can target `main`. Fork contributions target `dev` from a topic branch. CI reruns when a PR is retargeted.
+Both long-lived branches require PRs, resolved review threads, and up-to-date passing `Branch policy`, `check (22.19.0)` and `check (24)` checks. Rules apply to administrators, prevent deletion and force pushes, and retain the existing zero required approving reviews. The branch-policy check enforces the naming convention and accepts ordinary PRs into `dev`; only this repository's `dev` and `hotfix/<description>` branches can target `main`. Fork contributions target `dev` from a topic branch following the same naming convention. CI reruns when a PR is retargeted.
 
 The reviewed GitHub ruleset definitions live in `.github/rulesets/dev.json` and `.github/rulesets/main.json`. The `main` ruleset permits merge commits only; `dev` also permits Squash and merge for ordinary changes. Repository settings use `dev` as the default, enable merge commits and squash merges, disable rebase merges, and automatically delete merged topic branches. Branch protection keeps `dev` and `main` from being deleted. Changes to JSON files do not update GitHub automatically; after reviewing a ruleset change, a repository administrator must apply the matching file to its existing ruleset in GitHub.
 
