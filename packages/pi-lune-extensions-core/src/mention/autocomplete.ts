@@ -6,7 +6,8 @@ import { formatAge, projectName, SEPARATOR, sessionTitle, TOKEN_BOUNDARY } from 
 
 /** `@@query` lists sessions only and searches their messages too. */
 export const SESSION_TRIGGER = "@@";
-export const SESSION_LABEL = "[pi]";
+/** Source tags are padded to the widest one so the age and project columns line up. */
+const SOURCE_TAG_WIDTH = Math.max(...Object.keys(SOURCE_NAMES).map((source) => source.length + 2));
 /** Session rows in the list for a plain `@query`. */
 const SESSION_ROWS = 3;
 /** Rows for `@@query`; the search itself covers every local session. */
@@ -162,10 +163,11 @@ function sessionItem(
     sessions: readonly LocalSession[],
     now: number,
 ): AutocompleteItem {
+    const source = `[${session.source}]`.padEnd(SOURCE_TAG_WIDTH);
     const age = formatAge(now - session.modified.getTime()).padStart(3);
     return {
         value: mentionToken(session, sessions),
-        label: `${session.source === "pi" ? SESSION_LABEL : `[${session.source}]`} ${age}  ${projectName(session)}`,
+        label: `${source} ${age}  ${projectName(session)}`,
         description: sessionTitle(session),
     };
 }

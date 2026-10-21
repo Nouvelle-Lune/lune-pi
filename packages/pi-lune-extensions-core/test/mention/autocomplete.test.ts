@@ -167,6 +167,12 @@ test("external sessions appear in @ and @@ with source labels, body search and s
         (await env.suggest("@@"))?.items.map((item) => item.label.split(" ")[0]),
         ["[pi]", "[claude]", "[codex]"],
     );
+    // The source tag is padded to a common width, so every row's age ends in the same column.
+    const ageEnds = plain!.items.map((item) => {
+        const age = /\d+[a-z]+(?= {2})/.exec(item.label)!;
+        return age.index + age[0].length;
+    });
+    assert.equal(new Set(ageEnds).size, 1, `age columns differ: ${ageEnds.join(",")}`);
     assert.deepEqual(values(await env.suggest("@@Searchable")), [
         `@claude:${id.slice(0, 13)}`,
         `@codex:${id.slice(0, 13)}`,
@@ -211,7 +217,7 @@ test("a bare @ lists the three newest sessions in front of the files", async (t)
     ]);
     assert.deepEqual(result?.items[0], {
         value: "@session:newest-sessio",
-        label: "[pi]  1h  web",
+        label: "[pi]      1h  web",
         description: "Fix the login",
     });
 });
