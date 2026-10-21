@@ -3,11 +3,13 @@ Read `CONTRIBUTING.md` before changing code. Preserve package ownership and the 
 ## Branches
 
 - `dev` is the default integration branch; `main` is the stable release branch. Keep both long-lived branches.
-- Fetch before starting work. Create ordinary topic branches from `origin/dev` and open PRs against `dev`. Name branches `<type>/<description>` with types `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `hotfix`, or `sync`; use lowercase words and hyphens, without personal, account, assistant, or tool names. Squash ordinary PRs and delete the merged topic branch.
+- Fetch before starting work. Create ordinary topic branches from `origin/dev`, validate the change, then merge locally into `dev` and push directly. Name branches `<type>/<description>` with types `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `hotfix`, or `sync`; use lowercase words and hyphens, without personal, account, assistant, or tool names. Delete merged topic branches.
+- Create a PR only with explicit prior user consent. Authorization to develop, fix, or continue work does not authorize PR creation. PRs targeting `dev` are optional.
+- Use the user's own Git author identity for commits. Do not add bot or assistant attribution or co-author trailers.
 - Promote validated work with a `dev` → `main` PR using a merge commit. Never squash, rebase, force-push, or delete either long-lived branch.
 - For urgent stable fixes, create `hotfix/<description>` from `origin/main` and target `main` with a merge commit. Synchronize `main` into `dev` after a promotion or hotfix.
-- Synchronize through `sync/main-to-dev` created from `origin/dev`: merge `origin/main` into that topic branch, then PR it into `dev` with a merge commit. Do not target `dev` directly from `main` or merge unreleased `dev` changes into `main` to satisfy required checks.
-- Do not commit or push directly to `dev` or `main`. Both require the branch-policy check, both Node CI checks, an up-to-date PR, and resolved review threads, including for administrators.
+- Synchronize stable history by merging `origin/main` directly into the latest `dev`, then push `dev`. Keep merge ancestry; no synchronization PR or extra topic branch is required.
+- `dev` allows direct pushes and runs CI afterward; it prevents force pushes and deletion. Do not push directly to `main`: it requires the branch-policy check, both Node CI checks, an up-to-date PR, and resolved review threads, including for administrators.
 
 ## Code
 
