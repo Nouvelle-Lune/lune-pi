@@ -11,7 +11,8 @@ Shared building blocks for [Pi](https://github.com/earendil-works/pi) extensions
   set up when Pi shuts the session down.
 
 Your features stay in your own extension. Core does not replace Pi's factories, events,
-commands, model registry or error handling.
+commands, model registry or error handling. Core's own Pi entry adds one small feature:
+[`@` session mentions](#mentions).
 
 ## Quick start
 
@@ -199,6 +200,45 @@ attach. Without a Dock host, or when the loaded Dock is incompatible, your stand
 renderer stays active; in the incompatible case `attach` also warns through
 `ctx.ui.notify` instead of throwing. Core never invents business status or starts a Dock UI.
 See [Dock](docs/dock.md).
+
+## Mentions
+
+Core's Pi entry adds earlier sessions to Pi's `@` completion in the editor.
+
+The list after `@` starts with up to three local sessions from every project, newest first.
+Each row shows `[session]`, the age, the project and the session title. Type after `@` to
+filter them by title, project or id. Files whose name contains what you typed come before
+the sessions, so Tab still picks the file you typed. File matches are Pi's own.
+
+Type `@@` to list only sessions. `@@` searches every local session by title, project, id and
+the text of its messages, and shows up to 50 matches.
+
+```text
+继续这个 @@recap
+→ [session]  3d  lune-pi          调查recap现在生成的条件是什么
+  [session]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
+```
+
+Picking a row inserts `@session:<id>`. When you send the prompt, Core opens that session with
+Pi's `SessionManager.open()` and rebuilds it with `buildSessionProjection()`, the way Pi builds
+its model context: the active branch only, a compaction summary in place of older history, and
+context edits applied. Of that, it keeps only your prompts, the assistant's text and the
+compaction summary. Thinking, images, tool calls and output, shell commands and extension
+messages are left out. The result is written to
+`<agentDir>/tmp/session-refs/<session id>.<entry id>.md` (at most 40 KB), and the token
+becomes an `@` reference to that file, so the agent reads it only when it needs it.
+
+Core does not write session files. Like `/resume`, `SessionManager.open()` upgrades a session
+file that uses an older Pi session format. If an id matches no session or more than one, the
+prompt is not sent and your text returns to the editor.
+
+Core reads the session list with Pi's `SessionManager.listAll()` when a session starts (about
+1 s for 330 sessions). Lookups use that list and reload it in the background when it is older
+than one minute, so a new session can take up to a minute to appear. Typing never waits for
+the list. A typed `@session:<id>` that is not in the list makes Core reload the list before it
+sends the prompt.
+
+Mentions are part of Core's Pi entry only; importing the SDK does not activate them.
 
 ## API and guides
 

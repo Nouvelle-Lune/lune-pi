@@ -259,6 +259,8 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
 
     test("Core startup mounts an empty first-position placeholder and shutdown removes only Core", async (t) => {
         const { ctx, ui, releases, settingsPath } = await fixture(t);
+        // Core startup also installs session mentions, which register an editor autocomplete provider.
+        Object.assign(ui, { addAutocompleteProvider: () => {} });
         const context = { ...ctx, sessionManager: SessionManager.inMemory(ctx.cwd) };
         type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
         const handlers = new Map<string, Set<Handler>>();

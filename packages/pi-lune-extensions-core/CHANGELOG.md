@@ -69,6 +69,17 @@ All notable changes are documented here using
 - **Arrow keys switch settings tabs.** In the main list, Right and Left move to the next
   and previous section, like Tab and Shift+Tab. Text inputs, choice lists and custom
   editors still receive the arrows while they are open.
+- **`@` session mentions.** The `@` list in the editor starts with up to three local
+  sessions from every project (`[session]` rows with age, project and title); files whose
+  name contains the query stay above them, and file matches are Pi's own. `@@` lists only
+  sessions, searching every local session by title, project, id and message text. When you
+  send, each `@session:<id>` becomes an `@` reference to a filtered copy under
+  `<agentDir>/tmp/session-refs/`, so the agent reads it only when it needs it. The copy
+  comes from Pi's `SessionManager.open()` and `buildSessionProjection()` (active branch,
+  compaction summary, context edits) and keeps only user prompts, assistant text and the
+  compaction summary. The list comes from `SessionManager.listAll()`, reloads in the
+  background at most once a minute, and typing never waits for it. An unknown or ambiguous id
+  stops the prompt and puts your text back in the editor.
 
 ### Changed
 
