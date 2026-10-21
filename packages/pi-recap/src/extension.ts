@@ -51,9 +51,9 @@ export function registerRecap(pi: ExtensionAPI): { dispose(): Promise<void> } {
             (await runtime(ctx)).branchChanged(ctx);
         const subscriptions = [
             () =>
-                pi.on("session_start", async (_event, ctx) => {
-                    await runtime(ctx);
-                }),
+                pi.on("session_start", async (_event, ctx) =>
+                    (await runtime(ctx)).sessionStarted(ctx),
+                ),
             () => pi.on("input", invalidate),
             () => pi.on("agent_start", async (_event, ctx) => (await runtime(ctx)).start(ctx)),
             () =>

@@ -312,6 +312,29 @@ export class RecapRuntime {
     }
 
     /**
+     * Pi removes extension widgets before /reload, and a restarted process
+     * starts with none. Show the saved recap that still matches the restored
+     * session; with automatic recap off, only one the user already saw.
+     */
+    sessionStarted(ctx: ExtensionContext): void {
+        this.update(ctx);
+
+        if (ctx.mode !== "tui") {
+            return;
+        }
+
+        try {
+            const data = this.records.get(this.snapshot().key);
+
+            if (data?.text && (this.view.get("enabled") || data.displayed)) {
+                this.display(data);
+            }
+        } catch {
+            // Resolution errors are reported by explicit request attempts.
+        }
+    }
+
+    /**
      * Restore persisted recap records and settle markers without re-running a
      * request merely because the process or extension was reloaded.
      */
@@ -518,10 +541,13 @@ export class RecapRuntime {
         showRecap(this.ctx, data.text);
         this.displayedKey = data.key;
 
-        this.remember({
-            ...data,
-            displayed: true,
-        });
+        // Showing a recap again after reload or focus-in must not grow the session.
+        if (!data.displayed) {
+            this.remember({
+                ...data,
+                displayed: true,
+            });
+        }
     }
 
     private showCached(): void {
