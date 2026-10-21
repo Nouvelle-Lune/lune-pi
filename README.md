@@ -185,6 +185,8 @@ Each palette is captured in a fresh Pi process. Click an image to see it at full
 
 ## Develop
 
+Daily development targets the default `dev` branch. Create a topic branch from `origin/dev` and open its PR against `dev`; validated work reaches the stable `main` branch through a promotion PR. See [CONTRIBUTING.md](CONTRIBUTING.md#branch-workflow) for merge methods, hotfixes and release synchronization.
+
 The seven packages share one npm workspace and lockfile, and each has its own version. Run the full check before you send a change:
 
 ```bash
