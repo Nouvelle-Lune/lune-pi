@@ -10,6 +10,50 @@ One exception: Core's optional Pi entry also adds earlier sessions to Pi's `@` c
 
 Use package imports such as `@lune_99/pi-lune-extensions-core/settings` for cross-package access. Do not import another package's private source files. Internal dependencies use normal semver ranges so the same manifests work in the workspace and in published packages.
 
+## Branch workflow
+
+`dev` is the default branch and integrates daily development. `main` contains validated stable work and is the source for package releases. Keep both branches; create a separate short-lived branch for each change.
+
+| Change                                           | Start from                             | PR target | Merge method          |
+| ------------------------------------------------ | -------------------------------------- | --------- | --------------------- |
+| Feature, ordinary fix, refactor, docs or tooling | `origin/dev`                           | `dev`     | Squash and merge      |
+| Promote validated development                    | Existing `dev`                         | `main`    | Create a merge commit |
+| Urgent fix to the stable version                 | `origin/main`                          | `main`    | Create a merge commit |
+| Synchronize stable history                       | `origin/dev`, then merge `origin/main` | `dev`     | Create a merge commit |
+
+Start ordinary work from the latest remote integration branch. Use a descriptive `codex/<topic>` branch name by default, such as `codex/fix-tool-layout`:
+
+```bash
+git fetch --prune origin
+git switch -c codex/fix-tool-layout origin/dev
+# Make the change and run focused validation.
+npm run check
+git push -u origin codex/fix-tool-layout
+gh pr create --base dev
+```
+
+Merge the PR with Squash and merge after CI succeeds, then delete its topic branch. Start the next task from the latest `origin/dev`, rather than continuing a branch whose commits were squashed.
+
+When the integrated work is ready for a stable release, open a `dev` → `main` PR and validate the complete workspace and the affected extensions in Pi. Merge with Create a merge commit; squashing or rebasing a long-lived branch rewrites its shared history and causes later promotions to repeat commits. Publish only the intended packages from the resulting `main` revision, then synchronize `main` back into `dev`.
+
+For an urgent stable fix, create `codex/hotfix-<topic>` from `origin/main` and open its PR against `main`. This keeps unrelated development out of the stable fix. Merge with Create a merge commit, publish the affected package if needed, and synchronize the fix into `dev` before promoting more work.
+
+Use a fresh synchronization branch after each promotion or hotfix:
+
+```bash
+git fetch --prune origin
+git switch -c codex/sync-main-release origin/dev
+git merge origin/main
+git push -u origin codex/sync-main-release
+gh pr create --base dev --head codex/sync-main-release
+```
+
+Resolve any conflicts on this topic branch, run the required checks, and merge its PR with Create a merge commit. Strict status checks require the PR head to include current `dev`; using a topic branch lets you meet that requirement without putting unreleased development into `main`. If `origin/main` is already an ancestor of `origin/dev`, synchronization is complete and no PR is needed.
+
+Both long-lived branches require PRs, resolved review threads, and up-to-date passing `Branch policy`, `check (22.19.0)` and `check (24)` checks. Rules apply to administrators, prevent deletion and force pushes, and retain the existing zero required approving reviews. The branch-policy check accepts ordinary PRs into `dev`; only this repository's `dev` and `codex/hotfix-<topic>` branches can target `main`. Fork contributions target `dev` from a topic branch. CI reruns when a PR is retargeted.
+
+The reviewed GitHub ruleset definitions live in `.github/rulesets/dev.json` and `.github/rulesets/main.json`. The `main` ruleset permits merge commits only; `dev` also permits Squash and merge for ordinary changes. Repository settings use `dev` as the default, enable merge commits and squash merges, disable rebase merges, and automatically delete merged topic branches. Branch protection keeps `dev` and `main` from being deleted. Changes to JSON files do not update GitHub automatically; after reviewing a ruleset change, a repository administrator must apply the matching file to its existing ruleset in GitHub.
+
 ## Setup and validation
 
 Run `npm ci` at the repository root. Commit the root `package-lock.json`; do not create package-level lockfiles. Keep dependency requirements with the package that imports them. Pin Pi SDK development dependencies to `1.3.0` across the workspace so shared classes and branded types resolve to one version. Runtime peer ranges remain package-specific.
@@ -37,7 +81,7 @@ Errors must remain visible. Do not add silent fallbacks, legacy branches, or aut
 
 Keep existing package names and independent versions. Add user-visible changes to the owning package's `CHANGELOG.md` under `Unreleased`; record shared repository tooling in the root `CHANGELOG.md`. Released sections are immutable.
 
-Before publishing a package, run the complete checks, inspect its tarball, and update any internal dependency ranges required by its public API. Publish Core before consumers when they require a new Core version. Publish only the intended workspace:
+Publish stable packages from a clean, validated `main` revision after its promotion or hotfix PR has merged. Before publishing a package, run the complete checks, inspect its tarball, and update any internal dependency ranges required by its public API. Publish Core before consumers when they require a new Core version. Publish only the intended workspace:
 
 ```bash
 npm publish --workspace=<package-name> --access public
