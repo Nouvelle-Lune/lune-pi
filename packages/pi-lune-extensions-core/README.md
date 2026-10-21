@@ -206,7 +206,7 @@ See [Dock](docs/dock.md).
 Core's Pi entry adds local Pi, Codex and Claude Code sessions to the same `@` completion list.
 
 The list after `@` starts with up to three local sessions from every project, newest first.
-Each row shows its source (`[session]`, `[codex]` or `[claude]`), age, project and title.
+Each row shows its source (`[pi]`, `[codex]` or `[claude]`), age, project and title.
 Type after `@` to filter by source, title, project or id. Files whose name contains what you typed come before
 the sessions, so Tab still picks the file you typed. File matches are Pi's own.
 
@@ -215,8 +215,8 @@ the text of its messages, and shows up to 50 matches.
 
 ```text
 继续这个 @@recap
-→ [session]  3d  lune-pi          调查recap现在生成的条件是什么
-  [session]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
+→ [pi]  3d  lune-pi          调查recap现在生成的条件是什么
+  [pi]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
 ```
 
 Picking a row inserts `@session:<id>` for Pi, `@codex:<id>` for Codex or `@claude:<id>` for

@@ -161,11 +161,11 @@ test("external sessions appear in @ and @@ with source labels, body search and s
     const plain = await env.suggest("@");
     assert.deepEqual(
         plain?.items.map((item) => item.label.split(" ")[0]),
-        ["[session]", "[claude]", "[codex]"],
+        ["[pi]", "[claude]", "[codex]"],
     );
     assert.deepEqual(
         (await env.suggest("@@"))?.items.map((item) => item.label.split(" ")[0]),
-        ["[session]", "[claude]", "[codex]"],
+        ["[pi]", "[claude]", "[codex]"],
     );
     assert.deepEqual(values(await env.suggest("@@Searchable")), [
         `@claude:${id.slice(0, 13)}`,
@@ -211,7 +211,7 @@ test("a bare @ lists the three newest sessions in front of the files", async (t)
     ]);
     assert.deepEqual(result?.items[0], {
         value: "@session:newest-sessio",
-        label: "[session]  1h  web",
+        label: "[pi]  1h  web",
         description: "Fix the login",
     });
 });

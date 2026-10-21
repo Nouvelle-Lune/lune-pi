@@ -22,7 +22,8 @@ All notable changes are documented here using
 ### Added
 
 - **Codex and Claude Code session mentions.** Both tools' local main sessions now appear
-  alongside Pi sessions in the same `@` and `@@` lists, with source labels and source-specific
+  alongside Pi sessions in the same `@` and `@@` lists, with `[pi]`, `[codex]` and `[claude]`
+  source labels and source-specific
   reference tokens. References preserve an exact JSONL copy and filter the active conversation
   into Markdown; Codex archives and both tools' subagents are excluded. Existing catalog,
   search and reference caches are reused, with unchanged external files parsed only once.
@@ -77,7 +78,7 @@ All notable changes are documented here using
   and previous section, like Tab and Shift+Tab. Text inputs, choice lists and custom
   editors still receive the arrows while they are open.
 - **`@` session mentions.** The `@` list in the editor starts with up to three local
-  sessions from every project (`[session]` rows with age, project and title); files whose
+  sessions from every project (`[pi]` rows with age, project and title); files whose
   name contains the query stay above them, and file matches are Pi's own. `@@` lists only
   sessions, searching every local session by title, project, id and message text. When you
   send, each `@session:<id>` becomes an `@` reference to a filtered copy under

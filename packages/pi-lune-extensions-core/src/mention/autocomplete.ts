@@ -6,7 +6,7 @@ import { formatAge, projectName, SEPARATOR, sessionTitle, TOKEN_BOUNDARY } from 
 
 /** `@@query` lists sessions only and searches their messages too. */
 export const SESSION_TRIGGER = "@@";
-export const SESSION_LABEL = "[session]";
+export const SESSION_LABEL = "[pi]";
 /** Session rows in the list for a plain `@query`. */
 const SESSION_ROWS = 3;
 /** Rows for `@@query`; the search itself covers every local session. */
@@ -156,7 +156,7 @@ function matchRank(session: LocalSession, needle: string, searchText: boolean): 
     return search.text.includes(needle) ? 1 : 0;
 }
 
-/** `[session]`, age and project fill pi's label column, which leaves the wide one for the title. */
+/** Source, age and project fill pi's label column, which leaves the wide one for the title. */
 function sessionItem(
     session: LocalSession,
     sessions: readonly LocalSession[],
