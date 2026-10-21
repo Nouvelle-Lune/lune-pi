@@ -225,8 +225,12 @@ its model context: the active branch only, a compaction summary in place of olde
 context edits applied. Of that, it keeps only your prompts, the assistant's text and the
 compaction summary. Thinking, images, tool calls and output, shell commands and extension
 messages are left out. The result is written to
-`<agentDir>/tmp/session-refs/<session id>.<entry id>.md` (at most 40 KB), and the token
+`<os.tmpdir()>/pi-lune-session-refs/<session id>.<entry id>.md` (at most 40 KB), and the token
 becomes an `@` reference to that file, so the agent reads it only when it needs it.
+Copies remain available across Pi restarts until the operating system reclaims them; cleanup
+timing depends on its temporary-file policy. Mentioning a session again recreates a missing
+copy. Existing copies under `<agentDir>/tmp/session-refs/` can be removed manually when their
+old references are no longer needed.
 
 Core does not write session files. Like `/resume`, `SessionManager.open()` upgrades a session
 file that uses an older Pi session format. If an id matches no session or more than one, the
