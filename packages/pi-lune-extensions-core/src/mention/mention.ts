@@ -1,26 +1,32 @@
-import type { SessionInfo } from "@earendil-works/pi-coding-agent";
+import type { LocalSession, SessionSource } from "./session.ts";
 import { TOKEN_BOUNDARY } from "./text.ts";
 
 export const TOKEN_PREFIX = "@session:";
+const TOKEN_PREFIXES: Record<SessionSource, string> = {
+    pi: TOKEN_PREFIX,
+    codex: "@codex:",
+    claude: "@claude:",
+};
 
 /** UUIDv7 ids carry the creation time in their first 12 hex digits (`01a14931-31bb`). */
 const MIN_ID_LENGTH = 13;
 
 // Session ids follow pi's assertValidSessionId(): alphanumeric at both ends, `._-` inside.
 const mentionPattern = new RegExp(
-    `(?<=${TOKEN_BOUNDARY})${TOKEN_PREFIX}([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)`,
+    `(?<=${TOKEN_BOUNDARY})@(session|codex|claude):([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)`,
     "gu",
 );
 
 export interface Mention {
-    /** Offset of `@session:` in the text. */
+    /** Offset of the source-specific token in the text. */
     index: number;
     token: string;
+    source: SessionSource;
     idPrefix: string;
 }
 
 /** The shortest id prefix, from MIN_ID_LENGTH up, that names only this session. */
-export function shortSessionId(id: string, sessions: readonly SessionInfo[]): string {
+export function shortSessionId(id: string, sessions: readonly LocalSession[]): string {
     for (let length = Math.min(MIN_ID_LENGTH, id.length); length < id.length; length++) {
         const prefix = id.slice(0, length);
         if (!/[A-Za-z0-9]$/.test(prefix)) continue;
@@ -31,26 +37,35 @@ export function shortSessionId(id: string, sessions: readonly SessionInfo[]): st
     return id;
 }
 
-export function mentionToken(session: SessionInfo, sessions: readonly SessionInfo[]): string {
-    return `${TOKEN_PREFIX}${shortSessionId(session.id, sessions)}`;
+export function mentionToken(session: LocalSession, sessions: readonly LocalSession[]): string {
+    const sameSource = sessions.filter((other) => other.source === session.source);
+    return `${TOKEN_PREFIXES[session.source]}${shortSessionId(session.id, sameSource)}`;
 }
 
 export function findMentions(text: string): Mention[] {
     return [...text.matchAll(mentionPattern)].map((match) => ({
         index: match.index,
         token: match[0],
-        idPrefix: match[1]!,
+        source: match[1] === "session" ? "pi" : (match[1] as SessionSource),
+        idPrefix: match[2]!,
     }));
 }
 
 /** Throws when the prefix names no session or more than one. */
-export function resolveMention(idPrefix: string, sessions: readonly SessionInfo[]): SessionInfo {
-    const matches = sessions.filter((session) => session.id.startsWith(idPrefix));
+export function resolveMention(
+    mention: Pick<Mention, "source" | "idPrefix">,
+    sessions: readonly LocalSession[],
+): LocalSession {
+    const { source, idPrefix } = mention;
+    const token = `${TOKEN_PREFIXES[source]}${idPrefix}`;
+    const matches = sessions.filter(
+        (session) => session.source === source && session.id.startsWith(idPrefix),
+    );
     if (matches.length === 1) return matches[0]!;
     throw new Error(
         matches.length === 0
-            ? `No local session matches ${TOKEN_PREFIX}${idPrefix}`
-            : `${TOKEN_PREFIX}${idPrefix} matches ${matches.length} sessions; type more of the id`,
+            ? `No local session matches ${token}`
+            : `${token} matches ${matches.length} sessions; type more of the id`,
     );
 }
 

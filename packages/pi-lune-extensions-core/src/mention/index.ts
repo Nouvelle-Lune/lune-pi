@@ -2,16 +2,23 @@ import { createHash } from "node:crypto";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, SessionInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ResourceScope } from "../resources/resources.ts";
 import { createMentionAutocomplete } from "./autocomplete.ts";
 import { SessionCatalog } from "./catalog.ts";
-import { fileReference, findMentions, replaceMentions, resolveMention } from "./mention.ts";
+import {
+    fileReference,
+    findMentions,
+    replaceMentions,
+    resolveMention,
+    type Mention,
+} from "./mention.ts";
+import { ExternalSessionParseError, type LocalSession } from "./session.ts";
 import { buildTranscript } from "./transcript.ts";
 
 /**
  * `@` lists local sessions with pi's file matches, and `@@` lists sessions only. A picked
- * session becomes `@session:<id>`. On submit, each such token becomes an `@` reference to
+ * session becomes a source-specific token. On submit, each such token becomes an `@` reference to
  * a filtered copy of that session, which the model reads when it needs the background.
  */
 export function installMentions(pi: ExtensionAPI, resources: ResourceScope): void {
@@ -49,16 +56,18 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
             if (mentions.length === 0) return { action: "continue" };
             try {
                 if (!catalog) throw new Error("Session mentions have no active session");
-                const files = new Map<string, string>();
-                for (const idPrefix of new Set(mentions.map((mention) => mention.idPrefix))) {
-                    const session = await findSession(catalog, idPrefix);
-                    files.set(idPrefix, await transcripts.file(session));
+                const files = new Map<string, string | undefined>();
+                for (const mention of mentions) {
+                    if (files.has(mention.token)) continue;
+                    const session = await findSession(catalog, mention);
+                    files.set(mention.token, await transcripts.file(session));
                 }
                 return {
                     action: "transform",
-                    text: replaceMentions(event.text, mentions, (mention) =>
-                        fileReference(files.get(mention.idPrefix)!),
-                    ),
+                    text: replaceMentions(event.text, mentions, (mention) => {
+                        const file = files.get(mention.token);
+                        return file === undefined ? mention.token : fileReference(file);
+                    }),
                     images: event.images,
                 };
             } catch (error) {
@@ -68,13 +77,18 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
     );
 }
 
-async function findSession(catalog: SessionCatalog, idPrefix: string): Promise<SessionInfo> {
+async function findSession(catalog: SessionCatalog, mention: Mention): Promise<LocalSession> {
     const cached = await catalog.list();
-    if (cached.some((session) => session.id.startsWith(idPrefix))) {
-        return resolveMention(idPrefix, cached);
+    if (
+        cached.some(
+            (session) =>
+                session.source === mention.source && session.id.startsWith(mention.idPrefix),
+        )
+    ) {
+        return resolveMention(mention, cached);
     }
     // A typed id can name a session that is newer than the cached list.
-    return resolveMention(idPrefix, await catalog.reload());
+    return resolveMention(mention, await catalog.reload());
 }
 
 interface TranscriptFiles {
@@ -87,31 +101,42 @@ interface TranscriptFiles {
  * last mention reuses the copy written then.
  */
 class TranscriptCache {
-    private readonly written = new Map<string, TranscriptFiles & { version: string }>();
+    private readonly written = new Map<string, { version: string; files?: TranscriptFiles }>();
 
-    async file(session: SessionInfo): Promise<string> {
+    async file(session: LocalSession): Promise<string | undefined> {
         const stats = await stat(session.path);
-        const version = `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
+        const version = `${stats.ino}:${stats.size}:${stats.mtimeMs}:${session.name ?? ""}`;
         const cached = this.written.get(session.path);
-        if (
-            cached?.version === version &&
-            (await exists(cached.file)) &&
-            (await exists(cached.rawFile))
-        ) {
-            return cached.file;
+        if (cached?.version === version) {
+            if (!cached.files) return undefined;
+            if ((await exists(cached.files.file)) && (await exists(cached.files.rawFile))) {
+                return cached.files.file;
+            }
         }
-        const files = await writeTranscript(session);
-        this.written.set(session.path, { version, ...files });
-        return files.file;
+        try {
+            const files = await writeTranscript(session);
+            this.written.set(session.path, { version, files });
+            return files.file;
+        } catch (error) {
+            if (!(error instanceof ExternalSessionParseError)) throw error;
+            // TODO: Record invalid external reference snapshots in Core Log when it is available.
+            this.written.set(session.path, { version });
+            return undefined;
+        }
     }
 }
 
-async function writeTranscript(session: SessionInfo): Promise<TranscriptFiles> {
+async function writeTranscript(session: LocalSession): Promise<TranscriptFiles> {
     const content = await readFile(session.path);
     const directory = join(tmpdir(), "pi-lune-session-refs");
     await mkdir(directory, { recursive: true });
     // Hash the full snapshot: metadata can change without moving the active branch's leaf.
-    const name = `${session.id}.${createHash("sha256").update(content).digest("hex")}`;
+    const hash = createHash("sha256")
+        .update(content)
+        .update("\0")
+        .update(session.name ?? "")
+        .digest("hex");
+    const name = `${session.source}.${session.id}.${hash}`;
     const rawFile = join(directory, `${name}.jsonl`);
     await writeFile(rawFile, content, { mode: 0o600 });
     const transcript = buildTranscript({ ...session, path: rawFile });

@@ -15,7 +15,13 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ResourceScope } from "../../src/resources/index.ts";
 import { installMentions } from "../../src/mention/index.ts";
-import { SessionFile } from "../harness/session-fixtures.ts";
+import {
+    claudeMessage,
+    codexMeta,
+    codexMessage,
+    jsonl,
+} from "../harness/external-session-fixtures.ts";
+import { isolateExternalSessions, SessionFile } from "../harness/session-fixtures.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -28,6 +34,7 @@ async function setup(
     options: { hasUI?: boolean; mode?: string; tempDirName?: string } = {},
 ) {
     const root = await mkdtemp(path.join(os.tmpdir(), "session-mention-"));
+    const externalHomes = isolateExternalSessions(t, root);
     t.after(() => rm(root, { recursive: true, force: true }));
     const agentDir = path.join(root, "agent");
     const tempDir = path.join(root, options.tempDirName ?? "tmp");
@@ -93,6 +100,7 @@ async function setup(
         return target;
     };
     return {
+        ...externalHomes,
         tempDir,
         call,
         notices,
@@ -153,7 +161,7 @@ test("a mention becomes a file reference to a filtered transcript of that sessio
     const match = /^Continue from @(.+\.md) please$/.exec(result.text);
     assert.ok(match, result.text);
     const file = match[1]!;
-    assert.ok(file.startsWith(path.join(env.tempDir, "pi-lune-session-refs", ID_A + ".")));
+    assert.ok(file.startsWith(path.join(env.tempDir, "pi-lune-session-refs", "pi." + ID_A + ".")));
     const markdown = await readFile(file, "utf8");
     assert.match(markdown, /\[User\]: request /);
     assert.match(markdown, /\[Assistant\]: later/);
@@ -271,6 +279,133 @@ const rawCopyFile = (markdown: string) => {
     assert.ok(match, markdown);
     return match[1]!;
 };
+
+test("a prompt mentioning all sources keeps identical ids separate and attaches exact JSONL copies", async (t) => {
+    const env = await setup(t);
+    const piPath = await env.writeSession(ID_A);
+    const codexDir = path.join(env.codexHome, "sessions");
+    const claudeDir = path.join(env.claudeHome, "projects", "--project--");
+    await mkdir(codexDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    const codexPath = path.join(codexDir, "rollout-main.jsonl");
+    const claudePath = path.join(claudeDir, `${ID_A}.jsonl`);
+    await writeFile(
+        codexPath,
+        jsonl([
+            codexMeta(ID_A),
+            codexMessage("user", "Codex request"),
+            codexMessage("assistant", "Codex answer"),
+            { type: "response_item", payload: { type: "reasoning", text: "PRIVATE-CODEX" } },
+        ]),
+    );
+    await writeFile(
+        claudePath,
+        jsonl([
+            claudeMessage(ID_A, "u", null, "user", "Claude request"),
+            claudeMessage(ID_A, "a", "u", "assistant", [
+                { type: "text", text: "Claude answer" },
+                { type: "thinking", thinking: "PRIVATE-CLAUDE" },
+            ]),
+        ]),
+    );
+    const originals = await Promise.all(
+        [piPath, codexPath, claudePath].map((file) => readFile(file)),
+    );
+    await env.call("session_start", {});
+
+    const result = (await env.call("input", {
+        text: `@session:${ID_A} @codex:${ID_A} @claude:${ID_A} @codex:${ID_A}`,
+    })) as { action: string; text: string };
+
+    assert.equal(result.action, "transform");
+    const files = result.text.split(" ").map((reference) => reference.slice(1));
+    assert.equal(new Set(files).size, 3);
+    assert.equal(files[1], files[3]);
+    for (const [index, source] of ["pi", "Codex", "Claude Code"].entries()) {
+        const markdown = await readFile(files[index]!, "utf8");
+        assert.ok(markdown.includes(`# Earlier ${source} session`));
+        assert.doesNotMatch(markdown, /PRIVATE-/);
+        assert.ok((await readFile(rawCopyFile(markdown))).equals(originals[index]!));
+    }
+    assert.match(await readFile(files[1]!, "utf8"), /\[User\]: Codex request/);
+    assert.match(await readFile(files[2]!, "utf8"), /\[Assistant\]: Claude answer/);
+    assert.deepEqual(
+        await Promise.all([piPath, codexPath, claudePath].map((file) => readFile(file))),
+        originals,
+    );
+    assert.deepEqual(env.notices, []);
+});
+
+test("an indexed Codex rename creates a new snapshot while preserving the earlier title", async (t) => {
+    const env = await setup(t);
+    const directory = path.join(env.codexHome, "sessions");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+        path.join(directory, "rollout-main.jsonl"),
+        jsonl([codexMeta(ID_A), codexMessage("user", "Question")]),
+    );
+    const index = path.join(env.codexHome, "session_index.jsonl");
+    await writeFile(index, jsonl([{ id: ID_A, thread_name: "Original title" }]));
+    await env.call("session_start", {});
+    const first = referencedFile(await env.call("input", { text: `@codex:${ID_A}` }));
+    await writeFile(index, jsonl([{ id: ID_A, thread_name: "Renamed title" }]));
+    // Replacing the Pi session also reloads the external title index without changing the rollout.
+    await env.call("session_start", {});
+    const second = referencedFile(await env.call("input", { text: `@codex:${ID_A}` }));
+
+    assert.notEqual(first, second);
+    assert.match(await readFile(first, "utf8"), /- Title: Original title/);
+    assert.match(await readFile(second, "utf8"), /- Title: Renamed title/);
+});
+
+for (const source of ["codex", "claude"] as const) {
+    test(`${source} parser failures after selection are silent and allow the rest of the prompt to be sent`, async (t) => {
+        const env = await setup(t);
+        await env.writeSession(ID_C);
+        const directory =
+            source === "codex"
+                ? path.join(env.codexHome, "sessions")
+                : path.join(env.claudeHome, "projects", "--project--");
+        await mkdir(directory, { recursive: true });
+        const target = path.join(
+            directory,
+            source === "codex" ? "rollout-main.jsonl" : `${ID_A}.jsonl`,
+        );
+        await writeFile(
+            target,
+            source === "codex"
+                ? jsonl([codexMeta(ID_A), codexMessage("user", "Question")])
+                : jsonl([claudeMessage(ID_A, "u", null, "user", "Question")]),
+        );
+        await env.call("session_start", {});
+        const token = `@${source}:${ID_A}`;
+        assert.equal(
+            ((await env.call("input", { text: token })) as { action: string }).action,
+            "transform",
+        );
+        await writeFile(target, "broken\n");
+        const images = [{ type: "image", data: "unchanged" }];
+
+        const result = (await env.call("input", { text: `${token} @session:${ID_C}`, images })) as {
+            action: string;
+            text: string;
+            images: unknown[];
+        };
+
+        assert.equal(result.action, "transform");
+        assert.ok(result.text.startsWith(`${token} @`));
+        assert.ok(result.text.endsWith(".md"));
+        assert.deepEqual(result.images, images);
+        const repeated = (await env.call("input", { text: token })) as {
+            action: string;
+            text: string;
+        };
+        assert.equal(repeated.action, "transform");
+        assert.equal(repeated.text, token);
+        assert.deepEqual(env.notices, []);
+        assert.deepEqual(env.editorTexts, []);
+    });
+}
 
 test("mentioning a legacy session leaves the original and its full copy unchanged", async (t) => {
     const env = await setup(t);
