@@ -4,14 +4,14 @@
 
 ### Light tools. Deeper work.
 
-Seven cooperating extensions that turn the [Pi](https://pi.dev) coding agent into a calm, readable terminal workspace.<br>
+Eight cooperating extensions that turn the [Pi](https://pi.dev) coding agent into a calm, readable terminal workspace.<br>
 See what the agent did, decide with context, keep long commands in reach, and pick up a session where you left it.
 
 [Quick start](#quick-start) · [Tour](#a-short-tour) · [Packages](#the-family) · [Palettes](#seven-palettes) · [Develop](#develop)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-7aa2f7.svg)](LICENSE)
 [![Node.js 22.19+](https://img.shields.io/badge/node-%E2%89%A522.19-7aa2f7.svg)](package.json)
-[![Pi extensions](https://img.shields.io/badge/pi-7_extensions-7aa2f7.svg)](#the-family)
+[![Pi extensions](https://img.shields.io/badge/pi-8_extensions-7aa2f7.svg)](#the-family)
 
 </div>
 
@@ -31,14 +31,15 @@ See what the agent did, decide with context, keep long commands in reach, and pi
 
 Pi is the coding agent. Lune is a set of extensions for it. You keep Pi's agent loop, models and commands; Lune changes how the session looks and adds the parts that a long day of agent work needs.
 
-|                            |                                                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **Read the work**          | Each tool call is one compact line. Open it to see the arguments, output and a highlighted diff.          |
-| **Decide with context**    | The agent asks structured questions with options, previews and room for your own answer.                  |
-| **Keep commands in reach** | Long shell jobs run in the background. Watch their live output, then let the result go back to the agent. |
-| **Return to the thread**   | Choose how the context is compacted, and get a short recap of the goal and progress when you come back.   |
+|                            |                                                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Read the work**          | Each tool call is one compact line. Open it to see the arguments, output and a highlighted diff.                  |
+| **Decide with context**    | The agent asks structured questions with options, previews and room for your own answer.                          |
+| **Keep commands in reach** | Long shell jobs run in the background. Watch their live output, then let the result go back to the agent.         |
+| **Return to the thread**   | Choose how the context is compacted, and get a short recap of the goal and progress when you come back.           |
+| **Delegate side work**     | Hand a task to a subagent run. It works in its own session, optionally in its own Git worktree, and reports back. |
 
-You can install all seven packages, or only the ones you want.
+You can install all eight packages, or only the ones you want.
 
 <br>
 
@@ -123,6 +124,7 @@ pi install ./packages/pi-ask-question
 pi install ./packages/pi-shell-inspector
 pi install ./packages/pi-compaction
 pi install ./packages/pi-recap
+pi install ./packages/pi-subagent
 ```
 
 Pi loads these packages from the checkout, so do not move or delete it.
@@ -148,6 +150,7 @@ Core Theme is off by default. Run `/lune-core-settings core-theme`, enable **Cor
 | Focus the Dock                 | Down in an empty editor, then Left/Right and Enter |
 | Compact the conversation       | `/compact`                                         |
 | Get a session recap            | `/recap`                                           |
+| Inspect subagent runs          | `/agents`                                          |
 
 Compaction is on by default. Tool-history review and automatic recaps are off until you turn them on. A recap is a separate model request, so your provider can charge for it.
 
@@ -157,15 +160,16 @@ Compaction is on by default. Tool-history review and automatic recaps are off un
 
 Each package has its own README with all settings and behavior.
 
-| Package                                                                                                  | What it gives you                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes.           |
-| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.             |
-| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.              |
-| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                                 |
-| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                                 |
-| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                                     |
-| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup, Dock contracts and `@` session mentions. Other extension authors can use it too. |
+| Package                                                                                                  | What it gives you                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes.                   |
+| **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.                     |
+| **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.                      |
+| **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                                         |
+| **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                                         |
+| **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                                             |
+| **[Subagent](packages/pi-subagent/README.md)**<br><sub>`@lune_99/pi-subagent`</sub>                      | Delegated tasks in separate Pi sessions with a fresh context, optional Git worktrees, reports back to the agent, and the `/agents` inspector. |
+| **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup, Dock contracts and `@` session mentions. Other extension authors can use it too.         |
 
 <br>
 
@@ -187,7 +191,7 @@ Each palette is captured in a fresh Pi process. Click an image to see it at full
 
 Daily development targets the default `dev` branch. Create a topic branch from `origin/dev`, validate it, then merge locally into `dev` and push directly; CI runs after the push. PRs into `dev` are optional. Validated work reaches the stable `main` branch through a promotion PR, and every PR requires explicit prior user consent. See [CONTRIBUTING.md](CONTRIBUTING.md#branch-workflow) for merge methods, hotfixes and release synchronization.
 
-The seven packages share one npm workspace and lockfile, and each has its own version. Run the full check before you send a change:
+The eight packages share one npm workspace and lockfile, and each has its own version. Run the full check before you send a change:
 
 ```bash
 npm run check
@@ -205,7 +209,7 @@ npm run check
 | `npm run lint`          | Lint TypeScript and JavaScript with ESLint                       |
 | `npm run typecheck`     | Build dependencies and typecheck every package                   |
 | `npm test`              | Build dependencies and run every package's tests                 |
-| `npm run pack:check`    | Inspect all seven npm tarballs without publishing                |
+| `npm run pack:check`    | Inspect all eight npm tarballs without publishing                |
 | `npm run check`         | Run formatting, lint, typechecks, tests and package checks       |
 | `npm run docs:previews` | Capture the README screenshots and recording in Ghostty on macOS |
 

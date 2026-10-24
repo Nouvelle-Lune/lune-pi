@@ -96,6 +96,21 @@ test("an empty session directory lists every project of the default store", asyn
     assert.deepEqual(ids(await catalog.list()), ["proj-a-00000000001"]);
 });
 
+test("a subagent run session beside the definitions is never returned by the default store", async (t) => {
+    const { agentDir, write } = await fixture(t);
+    await write(path.join(agentDir, "sessions", "--work-a--"), "proj-a-00000000001");
+    // The literal layout of the subagent design: <agentDir>/lune-subagents/sessions/<parent>/<run>.jsonl
+    const runDir = path.join(agentDir, "lune-subagents", "sessions", "proj-a-00000000001");
+    const run = new SessionFile("run-b-00000000002", "/work/run-b-00000000002");
+    run.message({ role: "user", content: "run task", timestamp: day(5) });
+    await mkdir(runDir, { recursive: true });
+    await writeFile(path.join(runDir, "run-b-00000000002.jsonl"), run.jsonl());
+    const catalog = new SessionCatalog("", silent);
+    t.after(() => catalog.dispose());
+
+    assert.deepEqual(ids(await catalog.list()), ["proj-a-00000000001"]);
+});
+
 test("the default store is listed without a directory and a custom store with one, both with the abort signal", async (t) => {
     const { agentDir, customDir, write } = await fixture(t);
     const projectDir = path.join(agentDir, "sessions", "--work-a--");

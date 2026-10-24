@@ -7,6 +7,7 @@
 - **Claude Code agent guide.** Add a root `CLAUDE.md` that imports `AGENTS.md`, so Claude Code sessions start with the same rules as other agents. The rules stay in `AGENTS.md` only.
 - **Shared lint and format checks.** Add ESLint for TypeScript and JavaScript and pin Prettier 3.8.3 to the local Zed formatting rules. Run `npm run format` to apply the style, or `npm run check` to validate formatting, lint, types, tests, and package contents; CI enforces the same checks on both supported Node.js versions.
 - **Lune monorepo.** Bring Core and the six Lune extensions into one npm workspace with their existing package names and independent versions. A shared lockfile, Pi SDK 1.3.0 development baseline, root validation commands, and GitHub Actions check all seven packages together.
+- **Subagent package in the workspace.** Add `@lune_99/pi-subagent` under `packages/pi-subagent` to the npm workspace and the shared lockfile. The root checks now cover it with the other packages, and the root README lists it with the family, its install line and `/agents`.
 - **Native workspace recordings.** Add real Ghostty screenshots, a full Pi walkthrough and a GIF extracted from the recording, including all seven current themes. A repeatable capture script drives the actual plugin workflows with an offline model provider.
 
 ### Changed
