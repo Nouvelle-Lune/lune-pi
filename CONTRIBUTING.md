@@ -12,7 +12,7 @@ Use package imports such as `@lune_99/pi-lune-extensions-core/settings` for cros
 
 ## Branch workflow
 
-`dev` is the default branch and integrates daily development through local merges and direct pushes. CI runs after each push; a PR into `dev` is optional. `main` contains validated stable work and is the source for package releases. Keep both branches; create a separate short-lived branch for each change.
+`dev` is the default branch and integrates daily development through local merges and direct pushes. CI runs after each push; a PR into `dev` is optional. `main` contains validated stable work and is the source for package releases. Keep both branches; create a separate short-lived branch for each change that reaches the repository. Work that is never committed, such as local drafts in a gitignored directory, needs no branch: edit it in place on `dev` and do not stage it.
 
 | Change                                           | Start from     | Integration                                       |
 | ------------------------------------------------ | -------------- | ------------------------------------------------- |

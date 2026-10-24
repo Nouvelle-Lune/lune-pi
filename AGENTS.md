@@ -4,6 +4,7 @@ Read `CONTRIBUTING.md` before changing code. Preserve package ownership and the 
 
 - `dev` is the default integration branch; `main` is the stable release branch. Keep both long-lived branches.
 - Fetch before starting work. Create ordinary topic branches from `origin/dev`, validate the change, then merge locally into `dev` and push directly. Name branches `<type>/<description>` with types `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `hotfix`, or `sync`; use lowercase words and hyphens, without personal, account, assistant, or tool names. Delete merged topic branches.
+- Changes that never enter the repository, such as local drafts in a gitignored directory, need no branch: edit them in place on `dev` and leave them out of commits.
 - Create a PR only with explicit prior user consent. Authorization to develop, fix, or continue work does not authorize PR creation. PRs targeting `dev` are optional.
 - Use the user's own Git author identity for commits. Do not add bot or assistant attribution or co-author trailers.
 - Promote validated work with a `dev` → `main` PR using a merge commit. Never squash, rebase, force-push, or delete either long-lived branch.
