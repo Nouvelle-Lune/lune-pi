@@ -1,0 +1,578 @@
+import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import {
+    Input,
+    Key,
+    matchesKey,
+    truncateToWidth,
+    visibleWidth,
+    wrapTextWithAnsi,
+    type Component,
+    type TuiMouseEvent,
+    type TuiMouseEventResult,
+} from "@earendil-works/pi-tui";
+
+import { reportColor, stateColor } from "../notify/notification-box.ts";
+import type { RunManager } from "../run/run-manager.ts";
+import type { Run } from "../run/run.ts";
+import { detailRows } from "./details.ts";
+import {
+    assembleFrame,
+    BODY_TOP,
+    cell,
+    listWindowStart,
+    paintScrollbar,
+    paneGeometry,
+    type PaneGeometry,
+} from "./layout.ts";
+import { TranscriptRenderer, type Transcript, type TranscriptCard } from "./transcript.ts";
+import { Viewport } from "./viewport.ts";
+
+const REFRESH_INTERVAL_MS = 1000;
+const NOTICE_MS = 2500;
+const ERROR_NOTICE_MS = 6000;
+
+export interface InspectorOptions {
+    ctx: ExtensionContext;
+    manager: RunManager;
+    /** The user saw the run's outcome; the Dock stops marking it. */
+    onSeen: (run: Run) => void;
+}
+
+export async function openSubagentInspector(options: InspectorOptions): Promise<void> {
+    await options.ctx.ui.custom<void>(
+        (tui, _theme, _keybindings, done) =>
+            new SubagentInspector(
+                options,
+                () => tui.requestRender(),
+                () => done(),
+                () => tui.terminal.rows,
+            ),
+        {
+            overlay: true,
+            overlayOptions: {
+                anchor: "center",
+                width: "90%",
+                minWidth: 72,
+                maxHeight: "85%",
+                margin: 1,
+            },
+        },
+    );
+}
+
+interface FrameLayout {
+    geometry: PaneGeometry;
+    listStart: number;
+    /** Transcript row shown at the right pane's first body row, and the cards in view. */
+    viewStart: number;
+    cards: TranscriptCard[];
+}
+
+/**
+ * The `/agents` panel: runs on the left, the selected run's live transcript on the right.
+ *
+ * Runs of the current branch come first; runs of other branches follow, dimmed, so their reports
+ * can be copied over. Every write goes through the manager, which enforces read-only runs.
+ */
+export class SubagentInspector implements Component {
+    private readonly ctx: ExtensionContext;
+    private readonly manager: RunManager;
+    private readonly onSeen: (run: Run) => void;
+    private readonly requestRender: () => void;
+    private readonly close: () => void;
+    private readonly terminalRows: () => number;
+    private readonly theme: Theme;
+    private readonly transcripts: TranscriptRenderer;
+    private readonly viewport = new Viewport();
+
+    private selectedId: string | undefined;
+    private details = false;
+    private chat: Input | undefined;
+    private notice: { text: string; color: ThemeColor } | undefined;
+    private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+    private refreshTimer: ReturnType<typeof setInterval> | undefined;
+    private unsubscribe: (() => void) | undefined;
+    private layout: FrameLayout | undefined;
+    private disposed = false;
+
+    constructor(
+        options: InspectorOptions,
+        requestRender: () => void,
+        close: () => void,
+        terminalRows: () => number,
+    ) {
+        this.ctx = options.ctx;
+        this.manager = options.manager;
+        this.onSeen = options.onSeen;
+        this.requestRender = requestRender;
+        this.close = close;
+        this.terminalRows = terminalRows;
+        this.theme = options.ctx.ui.theme;
+        this.transcripts = new TranscriptRenderer(this.theme);
+        this.selectedId = this.entries()[0]?.run.id;
+        this.unsubscribe = this.manager.subscribe(() => this.requestRender());
+    }
+
+    handleInput(data: string): void {
+        if (this.chat) {
+            if (matchesKey(data, Key.escape)) {
+                this.chat = undefined;
+                this.requestRender();
+                return;
+            }
+
+            this.chat.handleInput(data);
+            this.requestRender();
+            return;
+        }
+
+        if (matchesKey(data, Key.escape)) {
+            this.dispose();
+            this.close();
+            return;
+        }
+
+        const entry = this.selected();
+
+        if (matchesKey(data, Key.shift("up")) || data === "K") {
+            this.scroll(-1);
+        } else if (matchesKey(data, Key.shift("down")) || data === "J") {
+            this.scroll(1);
+        } else if (matchesKey(data, Key.up) || data === "k") {
+            this.moveSelection(-1);
+        } else if (matchesKey(data, Key.down) || data === "j") {
+            this.moveSelection(1);
+        } else if (matchesKey(data, Key.home)) {
+            this.viewport.jumpToOldest();
+            this.requestRender();
+        } else if (matchesKey(data, Key.end)) {
+            this.viewport.follow();
+            this.requestRender();
+        } else if (matchesKey(data, Key.enter) && entry) {
+            this.startChat(entry);
+        } else if (data === "d" && entry) {
+            this.details = !this.details;
+            this.viewport.follow();
+            this.requestRender();
+        } else if (data === "x" && entry) {
+            this.stop(entry.run);
+        } else if (data === "c" && entry) {
+            this.copy(entry);
+        }
+    }
+
+    /** Fullscreen mode routes the mouse here; every action also has a key. */
+    handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+        const layout = this.layout;
+
+        if (!layout) {
+            return undefined;
+        }
+
+        const { bodyHeight, rightStart, rightWidth } = layout.geometry;
+        const row = event.y - BODY_TOP;
+
+        if (event.type === "wheel") {
+            const delta = event.wheelDelta ?? 0;
+
+            if (event.x >= rightStart) {
+                this.scroll(delta);
+            } else {
+                this.moveSelection(delta);
+            }
+
+            return { handled: true };
+        }
+
+        if (row < 0 || row >= bodyHeight) {
+            return undefined;
+        }
+
+        if (event.x >= rightStart) {
+            // Body row 0 of the right pane is the run's heading; the transcript starts below it.
+            const transcriptRow = layout.viewStart + row - 1;
+            const card = layout.cards.find(
+                (candidate) => transcriptRow >= candidate.start && transcriptRow < candidate.end,
+            );
+            const result = card?.component.handleMouse?.({
+                ...event,
+                x: event.x - rightStart - 1,
+                y: transcriptRow - card.start,
+                width: rightWidth - 2,
+                height: card.end - card.start,
+            });
+
+            if (result) {
+                this.requestRender();
+            }
+
+            return result;
+        }
+
+        if (event.type !== "press" || event.button !== "left" || event.x < 1) {
+            return undefined;
+        }
+
+        const entry = this.entries()[layout.listStart + row];
+
+        if (!entry) {
+            return undefined;
+        }
+
+        this.select(entry.run.id);
+
+        return { handled: true };
+    }
+
+    render(width: number): string[] {
+        const entries = this.entries();
+        let index = entries.findIndex((entry) => entry.run.id === this.selectedId);
+
+        if (index === -1 && entries.length > 0) {
+            index = 0;
+            this.selectedId = entries[0]!.run.id;
+        }
+
+        const selected = entries[index];
+
+        this.syncRefreshTimer(entries);
+
+        if (selected) {
+            this.onSeen(selected.run);
+        }
+
+        const geometry = paneGeometry(width, this.terminalRows());
+        const { bodyHeight, leftWidth, rightWidth } = geometry;
+        const listStart = listWindowStart(Math.max(0, index), entries.length, bodyHeight);
+        const left = this.listRows(entries, listStart, index, leftWidth, bodyHeight);
+        let right: string[];
+        let viewStart = 0;
+        let cards: TranscriptCard[] = [];
+
+        if (selected) {
+            const contentWidth = Math.max(1, rightWidth - 2);
+            const transcript = this.details
+                ? { rows: detailRows(selected.run, this.theme, contentWidth), cards: [] }
+                : this.transcriptOf(selected.run, contentWidth);
+            const capacity = Math.max(1, bodyHeight - 1);
+            const view = this.viewport.window(transcript.rows.length, capacity);
+            const rows = transcript.rows
+                .slice(view.start, view.start + capacity)
+                .map((row) => cell(row, rightWidth));
+
+            while (rows.length < capacity) {
+                rows.push(" ".repeat(rightWidth));
+            }
+
+            viewStart = view.start;
+            cards = transcript.cards;
+            right = [
+                cell(this.runHeading(selected, view.newestHidden), rightWidth),
+                ...paintScrollbar(this.theme, rows, view.start, capacity, transcript.rows.length),
+            ];
+        } else {
+            right = [cell(this.theme.fg("muted", "No subagent runs in this session."), rightWidth)];
+        }
+
+        this.layout = { geometry, listStart, viewStart, cards };
+
+        return assembleFrame(this.theme, geometry, {
+            header: cell(this.header(entries), geometry.innerWidth),
+            left,
+            right,
+            footer: this.footer(geometry.innerWidth, selected),
+        });
+    }
+
+    invalidate(): void {
+        this.transcripts.clear();
+    }
+
+    /** A run file that cannot be read shows its error in place of the transcript. */
+    private transcriptOf(run: Run, width: number): Transcript {
+        try {
+            return this.transcripts.render(run, width);
+        } catch (error) {
+            const text = `The run transcript cannot be read: ${error instanceof Error ? error.message : String(error)}`;
+
+            return {
+                rows: wrapTextWithAnsi(text, width).map((row) => this.theme.fg("error", row)),
+                cards: [],
+            };
+        }
+    }
+
+    dispose(): void {
+        if (this.disposed) {
+            return;
+        }
+
+        this.disposed = true;
+        clearInterval(this.refreshTimer);
+        clearTimeout(this.noticeTimer);
+        this.unsubscribe?.();
+        this.unsubscribe = undefined;
+    }
+
+    private entries(): Entry[] {
+        return [
+            ...this.manager.branchRuns().map((run) => ({ run, elsewhere: false })),
+            ...this.manager.otherBranchRuns().map((run) => ({ run, elsewhere: true })),
+        ];
+    }
+
+    private selected(): Entry | undefined {
+        return this.entries().find((entry) => entry.run.id === this.selectedId);
+    }
+
+    private listRows(
+        entries: readonly Entry[],
+        start: number,
+        selected: number,
+        width: number,
+        height: number,
+    ): string[] {
+        const rows: string[] = [];
+
+        for (let index = start; index < Math.min(entries.length, start + height); index++) {
+            const { run, elsewhere } = entries[index]!;
+            const report =
+                run.lastTurn && run.state !== "running"
+                    ? (run.lastTurn.report?.status ?? "unreported")
+                    : undefined;
+            const marker = elsewhere ? "↪" : run.state === "running" ? "◐" : "●";
+            const text =
+                this.theme.fg(elsewhere ? "dim" : stateColor(run.state), marker) +
+                " " +
+                this.theme.fg(elsewhere ? "muted" : "text", run.name) +
+                " " +
+                this.theme.fg(stateColor(run.state), run.state) +
+                (report ? ` ${this.theme.fg(reportColor(report), report)}` : "") +
+                (run.readOnly ? this.theme.fg("dim", " read-only") : "");
+            rows.push(cell(text, width));
+        }
+
+        // The bar replaces each row's last padding column, so it goes on before the selection
+        // background wraps the row in escape sequences.
+        return paintScrollbar(this.theme, rows, start, height, entries.length).map((row, offset) =>
+            start + offset === selected ? this.theme.bg("selectedBg", row) : row,
+        );
+    }
+
+    private header(entries: readonly Entry[]): string {
+        const running = entries.filter((entry) => entry.run.state === "running").length;
+        const here = entries.filter((entry) => !entry.elsewhere).length;
+        const elsewhere = entries.length - here;
+        const counts = [
+            `${here} on this branch`,
+            elsewhere > 0 ? `${elsewhere} on other branches` : undefined,
+            running > 0 ? this.theme.fg("warning", `${running} running`) : undefined,
+        ]
+            .filter((part) => part !== undefined)
+            .join(this.theme.fg("dim", " · "));
+
+        return `${this.theme.bold("Subagents")}  ${this.theme.fg("muted", counts)}`;
+    }
+
+    private runHeading(entry: Entry, newestHidden: number): string {
+        const { run } = entry;
+        const report = run.lastTurn?.report?.status;
+        const parts = [
+            this.theme.bold(run.name),
+            this.theme.fg("dim", run.id),
+            this.theme.fg(stateColor(run.state), run.state),
+            report && run.state !== "running"
+                ? this.theme.fg(reportColor(report), report)
+                : undefined,
+            run.snapshot ? this.theme.fg("muted", run.snapshot.model) : undefined,
+            entry.elsewhere ? this.theme.fg("muted", "other branch") : undefined,
+            this.details ? this.theme.fg("accent", "details") : undefined,
+            newestHidden > 0 ? this.theme.fg("accent", `↓ ${newestHidden} newer · End`) : undefined,
+        ];
+
+        return parts.filter((part) => part !== undefined).join(this.theme.fg("dim", " · "));
+    }
+
+    private footer(width: number, entry: Entry | undefined): string {
+        if (this.chat) {
+            const prompt = this.theme.fg("accent", `To ${entry?.run.name ?? "run"}: `);
+            const input = this.chat.render(Math.max(1, width - 2 - visibleWidth(prompt)))[0] ?? "";
+
+            return ` ${prompt}${input}`;
+        }
+
+        if (this.notice) {
+            return cell(this.theme.fg(this.notice.color, this.notice.text), width);
+        }
+
+        const hints = [
+            "↑↓ run",
+            "⇧↑↓ scroll",
+            "Home/End",
+            "Enter chat",
+            "d details",
+            "x stop",
+            entry?.elsewhere ? "c copy report" : undefined,
+            "Esc close",
+        ];
+
+        return cell(
+            this.theme.fg("dim", hints.filter((hint) => hint !== undefined).join(" · ")),
+            width,
+        );
+    }
+
+    private moveSelection(step: number): void {
+        const entries = this.entries();
+        const index = entries.findIndex((entry) => entry.run.id === this.selectedId);
+        const next = entries[Math.min(entries.length - 1, Math.max(0, index + step))];
+
+        if (next) {
+            this.select(next.run.id);
+        }
+    }
+
+    private select(runId: string): void {
+        if (runId === this.selectedId) {
+            return;
+        }
+
+        this.selectedId = runId;
+        this.details = false;
+        this.viewport.follow();
+        this.requestRender();
+    }
+
+    private scroll(step: number): void {
+        if (this.viewport.scrollBy(step)) {
+            this.requestRender();
+        }
+    }
+
+    private startChat(entry: Entry): void {
+        const { run } = entry;
+
+        if (entry.elsewhere) {
+            this.showNotice(
+                `${run.name} belongs to another branch; switch to it to write to the run.`,
+                "warning",
+            );
+            return;
+        }
+
+        if (run.readOnly) {
+            this.showNotice(
+                `${run.name} is read-only: it came here through /fork or /clone.`,
+                "warning",
+            );
+            return;
+        }
+
+        const input = new Input({ prompt: "" });
+
+        input.focused = true;
+        input.onSubmit = (value) => {
+            this.chat = undefined;
+
+            if (value.trim() === "") {
+                this.requestRender();
+                return;
+            }
+
+            this.send(run, value);
+        };
+        this.chat = input;
+        this.requestRender();
+    }
+
+    private send(run: Run, text: string): void {
+        this.showNotice(`Sending to ${run.name}…`, "muted");
+
+        this.manager.send(run, text, "user").then(
+            (outcome) => {
+                this.showNotice(
+                    outcome === "steered"
+                        ? `Sent to ${run.name}; it steers the running turn.`
+                        : outcome === "deferred"
+                          ? `Sent to ${run.name}; it starts the next turn.`
+                          : `Sent to ${run.name}; a new turn started.`,
+                    "success",
+                );
+                this.viewport.follow();
+            },
+            (error: unknown) => this.showError(`Sending to ${run.name} failed`, error),
+        );
+    }
+
+    private stop(run: Run): void {
+        if (run.state !== "running") {
+            this.showNotice(`${run.name} is not running.`, "muted");
+            return;
+        }
+
+        if (run.readOnly || !this.manager.isOnBranch(run)) {
+            this.showNotice(`${run.name} cannot be stopped from here.`, "warning");
+            return;
+        }
+
+        this.showNotice(`Stopping ${run.name}…`, "muted");
+        this.manager.stop(run, "user").then(
+            () => this.showNotice(`Stopped ${run.name}.`, "success"),
+            (error: unknown) => this.showError(`Stopping ${run.name} failed`, error),
+        );
+    }
+
+    private copy(entry: Entry): void {
+        if (!entry.elsewhere) {
+            this.showNotice("Only a run of another branch has a report to copy here.", "muted");
+            return;
+        }
+
+        try {
+            this.manager.copyReport(entry.run);
+            this.showNotice(`Copied the last turn of ${entry.run.name} to this branch.`, "success");
+        } catch (error) {
+            this.showError(`Copying ${entry.run.name} failed`, error);
+        }
+    }
+
+    /** A failure shows in the footer and stays in Pi's notifications after the panel closes. */
+    private showError(prefix: string, error: unknown): void {
+        const message = `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+
+        this.showNotice(message, "error", ERROR_NOTICE_MS);
+        this.ctx.ui.notify(message, "error");
+    }
+
+    private showNotice(text: string, color: ThemeColor, durationMs = NOTICE_MS): void {
+        if (this.disposed) {
+            return;
+        }
+
+        this.notice = { text: truncateToWidth(text.replace(/\s+/g, " "), 400), color };
+        clearTimeout(this.noticeTimer);
+        this.noticeTimer = setTimeout(() => {
+            this.notice = undefined;
+            this.requestRender();
+        }, durationMs);
+        this.requestRender();
+    }
+
+    /** Running turns show elapsed times and retries, so the panel redraws while any run works. */
+    private syncRefreshTimer(entries: readonly Entry[]): void {
+        const running = entries.some((entry) => entry.run.state === "running");
+
+        if (running && !this.refreshTimer && !this.disposed) {
+            this.refreshTimer = setInterval(() => this.requestRender(), REFRESH_INTERVAL_MS);
+        } else if (!running && this.refreshTimer) {
+            clearInterval(this.refreshTimer);
+            this.refreshTimer = undefined;
+        }
+    }
+}
+
+interface Entry {
+    run: Run;
+    /** The run belongs to another branch: read it, copy its report, nothing else. */
+    elsewhere: boolean;
+}

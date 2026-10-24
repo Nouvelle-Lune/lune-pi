@@ -10,7 +10,8 @@
         "packages/pi-ask-question",
         "packages/pi-shell-inspector",
         "packages/pi-compaction",
-        "packages/pi-recap"
+        "packages/pi-recap",
+        "packages/pi-subagent"
     ],
     "engines": {
         "node": ">=22.19.0"
