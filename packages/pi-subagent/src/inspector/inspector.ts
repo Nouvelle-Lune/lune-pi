@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { reportColor, stateColor } from "../notify/notification-box.ts";
+import { fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
 import { detailRows } from "./details.ts";
@@ -63,7 +64,9 @@ export async function openSubagentInspector(options: InspectorOptions): Promise<
 interface FrameLayout {
     geometry: PaneGeometry;
     listStart: number;
-    /** Transcript row shown at the right pane's first body row, and the cards in view. */
+    /** Body rows of the right pane that the run's heading takes; the transcript starts below. */
+    headingRows: number;
+    /** Transcript row shown below the heading, and the cards in view. */
     viewStart: number;
     cards: TranscriptCard[];
 }
@@ -189,8 +192,11 @@ export class SubagentInspector implements Component {
         }
 
         if (event.x >= rightStart) {
-            // Body row 0 of the right pane is the run's heading; the transcript starts below it.
-            const transcriptRow = layout.viewStart + row - 1;
+            if (row < layout.headingRows) {
+                return undefined;
+            }
+
+            const transcriptRow = layout.viewStart + row - layout.headingRows;
             const card = layout.cards.find(
                 (candidate) => transcriptRow >= candidate.start && transcriptRow < candidate.end,
             );
@@ -246,6 +252,7 @@ export class SubagentInspector implements Component {
         const listStart = listWindowStart(Math.max(0, index), entries.length, bodyHeight);
         const left = this.listRows(entries, listStart, index, leftWidth, bodyHeight);
         let right: string[];
+        let headingRows = 1;
         let viewStart = 0;
         let cards: TranscriptCard[] = [];
 
@@ -254,7 +261,11 @@ export class SubagentInspector implements Component {
             const transcript = this.details
                 ? { rows: detailRows(selected.run, this.theme, contentWidth), cards: [] }
                 : this.transcriptOf(selected.run, contentWidth);
-            const capacity = Math.max(1, bodyHeight - 1);
+            const modelRows = this.modelRows(selected.run, contentWidth);
+
+            headingRows = 1 + modelRows.length;
+
+            const capacity = Math.max(1, bodyHeight - headingRows);
             const view = this.viewport.window(transcript.rows.length, capacity);
             const rows = transcript.rows
                 .slice(view.start, view.start + capacity)
@@ -267,14 +278,15 @@ export class SubagentInspector implements Component {
             viewStart = view.start;
             cards = transcript.cards;
             right = [
-                cell(this.runHeading(selected, view.newestHidden), rightWidth),
+                cell(this.title(selected, view.newestHidden, contentWidth), rightWidth),
+                ...modelRows.map((row) => cell(row, rightWidth)),
                 ...paintScrollbar(this.theme, rows, view.start, capacity, transcript.rows.length),
             ];
         } else {
             right = [cell(this.theme.fg("muted", "No subagent runs in this session."), rightWidth)];
         }
 
-        this.layout = { geometry, listStart, viewStart, cards };
+        this.layout = { geometry, listStart, headingRows, viewStart, cards };
 
         return assembleFrame(this.theme, geometry, {
             header: cell(this.header(entries), geometry.innerWidth),
@@ -374,23 +386,56 @@ export class SubagentInspector implements Component {
         return `${this.theme.bold("Subagents")}  ${this.theme.fg("muted", counts)}`;
     }
 
-    private runHeading(entry: Entry, newestHidden: number): string {
+    /** The run's name and every label that fits; a narrow pane leaves out the least useful first. */
+    private title(entry: Entry, newestHidden: number, width: number): string {
         const { run } = entry;
         const report = run.lastTurn?.report?.status;
-        const parts = [
-            this.theme.bold(run.name),
-            this.theme.fg("dim", run.id),
-            this.theme.fg(stateColor(run.state), run.state),
+        const name = this.theme.bold(run.name);
+        const parts: Array<RankedPart | undefined> = [
+            // A run without a readable snapshot is already named by its ID.
+            run.name !== run.id ? { text: this.theme.fg("dim", run.id), rank: 1 } : undefined,
+            { text: this.theme.fg(stateColor(run.state), run.state), rank: 5 },
             report && run.state !== "running"
-                ? this.theme.fg(reportColor(report), report)
+                ? { text: this.theme.fg(reportColor(report), report), rank: 4 }
                 : undefined,
-            run.snapshot ? this.theme.fg("muted", run.snapshot.model) : undefined,
-            entry.elsewhere ? this.theme.fg("muted", "other branch") : undefined,
-            this.details ? this.theme.fg("accent", "details") : undefined,
-            newestHidden > 0 ? this.theme.fg("accent", `↓ ${newestHidden} newer · End`) : undefined,
+            entry.elsewhere ? { text: this.theme.fg("muted", "other branch"), rank: 3 } : undefined,
+            this.details ? { text: this.theme.fg("accent", "details"), rank: 2 } : undefined,
+            newestHidden > 0
+                ? { text: this.theme.fg("accent", `↓ ${newestHidden} newer · End`), rank: 6 }
+                : undefined,
         ];
 
-        return parts.filter((part) => part !== undefined).join(this.theme.fg("dim", " · "));
+        return (
+            fitRanked(
+                parts.filter((part) => part !== undefined),
+                width,
+                (texts) => [name, ...texts].join(this.theme.fg("dim", " · ")),
+            ) ?? name
+        );
+    }
+
+    /**
+     * `Model provider/id · Thinking high`, from the live session when there is one. A narrow pane
+     * drops the `Model` label, then gives the model its own rows; nothing is cut.
+     */
+    private modelRows(run: Run, width: number): string[] {
+        const model = run.model;
+        const thinking = run.thinkingLevel;
+
+        // A run whose file cannot be read has neither.
+        if (model === undefined || thinking === undefined) {
+            return [];
+        }
+
+        const label = (text: string): string => this.theme.fg("muted", text);
+        const level = `${label("Thinking")} ${thinking}`;
+        const separator = this.theme.fg("dim", " · ");
+        const row = [
+            `${label("Model")} ${model}${separator}${level}`,
+            `${model}${separator}${level}`,
+        ].find((candidate) => visibleWidth(candidate) <= width);
+
+        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), level];
     }
 
     private footer(width: number, entry: Entry | undefined): string {

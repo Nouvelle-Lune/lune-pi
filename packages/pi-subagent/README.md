@@ -141,9 +141,11 @@ The run state describes the session, not the task: `running`, `idle`, `failed` (
 
 ## Dock and `/agents`
 
-The Dock shows the runs of the current branch, for example `Agents 2 running · 1 needs input`. Failed and blocked runs stay red until you open them in the inspector. Without the Lune Dock host, the same summary shows as a row below the editor.
+The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while its report waits for that branch, and the line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`.
 
-Run `/agents` to open the inspector. The current branch's runs are on the left, followed by dimmed runs of other branches. The selected run's live transcript is on the right.
+The Dock never cuts its line. When the cell is too narrow, it leaves out complete parts, the least urgent first, so the `failed`, `blocked` and `needs input` counts stay longest. Then only `◐ Agents` shows, then only the marker. Failed and blocked runs keep the marker red until you open them in the inspector. Without the Lune Dock host, the same line shows as a row below the editor, followed by `/agents to open`.
+
+Run `/agents` to open the inspector. The current branch's runs are on the left, followed by dimmed runs of other branches. The selected run's live transcript is on the right, below the run's heading. The heading shows the run's name, ID, state and report. Below them, it shows the model and thinking level that the run's requests use, for example `Model anthropic/claude-opus-5-5 · Thinking high`. For a live run, the model and level come from its session, where Pi limits the level to what the model supports. Otherwise, they are the run's start values. A narrow pane leaves out heading parts or wraps the model; it never cuts them.
 
 | Action                            | Keys                               |
 | --------------------------------- | ---------------------------------- |

@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type {
     AgentSession,
@@ -9,7 +9,7 @@ import type {
     Theme,
 } from "@earendil-works/pi-coding-agent";
 
-import { parseModelRef } from "../models.ts";
+import { formatModelRef, parseModelRef } from "../models.ts";
 import { markUserMessage, SUBAGENT_GUIDE } from "./guide.ts";
 import { openRunFile, readRunEntries, transcriptMessages, usageFromEntries } from "./run-file.ts";
 import { errorDiagnostic, type Diagnostic, type LiveSession } from "./run-session.ts";
@@ -163,6 +163,18 @@ export class Run implements RunEventTarget {
 
     get isLive(): boolean {
         return this.live !== undefined;
+    }
+
+    /** `provider/id` of the model the run's requests go to; the start value while it is not live. */
+    get model(): string | undefined {
+        const model = this.live?.session.model;
+
+        return model ? formatModelRef(model) : this.snapshot?.model;
+    }
+
+    /** The live session's level, which Pi limits to what the model supports; else the start value. */
+    get thinkingLevel(): ThinkingLevel | undefined {
+        return this.live ? this.live.session.thinkingLevel : this.snapshot?.thinking;
     }
 
     /** Whether the user still has to see the outcome: a failure or a blocked task. */
