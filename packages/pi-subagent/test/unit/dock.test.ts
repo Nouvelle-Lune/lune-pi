@@ -111,10 +111,12 @@ test("the detail line counts the runs by status in a fixed order", (t) => {
     assert.equal(text("detail"), expected);
 });
 
-test("without runs the detail line says idle", (t) => {
+test("without runs every level is only the title", (t) => {
     const { text } = fixture(t, {});
 
-    assert.equal(text("detail"), "○ Agents · idle");
+    for (const level of ["base", "detail", "full"] as const) {
+        assert.equal(text(level), "○ Agents");
+    }
 });
 
 test("the full line adds the run whose turn ended last", (t) => {
@@ -210,7 +212,7 @@ test("a run on another branch shows only once its ended turn waits for that bran
     dock.refresh();
 
     assert.equal(manager.branchRuns().length, 0);
-    assert.equal(text("detail"), "○ Agents · idle");
+    assert.equal(text("detail"), "○ Agents");
 
     manager.onTurnEnd(manager.otherBranchRuns()[0]!, turn());
     dock.refresh();

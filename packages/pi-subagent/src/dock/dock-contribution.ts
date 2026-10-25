@@ -158,13 +158,13 @@ export class SubagentDockContribution {
         };
     }
 
-    /** `2 running · 1 needs input · 1 on another branch`, or `idle` without runs. */
+    /** `2 running · 1 needs input · 1 on another branch`, and nothing without runs. */
     private summary(runs: readonly Run[], elsewhere: number, theme: Theme): RankedPart[] {
-        const muted = (text: string): string => theme.fg("muted", text);
-
         if (runs.length === 0) {
-            return [{ text: muted("idle"), rank: 0 }];
+            return [];
         }
+
+        const muted = (text: string): string => theme.fg("muted", text);
 
         const counts = new Map<DockStatus, number>();
 
