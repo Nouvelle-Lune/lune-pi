@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
-import { afterEach, test, type TestContext } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { visibleWidth, wrapTextWithAnsi, type TuiMouseEvent } from "@earendil-works/pi-tui";
@@ -19,14 +19,7 @@ import {
     type RunFileSpec,
 } from "./support.ts";
 
-const RENDERER_KEY = Symbol.for("@lune_99/pi-core-theme/renderer/v1");
 const ROWS = 24;
-const globals = globalThis as Record<symbol, unknown>;
-
-afterEach(() => {
-    delete globals[RENDERER_KEY];
-});
-
 const done = { status: "done", summary: "ok" } as const;
 
 /** One run in a real manager, opened in an inspector over a plain theme. */
@@ -155,34 +148,15 @@ test("the transcript keeps its rows below a model heading that wraps", (t) => {
     assert.equal(first(narrow.right(72)) - first(wide.right(140)), 2);
 });
 
-test("clicks on heading rows are ignored; the first row below maps to the first transcript row", (t) => {
-    const clicks: number[] = [];
-    const message = {
-        ...(assistantMessage("") as object),
-        content: [{ type: "toolCall", id: "t1", name: "read", arguments: { path: "a.ts" } }],
-    } as unknown as AgentMessage;
-
-    globals[RENDERER_KEY] = {
-        version: 1,
-        renderActivity: () => ({
-            render: () => ["CARD 1", "CARD 2"],
-            invalidate() {},
-            handleMouse(event: TuiMouseEvent) {
-                clicks.push(event.y);
-
-                return { handled: true };
-            },
-        }),
-    };
-
+test("presses on the transcript are not claimed, whatever row they hit", (t) => {
     const model = "provider-with-a-long-name/model-with-an-extremely-long-identifier-v2-20260101";
     const { inspector, right } = panel(t, {
         snapshot: { name: "security-reviewer", model, thinking: "high" },
-        messages: [message],
+        messages: [userMessage("Review the diff."), assistantMessage("Looking now.")],
         turns: [turn({ report: done })],
     });
     const geometry = paneGeometry(72, ROWS);
-    const headingRows = right(72).findIndex((row) => row.startsWith("CARD 1"));
+    const rows = right(72);
     const press = (row: number): ReturnType<SubagentInspector["handleMouse"]> =>
         inspector.handleMouse({
             type: "press",
@@ -190,18 +164,14 @@ test("clicks on heading rows are ignored; the first row below maps to the first 
             x: geometry.rightStart + 3,
             y: BODY_TOP + row,
         } as TuiMouseEvent);
+    const firstTranscriptRow = rows.findIndex((row) => row.includes("Review the diff."));
 
-    // Title, two wrapped model rows and the level row.
-    assert.equal(headingRows, 4);
+    // Title, two wrapped model rows, the level row and the message header come first.
+    assert.equal(firstTranscriptRow, 5);
 
-    for (let row = 0; row < headingRows; row++) {
-        assert.equal(press(row), undefined, `heading row ${row}`);
+    for (let row = 0; row < rows.length; row++) {
+        assert.equal(press(row), undefined, `row ${row}`);
     }
-
-    assert.deepEqual(clicks, []);
-    assert.deepEqual(press(headingRows), { handled: true });
-    assert.deepEqual(press(headingRows + 1), { handled: true });
-    assert.deepEqual(clicks, [0, 1]);
 });
 
 test("a run of another branch is labelled after its report", (t) => {

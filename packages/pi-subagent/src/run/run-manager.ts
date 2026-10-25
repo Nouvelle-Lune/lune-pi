@@ -184,16 +184,25 @@ export class RunManager implements RunHost {
 
     /** Runs whose `subagent_start` is on the active branch, in start order. */
     branchRuns(): Run[] {
-        const ids = new Set(this.ctx.sessionManager.getBranch().map((entry) => entry.id));
-
-        return [...this.runs.values()].filter((run) => ids.has(run.spawnEntryId));
+        return this.runsByBranch().here;
     }
 
     /** Runs started on other branches; the inspector lists them so a report can be copied over. */
     otherBranchRuns(): Run[] {
-        const ids = new Set(this.ctx.sessionManager.getBranch().map((entry) => entry.id));
+        return this.runsByBranch().elsewhere;
+    }
 
-        return [...this.runs.values()].filter((run) => !ids.has(run.spawnEntryId));
+    /** Both lists from one walk of the active branch, for views that redraw on every frame. */
+    runsByBranch(): { here: Run[]; elsewhere: Run[] } {
+        const ids = new Set(this.ctx.sessionManager.getBranch().map((entry) => entry.id));
+        const here: Run[] = [];
+        const elsewhere: Run[] = [];
+
+        for (const run of this.runs.values()) {
+            (ids.has(run.spawnEntryId) ? here : elsewhere).push(run);
+        }
+
+        return { here, elsewhere };
     }
 
     isOnBranch(run: Run): boolean {

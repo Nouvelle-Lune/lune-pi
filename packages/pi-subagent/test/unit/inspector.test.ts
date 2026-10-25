@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Component } from "@earendil-works/pi-tui";
-
 import { detailRows } from "../../src/inspector/details.ts";
 import { TranscriptRenderer, toolSummary } from "../../src/inspector/transcript.ts";
 import { markUserMessage } from "../../src/run/guide.ts";
@@ -57,18 +55,16 @@ function conversation(): AgentMessage[] {
     ];
 }
 
-test("the transcript shows the task, assistant text, tool calls with output and the report", (t) => {
+test("the transcript shows the task, assistant text, tool calls without their output and the report", (t) => {
     const run = restoredRun(tempAgentDir(t), "r1", { messages: conversation(), turns: [turn()] });
 
-    const { rows, cards } = new TranscriptRenderer(fakeTheme()).render(run, 80);
-    const text = rows.join("\n");
+    const text = new TranscriptRenderer(fakeTheme()).render(run, 80).join("\n");
 
     assert.match(text, /Review the diff\./);
     assert.match(text, /Looking now\./);
     assert.match(text, /read src\/a\.ts/);
-    assert.match(text, /FILE BODY/);
+    assert.doesNotMatch(text, /FILE BODY/);
     assert.match(text, /Looks fine\./);
-    assert.deepEqual(cards, []);
 });
 
 test("a message the user wrote through the inspector is shown without its marker", (t) => {
@@ -76,35 +72,31 @@ test("a message the user wrote through the inspector is shown without its marker
         messages: [userMessage(markUserMessage("Please also check b.ts."))],
     });
 
-    const text = new TranscriptRenderer(fakeTheme()).render(run, 80).rows.join("\n");
+    const text = new TranscriptRenderer(fakeTheme()).render(run, 80).join("\n");
 
     assert.match(text, /Please also check b\.ts\./);
     assert.doesNotMatch(text, /\[From the user\]/);
 });
 
-test("with Core Theme tool calls become one activity card with a status per call", (t) => {
-    const seen: Array<{ title: string; entries: Array<{ name: string; status: string }> }> = [];
+test("with Core Theme published the transcript still draws plain rows and never asks for a card", (t) => {
+    let calls = 0;
 
     globals[RENDERER_KEY] = {
         version: 1,
-        renderActivity: (activity: (typeof seen)[number]) => {
-            seen.push(activity);
+        renderActivity: () => {
+            calls += 1;
 
-            return { render: () => ["CARD"], invalidate() {} } satisfies Component;
+            return { render: () => ["CARD"], invalidate() {} };
         },
     };
 
     const run = restoredRun(tempAgentDir(t), "r1", { messages: conversation(), turns: [turn()] });
 
-    const { rows, cards } = new TranscriptRenderer(fakeTheme()).render(run, 80);
+    const rows = new TranscriptRenderer(fakeTheme()).render(run, 80);
 
-    assert.equal(cards.length, 1);
-    assert.equal(rows[cards[0]!.start], "CARD");
-    assert.deepEqual(
-        seen[0]!.entries.map((entry) => [entry.name, entry.status]),
-        [["read", "done"]],
-    );
-    // The report call stays on the standalone path.
+    assert.equal(calls, 0);
+    assert.ok(rows.includes("● read src/a.ts"), rows.join("\n"));
+    assert.ok(!rows.includes("CARD"));
     assert.match(rows.join("\n"), /Looks fine\./);
 });
 

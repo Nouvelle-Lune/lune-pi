@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { reportColor, stateColor } from "../notify/notification-box.ts";
-import { fitRanked, type RankedPart } from "../render/text.ts";
+import { displayLine, fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
 import { detailRows } from "./details.ts";
@@ -25,7 +25,7 @@ import {
     paneGeometry,
     type PaneGeometry,
 } from "./layout.ts";
-import { TranscriptRenderer, type Transcript, type TranscriptCard } from "./transcript.ts";
+import { TranscriptRenderer } from "./transcript.ts";
 import { Viewport } from "./viewport.ts";
 
 const REFRESH_INTERVAL_MS = 1000;
@@ -64,11 +64,6 @@ export async function openSubagentInspector(options: InspectorOptions): Promise<
 interface FrameLayout {
     geometry: PaneGeometry;
     listStart: number;
-    /** Body rows of the right pane that the run's heading takes; the transcript starts below. */
-    headingRows: number;
-    /** Transcript row shown below the heading, and the cards in view. */
-    viewStart: number;
-    cards: TranscriptCard[];
 }
 
 /**
@@ -113,7 +108,12 @@ export class SubagentInspector implements Component {
         this.theme = options.ctx.ui.theme;
         this.transcripts = new TranscriptRenderer(this.theme);
         this.selectedId = this.entries()[0]?.run.id;
-        this.unsubscribe = this.manager.subscribe(() => this.requestRender());
+        // The list shows states only, so another run's streamed tokens change nothing on screen.
+        this.unsubscribe = this.manager.subscribe((change, run) => {
+            if (change === "state" || run?.id === this.selectedId) {
+                this.requestRender();
+            }
+        });
     }
 
     handleInput(data: string): void {
@@ -172,7 +172,7 @@ export class SubagentInspector implements Component {
             return undefined;
         }
 
-        const { bodyHeight, rightStart, rightWidth } = layout.geometry;
+        const { bodyHeight, rightStart } = layout.geometry;
         const row = event.y - BODY_TOP;
 
         if (event.type === "wheel") {
@@ -187,35 +187,15 @@ export class SubagentInspector implements Component {
             return { handled: true };
         }
 
-        if (row < 0 || row >= bodyHeight) {
-            return undefined;
-        }
-
-        if (event.x >= rightStart) {
-            if (row < layout.headingRows) {
-                return undefined;
-            }
-
-            const transcriptRow = layout.viewStart + row - layout.headingRows;
-            const card = layout.cards.find(
-                (candidate) => transcriptRow >= candidate.start && transcriptRow < candidate.end,
-            );
-            const result = card?.component.handleMouse?.({
-                ...event,
-                x: event.x - rightStart - 1,
-                y: transcriptRow - card.start,
-                width: rightWidth - 2,
-                height: card.end - card.start,
-            });
-
-            if (result) {
-                this.requestRender();
-            }
-
-            return result;
-        }
-
-        if (event.type !== "press" || event.button !== "left" || event.x < 1) {
+        // Presses on the transcript stay with the TUI's text selection, which copies text out.
+        if (
+            row < 0 ||
+            row >= bodyHeight ||
+            event.x >= rightStart ||
+            event.type !== "press" ||
+            event.button !== "left" ||
+            event.x < 1
+        ) {
             return undefined;
         }
 
@@ -241,7 +221,7 @@ export class SubagentInspector implements Component {
 
         const selected = entries[index];
 
-        this.syncRefreshTimer(entries);
+        this.syncRefreshTimer(selected?.run);
 
         if (selected) {
             this.onSeen(selected.run);
@@ -252,22 +232,16 @@ export class SubagentInspector implements Component {
         const listStart = listWindowStart(Math.max(0, index), entries.length, bodyHeight);
         const left = this.listRows(entries, listStart, index, leftWidth, bodyHeight);
         let right: string[];
-        let headingRows = 1;
-        let viewStart = 0;
-        let cards: TranscriptCard[] = [];
 
         if (selected) {
             const contentWidth = Math.max(1, rightWidth - 2);
             const transcript = this.details
-                ? { rows: detailRows(selected.run, this.theme, contentWidth), cards: [] }
+                ? detailRows(selected.run, this.theme, contentWidth)
                 : this.transcriptOf(selected.run, contentWidth);
             const modelRows = this.modelRows(selected.run, contentWidth);
-
-            headingRows = 1 + modelRows.length;
-
-            const capacity = Math.max(1, bodyHeight - headingRows);
-            const view = this.viewport.window(transcript.rows.length, capacity);
-            const rows = transcript.rows
+            const capacity = Math.max(1, bodyHeight - 1 - modelRows.length);
+            const view = this.viewport.window(transcript.length, capacity);
+            const rows = transcript
                 .slice(view.start, view.start + capacity)
                 .map((row) => cell(row, rightWidth));
 
@@ -275,18 +249,16 @@ export class SubagentInspector implements Component {
                 rows.push(" ".repeat(rightWidth));
             }
 
-            viewStart = view.start;
-            cards = transcript.cards;
             right = [
                 cell(this.title(selected, view.newestHidden, contentWidth), rightWidth),
                 ...modelRows.map((row) => cell(row, rightWidth)),
-                ...paintScrollbar(this.theme, rows, view.start, capacity, transcript.rows.length),
+                ...paintScrollbar(this.theme, rows, view.start, capacity, transcript.length),
             ];
         } else {
             right = [cell(this.theme.fg("muted", "No subagent runs in this session."), rightWidth)];
         }
 
-        this.layout = { geometry, listStart, headingRows, viewStart, cards };
+        this.layout = { geometry, listStart };
 
         return assembleFrame(this.theme, geometry, {
             header: cell(this.header(entries), geometry.innerWidth),
@@ -301,16 +273,15 @@ export class SubagentInspector implements Component {
     }
 
     /** A run file that cannot be read shows its error in place of the transcript. */
-    private transcriptOf(run: Run, width: number): Transcript {
+    private transcriptOf(run: Run, width: number): readonly string[] {
         try {
             return this.transcripts.render(run, width);
         } catch (error) {
             const text = `The run transcript cannot be read: ${error instanceof Error ? error.message : String(error)}`;
 
-            return {
-                rows: wrapTextWithAnsi(text, width).map((row) => this.theme.fg("error", row)),
-                cards: [],
-            };
+            return wrapTextWithAnsi(displayLine(text), width).map((row) =>
+                this.theme.fg("error", row),
+            );
         }
     }
 
@@ -327,9 +298,11 @@ export class SubagentInspector implements Component {
     }
 
     private entries(): Entry[] {
+        const { here, elsewhere } = this.manager.runsByBranch();
+
         return [
-            ...this.manager.branchRuns().map((run) => ({ run, elsewhere: false })),
-            ...this.manager.otherBranchRuns().map((run) => ({ run, elsewhere: true })),
+            ...here.map((run) => ({ run, elsewhere: false })),
+            ...elsewhere.map((run) => ({ run, elsewhere: true })),
         ];
     }
 
@@ -593,7 +566,7 @@ export class SubagentInspector implements Component {
             return;
         }
 
-        this.notice = { text: truncateToWidth(text.replace(/\s+/g, " "), 400), color };
+        this.notice = { text: truncateToWidth(displayLine(text), 400), color };
         clearTimeout(this.noticeTimer);
         this.noticeTimer = setTimeout(() => {
             this.notice = undefined;
@@ -602,9 +575,9 @@ export class SubagentInspector implements Component {
         this.requestRender();
     }
 
-    /** Running turns show elapsed times and retries, so the panel redraws while any run works. */
-    private syncRefreshTimer(entries: readonly Entry[]): void {
-        const running = entries.some((entry) => entry.run.state === "running");
+    /** A running tool shows its elapsed time, so the panel redraws while the selected run has one. */
+    private syncRefreshTimer(selected: Run | undefined): void {
+        const running = !this.details && (selected?.runningTools.size ?? 0) > 0;
 
         if (running && !this.refreshTimer && !this.disposed) {
             this.refreshTimer = setInterval(() => this.requestRender(), REFRESH_INTERVAL_MS);

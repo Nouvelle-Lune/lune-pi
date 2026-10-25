@@ -1,170 +1,178 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall } from "@earendil-works/pi-ai";
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import { reportColor } from "../notify/notification-box.ts";
-import {
-    luneThemeRenderer,
-    type LuneActivity,
-    type LuneActivityStatus,
-    type LuneThemeRenderer,
-} from "../render/lune-theme.ts";
-import { displayLines } from "../render/text.ts";
+import type { LuneActivityStatus } from "../render/lune-theme.ts";
+import { displayLine, displayLines } from "../render/text.ts";
 import { isUserMessage, stripUserMarker } from "../run/guide.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import type { Run, RunningTool } from "../run/run.ts";
 import { formatDuration } from "../tools/format.ts";
+import { headRows, LineWrapCache, tailRows } from "./wrap.ts";
 
-/** Output lines a tool call shows; the inspector is a log, not a pager. */
-const TOOL_OUTPUT_LINES = 8;
-const DIFF_LINES = 40;
+/** Rows of a failed call's error, a running call's output or a streamed thought; it is a log, not a pager. */
+const EXCERPT_ROWS = 3;
 const INDENT = "    ";
 
 type ToolResult = Extract<AgentMessage, { role: "toolResult" }>;
 
-export interface TranscriptCard {
-    /** Transcript rows the card occupies, end exclusive. */
-    start: number;
-    end: number;
-    component: Component;
-}
-
-export interface Transcript {
-    rows: string[];
-    cards: TranscriptCard[];
-}
-
-/** Static rows, or an activity card that renders itself, since a click can change its height. */
-type Piece = { rows: string[] } | { card: Component };
-
-interface CachedBlock {
+/**
+ * The rows of a run's settled messages, the ones that can no longer change.
+ *
+ * A run's session only appends, so a later transcript that still holds `last` at `count - 1` only
+ * adds messages, and the rows grow by theirs.
+ */
+interface SettledRows {
+    runId: string;
     width: number;
-    renderer: LuneThemeRenderer | undefined;
-    signature: string;
-    pieces: Piece[];
-}
-
-interface CachedCard {
-    /** Stable for the tool group, so the theme remembers what a click opened. */
-    key: object;
-    renderer: LuneThemeRenderer;
-    signature: string;
-    component: Component;
+    count: number;
+    last: AgentMessage | undefined;
+    rows: string[];
+    /** Results of every message read so far; a result never comes before its call. */
+    results: Map<string, ToolResult>;
+    read: number;
 }
 
 /**
  * Draws a run's messages for the inspector's right pane with the parent's theme.
  *
  * It renders on its own: Pi's tool renderers read a module-global theme that an extension cannot
- * rely on. While Core Theme is active, tool calls are drawn as its activity cards; assistant text,
- * reports and diffs stay on this path either way.
+ * rely on. Settled messages are drawn once per width; only the live tail (the streamed message, the
+ * last assistant message while its tools run, and a retry notice) is drawn again on each frame.
  */
 export class TranscriptRenderer {
     private readonly theme: Theme;
-    private blocks = new WeakMap<object, CachedBlock>();
-    private readonly cards = new Map<string, CachedCard>();
+    private readonly wraps = new LineWrapCache();
+    private blocks = new WeakMap<object, { width: number; rows: string[] }>();
+    private settled: SettledRows | undefined;
 
     constructor(theme: Theme) {
         this.theme = theme;
     }
 
-    render(run: Run, width: number): Transcript {
-        const renderer = luneThemeRenderer();
-        const messages = [...run.transcript()];
+    render(run: Run, width: number): readonly string[] {
+        const messages = run.transcript();
+        const settled = this.settledRows(run, messages, width);
+        const streamed =
+            run.streaming && !messages.includes(run.streaming) ? run.streaming : undefined;
+        const lastAssistant =
+            streamed ?? messages.findLast((message) => message.role === "assistant");
+        const tail: string[] = [];
+        const add = (rows: readonly string[]): void => {
+            if (rows.length === 0) {
+                return;
+            }
 
-        if (run.streaming && !messages.includes(run.streaming)) {
-            messages.push(run.streaming);
+            if (settled.rows.length + tail.length > 0) {
+                tail.push("");
+            }
+
+            append(tail, rows);
+        };
+        const context = (message: AgentMessage): BlockContext => ({
+            run,
+            width,
+            results: settled.results,
+            pending: run.state === "running" && message === lastAssistant,
+            live: message === run.streaming,
+        });
+
+        for (let index = settled.count; index < messages.length; index++) {
+            add(this.buildBlock(messages[index]!, context(messages[index]!)));
         }
 
-        const results = new Map<string, ToolResult>();
-
-        for (const message of messages) {
-            if (message.role === "toolResult") {
-                results.set(message.toolCallId, message);
-            }
-        }
-
-        const lastAssistant = messages.findLast((message) => message.role === "assistant");
-        const rows: string[] = [];
-        const cards: TranscriptCard[] = [];
-
-        for (const message of messages) {
-            const pieces = this.block(message, {
-                run,
-                width,
-                renderer,
-                results,
-                pending: run.state === "running" && message === lastAssistant,
-            });
-
-            if (pieces.length === 0) {
-                continue;
-            }
-
-            if (rows.length > 0) {
-                rows.push("");
-            }
-
-            for (const piece of pieces) {
-                if ("rows" in piece) {
-                    rows.push(...piece.rows);
-                } else {
-                    const lines = piece.card.render(width);
-
-                    cards.push({
-                        start: rows.length,
-                        end: rows.length + lines.length,
-                        component: piece.card,
-                    });
-                    rows.push(...lines);
-                }
-            }
+        if (streamed) {
+            add(this.buildBlock(streamed, context(streamed)));
         }
 
         if (run.activity) {
-            rows.push("", this.theme.fg("warning", run.activity));
+            add(this.wrap(run.activity, width, "warning"));
         }
 
-        return { rows, cards };
+        return tail.length === 0 ? settled.rows : [...settled.rows, ...tail];
     }
 
-    /** Forget every cached block, for example after the theme changed. */
+    /** Forget every drawn row, for example after the theme changed. */
     clear(): void {
         this.blocks = new WeakMap();
-        this.cards.clear();
+        this.settled = undefined;
+        this.wraps.clear();
     }
 
-    private block(message: AgentMessage, context: BlockContext): Piece[] {
-        // The streamed message changes in place, so it is never cached.
-        const cacheable = message !== context.run.streaming;
-        const signature = cacheable ? blockSignature(message, context) : "";
-        const cached = cacheable ? this.blocks.get(message) : undefined;
+    private settledRows(run: Run, messages: readonly AgentMessage[], width: number): SettledRows {
+        let settled = this.settled;
 
         if (
-            cached &&
-            cached.width === context.width &&
-            cached.renderer === context.renderer &&
-            cached.signature === signature
+            !settled ||
+            settled.runId !== run.id ||
+            settled.width !== width ||
+            settled.read > messages.length ||
+            (settled.count > 0 && messages[settled.count - 1] !== settled.last)
         ) {
-            return cached.pieces;
+            settled = {
+                runId: run.id,
+                width,
+                count: 0,
+                last: undefined,
+                rows: [],
+                results: new Map(),
+                read: 0,
+            };
+            this.settled = settled;
         }
 
-        const pieces = this.buildBlock(message, context);
+        for (; settled.read < messages.length; settled.read++) {
+            const message = messages[settled.read]!;
 
-        if (cacheable) {
-            this.blocks.set(message, {
-                width: context.width,
-                renderer: context.renderer,
-                signature,
-                pieces,
+            if (message.role === "toolResult") {
+                settled.results.set(message.toolCallId, message);
+            }
+        }
+
+        const count = settledCount(run, messages, settled.results);
+
+        for (; settled.count < count; settled.count++) {
+            const message = messages[settled.count]!;
+            const rows = this.block(message, {
+                run,
+                width,
+                results: settled.results,
+                pending: false,
+                live: false,
             });
+
+            if (rows.length > 0) {
+                if (settled.rows.length > 0) {
+                    settled.rows.push("");
+                }
+
+                append(settled.rows, rows);
+            }
+
+            settled.last = message;
         }
 
-        return pieces;
+        return settled;
     }
 
-    private buildBlock(message: AgentMessage, context: BlockContext): Piece[] {
+    /** A settled message's rows, kept per message so switching back to a run redraws nothing. */
+    private block(message: AgentMessage, context: BlockContext): string[] {
+        const cached = this.blocks.get(message);
+
+        if (cached?.width === context.width) {
+            return cached.rows;
+        }
+
+        const rows = this.buildBlock(message, context);
+
+        this.blocks.set(message, { width: context.width, rows });
+
+        return rows;
+    }
+
+    private buildBlock(message: AgentMessage, context: BlockContext): string[] {
         const { width } = context;
 
         switch (message.role) {
@@ -178,77 +186,60 @@ export class TranscriptRenderer {
                 const fromUser = isUserMessage(text);
 
                 return [
-                    {
-                        rows: [
-                            this.theme.bold(
-                                this.theme.fg(
-                                    fromUser ? "accent" : "mdHeading",
-                                    fromUser ? "› User" : "› Main agent",
-                                ),
-                            ),
-                            ...this.wrap(stripUserMarker(text), width, "userMessageText"),
-                        ],
-                    },
+                    this.theme.bold(
+                        this.theme.fg(
+                            fromUser ? "accent" : "mdHeading",
+                            fromUser ? "› User" : "› Main agent",
+                        ),
+                    ),
+                    ...this.wrap(stripUserMarker(text), width, "userMessageText"),
                 ];
             }
             case "assistant":
-                return this.assistantBlock(message, context);
+                return this.assistantRows(message, context);
             case "toolResult":
                 // Drawn with the call that asked for it.
                 return [];
             case "compactionSummary":
-                return [{ rows: [this.theme.fg("muted", "Context compacted")] }];
+                return [this.theme.fg("muted", "Context compacted")];
             case "branchSummary":
-                return [{ rows: [this.theme.fg("muted", "Branch summary")] }];
+                return [this.theme.fg("muted", "Branch summary")];
             case "bashExecution":
                 return [
-                    {
-                        rows: [
-                            this.theme.fg("toolTitle", `$ ${message.command}`),
-                            ...this.limited(message.output, width, "toolOutput", TOOL_OUTPUT_LINES),
-                        ],
-                    },
+                    ...wrapTextWithAnsi(
+                        this.theme.fg("toolTitle", `$ ${clip(message.command)}`),
+                        width,
+                    ),
+                    ...this.excerpt(message.output, width, "toolOutput", "head"),
                 ];
             case "custom":
                 return message.display
-                    ? [
-                          {
-                              rows: this.wrap(
-                                  typeof message.content === "string"
-                                      ? message.content
-                                      : message.content
-                                            .map((part) => (part.type === "text" ? part.text : ""))
-                                            .join("\n"),
-                                  width,
-                                  "customMessageText",
-                              ),
-                          },
-                      ]
+                    ? this.wrap(
+                          typeof message.content === "string"
+                              ? message.content
+                              : message.content
+                                    .map((part) => (part.type === "text" ? part.text : ""))
+                                    .join("\n"),
+                          width,
+                          "customMessageText",
+                      )
                     : [];
             default:
                 return [];
         }
     }
 
-    private assistantBlock(message: AssistantMessage, context: BlockContext): Piece[] {
-        const pieces: Piece[] = [];
-        let rows: string[] = [];
+    private assistantRows(message: AssistantMessage, context: BlockContext): string[] {
+        const rows: string[] = [];
         let group: ToolCall[] = [];
-        const flushRows = (): void => {
-            if (rows.length > 0) {
-                pieces.push({ rows });
-                rows = [];
-            }
-        };
         const flushGroup = (): void => {
             if (group.length > 0) {
-                flushRows();
-                pieces.push(...this.toolGroup(group, context));
+                append(rows, this.toolGroup(group, context));
                 group = [];
             }
         };
 
-        for (const part of message.content) {
+        for (const [index, part] of message.content.entries()) {
             if (part.type === "toolCall") {
                 group.push(part);
                 continue;
@@ -257,23 +248,25 @@ export class TranscriptRenderer {
             flushGroup();
 
             if (part.type === "thinking") {
-                rows.push(
-                    ...(part.redacted
-                        ? [this.theme.fg("thinkingText", "Thinking redacted")]
-                        : this.wrap(part.thinking, context.width, "thinkingText").map((line) =>
-                              this.theme.italic(line),
-                          )),
+                append(
+                    rows,
+                    this.thinkingRows(
+                        part.redacted ? undefined : part.thinking,
+                        context.width,
+                        context.live && index === message.content.length - 1,
+                    ),
                 );
             } else if (part.text.trim() !== "") {
-                rows.push(...this.wrap(part.text, context.width, "text"));
+                append(rows, this.wrap(part.text, context.width, "text"));
             }
         }
 
         flushGroup();
 
         if (message.stopReason === "error") {
-            rows.push(
-                ...this.wrap(
+            append(
+                rows,
+                this.wrap(
                     `Error: ${message.errorMessage ?? "The model request failed."}`,
                     context.width,
                     "error",
@@ -283,90 +276,101 @@ export class TranscriptRenderer {
             rows.push(this.theme.fg("muted", "Stopped"));
         }
 
-        flushRows();
-
-        return pieces;
+        return rows;
     }
 
-    private toolGroup(calls: readonly ToolCall[], context: BlockContext): Piece[] {
-        const pieces: Piece[] = [];
-        const tools = calls.filter((call) => call.name !== REPORT_TOOL_NAME);
+    /** One `Thinking · 12 lines` row; a thought still streaming also shows its newest rows. */
+    private thinkingRows(
+        thinking: string | undefined,
+        width: number,
+        streaming: boolean,
+    ): string[] {
+        const label = (text: string): string =>
+            this.theme.italic(this.theme.fg("thinkingText", text));
 
-        if (tools.length > 0 && context.renderer) {
-            pieces.push({ card: this.card(tools, context, context.renderer) });
+        if (thinking === undefined) {
+            return [label("Thinking redacted")];
+        }
 
-            // The card protocol has no diffs, so they keep this path under the card.
-            for (const call of tools) {
-                const diff = diffOf(context.results.get(call.id));
+        const text = thinking.replace(/\s+$/, "");
 
-                if (diff) {
-                    pieces.push({
-                        rows: [
-                            this.theme.fg("muted", `${call.name} ${toolSummary(call)}`),
-                            ...this.diffRows(diff, context.width),
-                        ],
-                    });
-                }
-            }
-        } else {
-            for (const call of tools) {
-                pieces.push({ rows: this.toolRows(call, context) });
+        if (text === "") {
+            return streaming ? [label("Thinking")] : [];
+        }
+
+        const lines = displayLines(text);
+        const rows = [label(`Thinking · ${lines.length} ${lines.length === 1 ? "line" : "lines"}`)];
+
+        if (streaming) {
+            const shown = tailRows(lines, Math.max(1, width - INDENT.length), EXCERPT_ROWS).rows;
+
+            append(
+                rows,
+                shown.map((row) => INDENT + label(row)),
+            );
+        }
+
+        return rows;
+    }
+
+    private toolGroup(calls: readonly ToolCall[], context: BlockContext): string[] {
+        const rows: string[] = [];
+
+        for (const call of calls) {
+            if (call.name !== REPORT_TOOL_NAME) {
+                append(rows, this.toolRows(call, context));
             }
         }
 
         for (const call of calls) {
             if (call.name === REPORT_TOOL_NAME) {
-                pieces.push({ rows: this.reportRows(call, context) });
+                append(rows, this.reportRows(call, context));
             }
         }
 
-        return pieces;
+        return rows;
     }
 
+    /**
+     * `● read src/a.ts · 0.2s`. A finished call shows no output; a failed call shows the start of
+     * its error and a running call the end of its output.
+     */
     private toolRows(call: ToolCall, context: BlockContext): string[] {
         const result = context.results.get(call.id);
         const running = context.run.runningTools.get(call.id);
         const status = callStatus(result, running, context.pending);
         const [color, icon] = STATUS_STYLE[status];
-        const suffix = [
-            status === "cancelled" ? "not finished" : undefined,
-            result?.durationMs !== undefined ? formatDuration(result.durationMs) : undefined,
-        ]
-            .filter((part) => part !== undefined)
-            .join(" · ");
+        const diff = diffOf(result);
+        const meta = [
+            diff ? this.diffStat(diff) : undefined,
+            status === "cancelled" ? this.theme.fg("dim", "not finished") : undefined,
+            result?.durationMs !== undefined
+                ? this.theme.fg("dim", formatDuration(result.durationMs))
+                : running
+                  ? this.theme.fg("dim", formatDuration(Date.now() - running.startedAt))
+                  : undefined,
+        ].filter((part) => part !== undefined);
+        const separator = this.theme.fg("dim", " · ");
         const head =
             `${this.theme.fg(color, icon)} ${this.theme.bold(this.theme.fg("toolTitle", call.name))} ` +
             this.theme.fg("muted", toolSummary(call)) +
-            (suffix ? this.theme.fg("dim", ` · ${suffix}`) : "");
+            (meta.length > 0 ? separator + meta.join(separator) : "");
         const rows = wrapTextWithAnsi(head, context.width);
 
         if (call.argumentsError) {
-            rows.push(
-                ...this.indented(call.argumentsError, context.width, "error", TOOL_OUTPUT_LINES),
-            );
+            append(rows, this.excerpt(call.argumentsError, context.width, "error", "head"));
         }
 
-        const diff = diffOf(result);
-
-        if (diff) {
-            rows.push(...this.diffRows(diff, context.width));
-        } else if (result) {
-            rows.push(
-                ...this.indented(
-                    resultText(result),
-                    context.width,
-                    result.isError ? "error" : "toolOutput",
-                    TOOL_OUTPUT_LINES,
-                ),
-            );
-        } else if (running?.partialResult !== undefined) {
-            rows.push(
-                ...this.indented(
+        if (result?.isError) {
+            append(rows, this.excerpt(resultText(result), context.width, "error", "head"));
+        } else if (!result && running?.partialResult !== undefined) {
+            append(
+                rows,
+                this.excerpt(
                     partialText(running.partialResult),
                     context.width,
                     "toolOutput",
-                    TOOL_OUTPUT_LINES,
-                    true,
+                    "tail",
                 ),
             );
         }
@@ -376,7 +380,7 @@ export class TranscriptRenderer {
 
     private reportRows(call: ToolCall, context: BlockContext): string[] {
         const args = call.arguments as Record<string, unknown>;
-        const status = typeof args.status === "string" ? args.status : "report";
+        const status = typeof args.status === "string" ? displayLine(args.status) : "report";
         const result = context.results.get(call.id);
         const rows = [
             `${this.theme.bold(this.theme.fg("toolTitle", "Report"))} ` +
@@ -384,147 +388,100 @@ export class TranscriptRenderer {
         ];
 
         if (result?.isError) {
-            rows.push(
-                ...this.indented(resultText(result), context.width, "error", TOOL_OUTPUT_LINES),
-            );
+            append(rows, this.excerpt(resultText(result), context.width, "error", "head"));
         }
 
         if (typeof args.reason === "string" && args.reason.trim() !== "") {
-            rows.push(...this.indented(`Reason: ${args.reason}`, context.width, "error"));
+            append(rows, this.indented(`Reason: ${args.reason}`, context.width, "error"));
         }
 
         if (typeof args.question === "string" && args.question.trim() !== "") {
-            rows.push(...this.indented(`Question: ${args.question}`, context.width, "accent"));
+            append(rows, this.indented(`Question: ${args.question}`, context.width, "accent"));
         }
 
         if (typeof args.summary === "string") {
-            rows.push(...this.indented(args.summary, context.width, "text"));
+            append(rows, this.indented(args.summary, context.width, "text"));
         }
 
         return rows;
     }
 
-    /** One card per tool group; the component is kept while its renderer and data stay the same. */
-    private card(
-        calls: readonly ToolCall[],
-        context: BlockContext,
-        renderer: LuneThemeRenderer,
-    ): Component {
-        const id = calls[0]!.id;
-        const activity = this.activity(calls, context);
-        const signature = JSON.stringify(activity);
-        const cached = this.cards.get(id);
+    /** `+12 −3`: the lines a diff adds and removes. */
+    private diffStat(diff: string): string {
+        let added = 0;
+        let removed = 0;
 
-        if (cached && cached.renderer === renderer && cached.signature === signature) {
-            return cached.component;
+        for (const line of diff.split("\n")) {
+            if (line.startsWith("+")) {
+                added += 1;
+            } else if (line.startsWith("-")) {
+                removed += 1;
+            }
         }
 
-        const key = cached?.key ?? {};
-        const component = renderer.renderActivity(activity, { expanded: false, key }, this.theme);
-
-        this.cards.set(id, { key, renderer, signature, component });
-
-        return component;
-    }
-
-    private activity(calls: readonly ToolCall[], context: BlockContext): LuneActivity {
-        return {
-            title: "tools",
-            summary: calls.length > 1 ? `${calls.length} calls` : undefined,
-            entries: calls.map((call) => {
-                const result = context.results.get(call.id);
-                const running = context.run.runningTools.get(call.id);
-                const status = callStatus(result, running, context.pending);
-                const output = result
-                    ? resultText(result)
-                    : running?.partialResult !== undefined
-                      ? partialText(running.partialResult)
-                      : "";
-
-                return {
-                    name: call.name,
-                    summary: toolSummary(call),
-                    status,
-                    durationMs: result?.durationMs,
-                    error: result?.isError ? firstLine(output) : call.argumentsError,
-                    output: displayLines(output).join("\n"),
-                };
-            }),
-        };
-    }
-
-    private diffRows(diff: string, width: number): string[] {
-        const lines = displayLines(diff);
-        const shown = lines.slice(0, DIFF_LINES);
-        const rows = shown.flatMap((line) => {
-            const color: ThemeColor = line.startsWith("+")
-                ? "toolDiffAdded"
-                : line.startsWith("-")
-                  ? "toolDiffRemoved"
-                  : "toolDiffContext";
-
-            return wrapTextWithAnsi(line, Math.max(1, width - INDENT.length)).map(
-                (part) => INDENT + this.theme.fg(color, part),
-            );
-        });
-
-        if (lines.length > shown.length) {
-            rows.push(
-                INDENT + this.theme.fg("muted", `… ${lines.length - shown.length} more diff lines`),
-            );
-        }
-
-        return rows;
+        return `${this.theme.fg("toolDiffAdded", `+${added}`)} ${this.theme.fg("toolDiffRemoved", `−${removed}`)}`;
     }
 
     private wrap(text: string, width: number, color: ThemeColor): string[] {
-        return displayLines(text.replace(/\s+$/, ""))
-            .flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
-            .map((line) => this.theme.fg(color, line));
-    }
+        const rows: string[] = [];
 
-    /** Indented lines, the first `limit` of them, or the last ones for output still streaming. */
-    private indented(
-        text: string,
-        width: number,
-        color: ThemeColor,
-        limit = Number.POSITIVE_INFINITY,
-        tail = false,
-    ): string[] {
-        const lines = displayLines(text.replace(/\s+$/, "")).flatMap((line) =>
-            wrapTextWithAnsi(line, Math.max(1, width - INDENT.length)),
-        );
-
-        if (lines.length === 1 && lines[0] === "") {
-            return [];
-        }
-
-        const shown = tail ? lines.slice(-limit) : lines.slice(0, limit);
-        const rows = shown.map((line) => INDENT + this.theme.fg(color, line));
-        const hidden = lines.length - shown.length;
-
-        if (hidden > 0) {
-            const note =
-                INDENT + this.theme.fg("muted", `… ${hidden} ${tail ? "earlier" : "more"} lines`);
-
-            return tail ? [note, ...rows] : [...rows, note];
+        for (const line of displayLines(text.replace(/\s+$/, ""))) {
+            for (const row of this.wraps.rows(line, Math.max(1, width))) {
+                rows.push(this.theme.fg(color, row));
+            }
         }
 
         return rows;
     }
 
-    private limited(text: string, width: number, color: ThemeColor, limit: number): string[] {
-        return this.indented(text, width, color, limit);
+    private indented(text: string, width: number, color: ThemeColor): string[] {
+        return this.wrap(text, width - INDENT.length, color).map((row) => INDENT + row);
+    }
+
+    /** The first or the last few rows of a text, with a note of how many lines are left out. */
+    private excerpt(
+        text: string,
+        width: number,
+        color: ThemeColor,
+        from: "head" | "tail",
+    ): string[] {
+        const trimmed = text.replace(/\s+$/, "");
+
+        if (trimmed === "") {
+            return [];
+        }
+
+        const lines = displayLines(trimmed);
+        const inner = Math.max(1, width - INDENT.length);
+        const { rows, hidden } =
+            from === "head"
+                ? headRows(lines, inner, EXCERPT_ROWS)
+                : tailRows(lines, inner, EXCERPT_ROWS);
+        const shown = rows.map((row) => INDENT + this.theme.fg(color, row));
+
+        if (hidden === 0) {
+            return shown;
+        }
+
+        const note =
+            INDENT +
+            this.theme.fg(
+                "muted",
+                `… ${hidden} ${from === "tail" ? "earlier" : "more"} ${hidden === 1 ? "line" : "lines"}`,
+            );
+
+        return from === "tail" ? [note, ...shown] : [...shown, note];
     }
 }
 
 interface BlockContext {
     run: Run;
     width: number;
-    renderer: LuneThemeRenderer | undefined;
     results: ReadonlyMap<string, ToolResult>;
     /** The run is still working on this message's tool calls. */
     pending: boolean;
+    /** The message is still streaming. */
+    live: boolean;
 }
 
 const STATUS_STYLE: Record<LuneActivityStatus, [ThemeColor, string]> = {
@@ -533,6 +490,34 @@ const STATUS_STYLE: Record<LuneActivityStatus, [ThemeColor, string]> = {
     failed: ["error", "✕"],
     cancelled: ["muted", "○"],
 };
+
+/**
+ * How many messages from the start can no longer change. Only the last assistant message can: its
+ * calls still wait for results, which also covers the streamed message once it is saved.
+ */
+function settledCount(
+    run: Run,
+    messages: readonly AgentMessage[],
+    results: ReadonlyMap<string, ToolResult>,
+): number {
+    const streamed = run.streaming ? messages.indexOf(run.streaming) : -1;
+
+    if (streamed !== -1) {
+        return streamed;
+    }
+
+    const last = messages.findLastIndex((message) => message.role === "assistant");
+    const message = messages[last];
+
+    if (
+        message?.role === "assistant" &&
+        message.content.some((part) => part.type === "toolCall" && !results.has(part.id))
+    ) {
+        return last;
+    }
+
+    return messages.length;
+}
 
 function callStatus(
     result: ToolResult | undefined,
@@ -546,29 +531,11 @@ function callStatus(
     return running || pending ? "running" : "cancelled";
 }
 
-/** What decides a cached block: its tool results, running tools and whether the run still works on it. */
-function blockSignature(message: AgentMessage, context: BlockContext): string {
-    if (message.role !== "assistant") {
-        return "";
+/** Appends without spreading, which overflows the call stack for a very long text. */
+function append(target: string[], rows: readonly string[]): void {
+    for (const row of rows) {
+        target.push(row);
     }
-
-    return [
-        context.pending ? "pending" : "settled",
-        ...message.content.map((part) => {
-            if (part.type !== "toolCall") {
-                return "";
-            }
-
-            const result = context.results.get(part.id);
-            const running = context.run.runningTools.get(part.id);
-
-            if (result) {
-                return `r${result.timestamp}`;
-            }
-
-            return running ? `p${partialText(running.partialResult).length}` : "-";
-        }),
-    ].join("|");
 }
 
 /** The words that identify a call: its command, path or pattern, else its arguments as JSON. */
@@ -596,7 +563,7 @@ export function toolSummary(call: ToolCall): string {
 }
 
 function clip(text: string): string {
-    const line = text.replace(/\s+/g, " ").trim();
+    const line = displayLine(text);
 
     return visibleWidth(line) > 80 ? `${line.slice(0, 79)}…` : line;
 }
@@ -623,8 +590,4 @@ function diffOf(result: ToolResult | undefined): string | undefined {
     const diff = (result?.details as { diff?: unknown } | undefined)?.diff;
 
     return typeof diff === "string" && diff.trim() !== "" ? diff : undefined;
-}
-
-function firstLine(text: string): string | undefined {
-    return displayLines(text).find((line) => line.trim() !== "");
 }

@@ -176,7 +176,9 @@ A message you write reaches the run marked as coming from you. A running run get
 
 The details view shows the start values and where each came from, the workspace, the token usage and the run's diagnostics. A run's tokens are not added to the main session's totals.
 
-With the Lune theme on, tool calls in the inspector and the report messages in the transcript render as its activity cards. Without it, the package renders them itself.
+The transcript is a compact log. Each tool call takes one row with its status and time, and an edit also shows the lines it added and removed, for example `● edit src/a.ts · +12 −3 · 0.2s`. A failed call adds the first lines of its error, and a running call the last lines of its output. A finished thought takes one row, for example `Thinking · 42 lines`. Assistant text, your messages, the main agent's messages and reports show in full.
+
+With the Lune theme on, the report messages in the main transcript render as its activity cards. Without it, the package renders them itself.
 
 ## Sessions and branches
 

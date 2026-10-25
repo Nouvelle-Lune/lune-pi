@@ -74,15 +74,25 @@ export function fitRanked(
     }
 }
 
+// Tab, newline and carriage return stay for screenLine. A lone ESC, a backspace or a C1 byte the
+// sequence parser leaves behind would move the terminal cursor and shift the frame around the row.
+const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g;
+
 /**
- * Text from a run as plain display lines: terminal sequences removed, a carriage return keeping
- * what a terminal would leave on screen, and tabs expanded because rows are measured in cells.
+ * Text from a run as plain display lines: terminal sequences and control characters removed, a
+ * carriage return keeping what a terminal would leave on screen, and tabs expanded because rows
+ * are measured in cells.
  */
 export function displayLines(text: string): string[] {
-    return stripTerminalSequences(text).split("\n").map(displayLine);
+    return stripTerminalSequences(text).replace(CONTROL_CHARACTERS, "").split("\n").map(screenLine);
 }
 
-function displayLine(line: string): string {
+/** Text from a run as one display line, with every run of whitespace collapsed to a space. */
+export function displayLine(text: string): string {
+    return displayLines(text).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function screenLine(line: string): string {
     const segments = line.split("\r");
 
     for (let index = segments.length - 1; index >= 0; index -= 1) {
