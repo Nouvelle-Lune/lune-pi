@@ -25,14 +25,22 @@ The main agent starts the run with `subagent_start` and continues its own work. 
 - **A run is a session, not a prompt.** Each run has its own session file. A run that ended, failed or was interrupted can continue with `subagent_send`.
 - **Fresh context only.** A run starts with an empty conversation and gets only its task.
 - **Runs never block the main agent.** `subagent_start` returns at once. The report arrives as a steer message when the turn ends; reports that end close together arrive as one message.
-- **Optional definitions.** Reusable roles are Markdown files. A one-off task needs no file: the main agent sets up the run in the call.
+- **Optional definitions.** Reusable roles are Markdown files, yours or the project's. A one-off task needs no file: the main agent sets up the run in the call.
+- **Several runs from one call.** The main agent can start one run per entry of `tasks`, all at the same time.
 - **Optional worktrees.** A run can work in its own Git worktree, so parallel changes do not touch your files.
 - **No extensions in runs.** A run loads none of your user or project extensions. It gets Pi's native tools and the codemode, tool-search and MCP built-ins, and it cannot start runs of its own. For the same reason, a run cannot use a model that an extension provides, such as a model of the llama.cpp built-in: the start fails and says so.
 - **Visible.** Runs show in the Dock and in the `/agents` inspector, where you can read their live transcripts and write to them.
 
 ## Agent definitions
 
-Definitions are Markdown files directly in `~/.pi/agent/lune-subagents/` (the `lune-subagents` folder in Pi's agent directory, which follows `PI_CODING_AGENT_DIR`). There is no project-level folder. The package ships no definitions.
+Definitions are Markdown files directly in one of two folders. The package ships no definitions.
+
+- **User definitions** are in `~/.pi/agent/lune-subagents/`: the `lune-subagents` folder in Pi's agent directory, which follows `PI_CODING_AGENT_DIR`.
+- **Project definitions** are in `.pi/lune-subagents/` in the directory where you start Pi. They load only when Pi trusts the project.
+
+When a project definition and a user definition have the same name, the project definition is used and the user file is reported as not loaded.
+
+Pi asks whether to trust a project only when the project has resources that Pi itself guards, such as `.pi/settings.json` or `.pi/extensions/`. A project whose only `.pi` content is `lune-subagents/` counts as trusted without a prompt, the same as its `AGENTS.md`. Read the definitions of a project you did not write before you use them.
 
 | Field         | Required | Meaning                                                                                       |
 | ------------- | -------- | --------------------------------------------------------------------------------------------- |
@@ -43,9 +51,9 @@ Definitions are Markdown files directly in `~/.pi/agent/lune-subagents/` (the `l
 | `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the main agent's level. |
 | `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                     |
 
-The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. A file with invalid frontmatter, an unknown field, a missing field or a duplicate name is reported and not loaded.
+The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
 
-The main agent sees the loaded agents as a `subagents` section of its system prompt, one `- name: description` line each.
+The main agent sees the loaded agents as a `subagents` section of its system prompt, one `- name: description` line each, in name order. A project definition shows as `- name (project): description`.
 
 ### Examples
 
@@ -109,6 +117,12 @@ the tests and report the commands, the results and the files you changed.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
 - The task is the run's first message, unchanged. The run's system prompt is Pi's own, then the definition body, then a short fixed guide for subagents.
 
+### Several runs in one call
+
+The main agent can give `tasks` instead of `task`: a list of entries, each with its own `task` and the same optional values as a single start. With `tasks`, the optional values go in each entry, not at the top level. A call that mixes them, or gives both `task` and `tasks`, starts nothing.
+
+All entries start at the same time, and each one on its own. An entry that fails to start, for example with a tool that the run does not have, undoes only its own work and does not stop the others. A run that started is kept. The result names each entry by its index, `tasks[0]`, `tasks[1]` and so on, with its run or its error. When no entry starts, the call fails.
+
 ### Workspace isolation
 
 - **`shared`** uses the main agent's working directory. The run sees uncommitted changes and shares files with the main agent.
@@ -118,12 +132,12 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 ## Tools
 
-| Tool              | Parameters                                                          | Effect                                                                                   |
-| ----------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task`; optional `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run and returns its ID, workspace and start values.                            |
-| `subagent_send`   | `runId`, `message`                                                  | Steers a running run, or starts a new turn in an idle, failed or interrupted run.        |
-| `subagent_status` | optional `runId`                                                    | Reads one run, or every run on the current branch, with token usage and the last report. |
-| `subagent_stop`   | `runId`                                                             | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.    |
+| Tool              | Parameters                                                                     | Effect                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `subagent_start`  | `task` or `tasks`; optional `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
+| `subagent_send`   | `runId`, `message`                                                             | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
+| `subagent_status` | optional `runId`                                                               | Reads one run, or every run on the current branch, with token usage and the last report.      |
+| `subagent_stop`   | `runId`                                                                        | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
 
 ## Reports and states
 

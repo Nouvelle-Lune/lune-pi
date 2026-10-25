@@ -6,11 +6,17 @@ import Type, { type TSchema } from "typebox";
 import type { ToolCatalog } from "../catalog.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
-import type { RunManager } from "../run/run-manager.ts";
+import type { RunManager, StartParams } from "../run/run-manager.ts";
 import type { SendOutcome } from "../run/run.ts";
 import { ISOLATION_MODES, THINKING_LEVELS, type Isolation } from "../run/types.ts";
 import { stringEnum } from "../schema.ts";
-import { formatRunList, formatRunStatus, formatStarted } from "./format.ts";
+import {
+    formatRunList,
+    formatRunStatus,
+    formatStarted,
+    formatStartedBatch,
+    type StartOutcome,
+} from "./format.ts";
 
 export const SUBAGENT_TOOL_NAMES = [
     "subagent_start",
@@ -22,7 +28,8 @@ export const SUBAGENT_TOOL_NAMES = [
 /** A catalog description keeps only the first sentence of each tool's own description. */
 const CATALOG_DESCRIPTION_CHARS = 100;
 
-interface StartInput {
+/** One run's start values: the top level of `subagent_start`, or one entry of its `tasks`. */
+interface RunInput {
     task: string;
     agent?: string;
     model?: string;
@@ -30,6 +37,17 @@ interface StartInput {
     tools?: string[];
     isolation?: Isolation;
 }
+
+interface StartInput extends Partial<RunInput> {
+    tasks?: RunInput[];
+}
+
+/** The start values that a `tasks` call takes in each entry, not at the top level. */
+const RUN_FIELDS = ["agent", "model", "thinking", "tools", "isolation"] as const;
+
+const TASK_DESCRIPTION =
+    "The run's first message and only context: the goal, the expected output and the limits of " +
+    "the work.";
 
 export interface SubagentToolsOptions {
     manager: RunManager;
@@ -58,8 +76,9 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "list to reuse its role, or leave it out and set the run up in this call. Use isolation " +
             '"shared" when the run must see or change your working directory, uncommitted changes ' +
             'included. Use "worktree" for parallel changes that must not touch your files: the run ' +
-            "gets its own Git worktree at the current HEAD commit, without uncommitted changes. The " +
-            "call returns the run ID at once; a message arrives when the run's turn ends.",
+            "gets its own Git worktree at the current HEAD commit, without uncommitted changes. To " +
+            "start several runs at once, give tasks instead of task, with one entry per run. The " +
+            "call returns the run IDs at once; a message arrives when a run's turn ends.",
         promptSnippet:
             "Delegate a task to a subagent run that works in the background and reports back.",
         promptGuidelines: [
@@ -73,28 +92,70 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             // The schema is built at runtime, so its static type is loose; Pi has validated the
             // arguments against it.
             const input = params as unknown as StartInput;
-            const run = await manager.start(
-                {
-                    task: input.task,
-                    agent: input.agent,
-                    model: input.model,
-                    thinking: input.thinking,
-                    tools: input.tools,
-                    isolation: input.isolation,
-                },
-                ctx,
-                {
-                    signal,
-                    onProgress: (text) =>
-                        onUpdate?.({ content: [{ type: "text", text }], details: undefined }),
-                },
-            );
+            const progress = (text: string): void =>
+                onUpdate?.({ content: [{ type: "text", text }], details: undefined });
 
-            return { content: [{ type: "text", text: formatStarted(run) }], details: undefined };
+            if (input.tasks === undefined) {
+                if (input.task === undefined) {
+                    throw new Error("Give task for one run, or tasks for several runs.");
+                }
+
+                const run = await manager.start(startParams(input.task, input), ctx, {
+                    signal,
+                    onProgress: progress,
+                });
+
+                return {
+                    content: [{ type: "text", text: formatStarted(run) }],
+                    details: undefined,
+                };
+            }
+
+            const entries = input.tasks;
+
+            checkBatch(input, entries);
+
+            // Each entry starts on its own, as parallel calls would: a failed one undoes only its
+            // own work, because a run that started cannot be taken back.
+            const steps = entries.map(() => "Starting");
+            const outcomes = await Promise.all(
+                entries.map(async (entry, index): Promise<StartOutcome> => {
+                    try {
+                        const run = await manager.start(startParams(entry.task, entry), ctx, {
+                            signal,
+                            onProgress: (text) => {
+                                steps[index] = text;
+                                progress(batchProgress(steps));
+                            },
+                        });
+
+                        steps[index] = `Started run ${run.name} (${run.id})`;
+
+                        return { run };
+                    } catch (error) {
+                        steps[index] = "Failed";
+
+                        return { error: error instanceof Error ? error.message : String(error) };
+                    } finally {
+                        progress(batchProgress(steps));
+                    }
+                }),
+            );
+            const text = formatStartedBatch(outcomes);
+
+            if (outcomes.every((outcome) => "error" in outcome)) {
+                throw new Error(text);
+            }
+
+            return { content: [{ type: "text", text }], details: undefined };
         },
 
         renderCall(args, theme) {
             const input = args as Partial<StartInput>;
+
+            if (Array.isArray(input.tasks)) {
+                return batchCall(theme, input.tasks);
+            }
 
             return callLine(theme, "subagent_start", [
                 input.agent ?? "inline",
@@ -202,13 +263,38 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
 }
 
 function startProperties(options: SubagentToolsOptions): Record<string, TSchema> {
-    const properties: Record<string, TSchema> = {
-        task: Type.String({
-            description:
-                "The run's first message and only context: the goal, the expected output and the " +
-                "limits of the work.",
-        }),
+    return {
+        task: Type.Optional(
+            Type.String({ description: `${TASK_DESCRIPTION} Leave it out when you give tasks.` }),
+        ),
+        ...runOptions(options, toolsDescription(options.catalog)),
+        tasks: Type.Optional(
+            Type.Array(
+                Type.Object({
+                    task: Type.String({ description: TASK_DESCRIPTION }),
+                    // The catalog is long, so an entry points to it instead of repeating it.
+                    ...runOptions(
+                        options,
+                        "Exact names of the task tools the run gets, from the list of the " +
+                            "top-level tools parameter. Default: the agent's tools, then the " +
+                            "defaultTools setting.",
+                    ),
+                }),
+                {
+                    description:
+                        "Several runs from one call, one entry per run, instead of task. Each " +
+                        "entry takes its own task and start values; leave agent, model, " +
+                        "thinking, tools and isolation out at the top level. The runs start at " +
+                        "the same time, and an entry that fails to start does not stop the others.",
+                },
+            ),
+        ),
     };
+}
+
+/** The optional start values of one run, at the top level and in each `tasks` entry. */
+function runOptions(options: SubagentToolsOptions, toolsText: string): Record<string, TSchema> {
+    const properties: Record<string, TSchema> = {};
     const agents = options.definitions.map((definition) => definition.name);
 
     if (agents.length > 0) {
@@ -233,9 +319,7 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
             description: "Default: the agent's thinking level, then your current level.",
         }),
     );
-    properties.tools = Type.Optional(
-        Type.Array(Type.String(), { description: toolsDescription(options.catalog) }),
-    );
+    properties.tools = Type.Optional(Type.Array(Type.String(), { description: toolsText }));
     properties.isolation = Type.Optional(
         stringEnum(ISOLATION_MODES, {
             description: 'Default: the agent\'s isolation, then "shared".',
@@ -269,6 +353,43 @@ function firstSentence(text: string): string {
         : sentence;
 }
 
+function startParams(task: string, values: Omit<RunInput, "task">): StartParams {
+    return {
+        task,
+        agent: values.agent,
+        model: values.model,
+        thinking: values.thinking,
+        tools: values.tools,
+        isolation: values.isolation,
+    };
+}
+
+/** A `tasks` call takes start values only in its entries, so a mixed call starts nothing. */
+function checkBatch(input: StartInput, entries: readonly RunInput[]): void {
+    if (input.task !== undefined) {
+        throw new Error("Give task for one run or tasks for several runs, not both.");
+    }
+
+    const topLevel = RUN_FIELDS.filter((field) => input[field] !== undefined);
+
+    if (topLevel.length > 0) {
+        throw new Error(
+            `With tasks, set ${topLevel.join(", ")} in each entry instead of at the top level.`,
+        );
+    }
+
+    if (entries.length === 0) {
+        throw new Error("tasks has no entries.");
+    }
+}
+
+function batchProgress(steps: readonly string[]): string {
+    return [
+        `Starting ${steps.length} run${steps.length === 1 ? "" : "s"}`,
+        ...steps.map((step, index) => `tasks[${index}]: ${step}`),
+    ].join("\n");
+}
+
 function sendText(name: string, runId: string, outcome: SendOutcome): string {
     switch (outcome) {
         case "started":
@@ -281,14 +402,36 @@ function sendText(name: string, runId: string, outcome: SendOutcome): string {
 }
 
 function callLine(theme: Theme, tool: string, parts: readonly (string | undefined)[]): Text {
-    const shown = parts.filter((part): part is string => part !== undefined && part !== "");
+    return new Text(callText(theme, tool, parts), 0, 0);
+}
 
-    return new Text(
+function callText(theme: Theme, tool: string, parts: readonly (string | undefined)[]): string {
+    const shown = shownParts(parts);
+
+    return (
         theme.fg("toolTitle", theme.bold(tool)) +
-            (shown.length > 0 ? ` ${theme.fg("muted", shown.join(" · "))}` : ""),
-        0,
-        0,
+        (shown.length > 0 ? ` ${theme.fg("muted", shown.join(" · "))}` : "")
     );
+}
+
+/** A `tasks` call: the run count, then one line per entry. An entry can still be streaming. */
+function batchCall(theme: Theme, entries: readonly unknown[]): Text {
+    const lines = entries.map((entry) => {
+        const run = (typeof entry === "object" && entry !== null ? entry : {}) as Partial<RunInput>;
+        const parts = shownParts([
+            typeof run.agent === "string" ? run.agent : "inline",
+            preview(run.task),
+        ]);
+
+        return `  ${theme.fg("muted", parts.join(" · "))}`;
+    });
+    const count = `${entries.length} run${entries.length === 1 ? "" : "s"}`;
+
+    return new Text([callText(theme, "subagent_start", [count]), ...lines].join("\n"), 0, 0);
+}
+
+function shownParts(parts: readonly (string | undefined)[]): string[] {
+    return parts.filter((part): part is string => part !== undefined && part !== "");
 }
 
 /** The call is drawn while the model still streams its arguments, so a value can be missing. */

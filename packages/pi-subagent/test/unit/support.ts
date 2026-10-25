@@ -77,6 +77,7 @@ export function definition(
         description: `The ${name} agent.`,
         body: "",
         file: `/defs/${name}.md`,
+        scope: "user",
         ...overrides,
     };
 }
@@ -202,7 +203,13 @@ export interface FakeUiState {
 }
 
 export function fakeCtx(
-    options: { sessionManager?: SessionManager; mode?: string; theme?: Theme } = {},
+    options: {
+        sessionManager?: SessionManager;
+        mode?: string;
+        theme?: Theme;
+        cwd?: string;
+        projectTrusted?: boolean;
+    } = {},
 ): { ctx: ExtensionContext; ui: FakeUiState } {
     const state: FakeUiState = { notifications: [], widgets: [] };
     const ui = {
@@ -218,11 +225,11 @@ export function fakeCtx(
         ui,
         mode: options.mode ?? "tui",
         hasUI: true,
-        cwd: "/work",
+        cwd: options.cwd ?? "/work",
         sessionManager: options.sessionManager ?? SessionManager.inMemory("/work"),
         scopedModels: [],
         modelRegistry: { getAvailable: () => [] },
-        isProjectTrusted: () => true,
+        isProjectTrusted: () => options.projectTrusted ?? true,
     } as unknown as ExtensionContext;
 
     return { ctx, ui: state };
