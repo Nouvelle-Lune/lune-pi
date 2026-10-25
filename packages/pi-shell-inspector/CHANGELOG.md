@@ -26,6 +26,8 @@
   session UI cleanup, and host-presence switching. The existing independent status bar is
   restored immediately when Lune Dock is disabled through `/dock` or is absent.
 
+- **Quieter idle Dock item.** All display levels show only `○ Shell` when no jobs are tracked, matching Agents without the `· idle` suffix. Job summaries, status markers and inspector behavior are unchanged.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added

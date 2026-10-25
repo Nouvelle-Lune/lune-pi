@@ -18,7 +18,7 @@ export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot
     // A waited-on request is always the next one; every level shows that the agent is paused.
     const waiting = next !== undefined && questionManager.isWaiting(next.id) ? "agent waiting" : "";
     const summary = [
-        count === 0 ? "idle" : `${count} pending ${count === 1 ? "request" : "requests"}`,
+        count === 0 ? "" : `${count} pending ${count === 1 ? "request" : "requests"}`,
         waiting,
     ]
         .filter(Boolean)
