@@ -415,8 +415,8 @@ export class SubagentInspector implements Component {
     }
 
     /**
-     * `Model provider/id · Thinking high`, from the live session when there is one. A narrow pane
-     * drops the `Model` label, then gives the model its own rows; nothing is cut.
+     * `Model provider/id · high`, from the live session when there is one. A narrow pane drops the
+     * `Model` label, then gives the model its own rows; nothing is cut.
      */
     private modelRows(run: Run, width: number): string[] {
         const model = run.model;
@@ -427,15 +427,14 @@ export class SubagentInspector implements Component {
             return [];
         }
 
-        const label = (text: string): string => this.theme.fg("muted", text);
-        const level = `${label("Thinking")} ${thinking}`;
+        const label = `${this.theme.fg("muted", "Model")} `;
         const separator = this.theme.fg("dim", " · ");
         const row = [
-            `${label("Model")} ${model}${separator}${level}`,
-            `${model}${separator}${level}`,
+            `${label}${model}${separator}${thinking}`,
+            `${model}${separator}${thinking}`,
         ].find((candidate) => visibleWidth(candidate) <= width);
 
-        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), level];
+        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), thinking];
     }
 
     private footer(width: number, entry: Entry | undefined): string {

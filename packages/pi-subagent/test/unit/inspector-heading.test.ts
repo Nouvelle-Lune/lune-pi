@@ -86,7 +86,7 @@ test("a wide pane shows the full title and the labelled model row below it", (t)
     const rows = right(140);
 
     assert.equal(rows[0], "security-reviewer · aaaa0001 · idle · done");
-    assert.equal(rows[1], "Model anthropic/claude-opus-5-5 · Thinking high");
+    assert.equal(rows[1], "Model anthropic/claude-opus-5-5 · high");
 });
 
 test("the details view adds a label to the title", (t) => {
@@ -99,9 +99,9 @@ test("the details view adds a label to the title", (t) => {
 
 test("a narrow pane drops the Model label first", (t) => {
     const { right } = panel(t, named("security-reviewer"));
-    const rows = right(72);
+    const rows = right(60);
 
-    assert.equal(rows[1], "anthropic/claude-opus-5-5 · Thinking high");
+    assert.equal(rows[1], "anthropic/claude-opus-5-5 · high");
 });
 
 test("the title drops the id, then the report, then the state, and always keeps the name", (t) => {
@@ -118,7 +118,7 @@ test("the title drops the id, then the report, then the state, and always keeps 
     }
 });
 
-test("a long model gets its own wrapped rows, then a Thinking row, and nothing is cut", (t) => {
+test("a long model gets its own wrapped rows, then a level row, and nothing is cut", (t) => {
     const model = "provider-with-a-long-name/model-with-an-extremely-long-identifier-v2-20260101";
     const { right, rightWidth } = panel(t, named("security-reviewer", model));
     const rows = right(72);
@@ -127,7 +127,7 @@ test("a long model gets its own wrapped rows, then a Thinking row, and nothing i
 
     assert.ok(wrapped.length >= 2);
     assert.deepEqual(rows.slice(1, 1 + wrapped.length), wrapped);
-    assert.equal(rows[1 + wrapped.length], "Thinking high");
+    assert.equal(rows[1 + wrapped.length], "high");
     assert.equal(rows.slice(1, 1 + wrapped.length).join(""), model);
 
     for (const row of rows) {
@@ -142,7 +142,7 @@ test("a run whose file cannot be read has a title and no model row", (t) => {
     const rows = right(140);
 
     assert.equal(rows[0], "aaaa0001 · failed");
-    assert.doesNotMatch(rows.slice(1).join("\n"), /Model|Thinking/);
+    assert.doesNotMatch(rows.slice(1).join("\n"), /Model/);
 });
 
 test("the transcript keeps its rows below a model heading that wraps", (t) => {
@@ -151,7 +151,7 @@ test("the transcript keeps its rows below a model heading that wraps", (t) => {
     const narrow = panel(t, named("security-reviewer", model));
     const first = (rows: string[]) => rows.findIndex((row) => row.includes("Review the diff."));
 
-    // Narrow: title, two model rows, Thinking row; wide: title and one model row.
+    // Narrow: title, two model rows, level row; wide: title and one model row.
     assert.equal(first(narrow.right(72)) - first(wide.right(140)), 2);
 });
 
@@ -191,7 +191,7 @@ test("clicks on heading rows are ignored; the first row below maps to the first 
             y: BODY_TOP + row,
         } as TuiMouseEvent);
 
-    // Title, two wrapped model rows and the Thinking row.
+    // Title, two wrapped model rows and the level row.
     assert.equal(headingRows, 4);
 
     for (let row = 0; row < headingRows; row++) {
