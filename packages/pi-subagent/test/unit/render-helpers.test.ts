@@ -13,7 +13,7 @@ import {
     paneGeometry,
 } from "../../src/inspector/layout.ts";
 import { Viewport } from "../../src/inspector/viewport.ts";
-import { bandRow, clipToWidth, displayLines } from "../../src/render/text.ts";
+import { bandRow, clipToWidth, displayLines, fitRanked } from "../../src/render/text.ts";
 import { fakeTheme } from "./support.ts";
 
 test("a viewport follows the newest rows until the user scrolls up", () => {
@@ -144,4 +144,59 @@ test("bandRow pads a row to the inner width inside side margins", () => {
     const row = bandRow(fakeTheme({ tag: true }), "toolSuccessBg", "ab", 6, 1);
 
     assert.equal(row, "[toolSuccessBg: ab     ]");
+});
+
+const join = (texts: readonly string[]): string => texts.join("|");
+
+test("fitRanked keeps every part in order when the line fits", () => {
+    const parts = [
+        { text: "aa", rank: 1 },
+        { text: "bb", rank: 3 },
+        { text: "cc", rank: 2 },
+    ];
+
+    assert.equal(fitRanked(parts, 8, join), "aa|bb|cc");
+});
+
+test("fitRanked drops the lowest rank first and keeps the order of the rest", () => {
+    const parts = [
+        { text: "aa", rank: 2 },
+        { text: "bb", rank: 3 },
+        { text: "cc", rank: 1 },
+    ];
+
+    assert.equal(fitRanked(parts, 7, join), "aa|bb");
+    assert.equal(fitRanked(parts, 4, join), "bb");
+});
+
+test("fitRanked drops the last part among equal ranks", () => {
+    const parts = [
+        { text: "aa", rank: 1 },
+        { text: "bb", rank: 1 },
+        { text: "cc", rank: 1 },
+    ];
+
+    assert.equal(fitRanked(parts, 5, join), "aa|bb");
+    assert.equal(fitRanked(parts, 2, join), "aa");
+});
+
+test("fitRanked measures visible columns, not escape codes", () => {
+    const red = (text: string): string => `\u001b[31m${text}\u001b[0m`;
+    const parts = [
+        { text: red("aaaa"), rank: 2 },
+        { text: red("bbbb"), rank: 1 },
+    ];
+
+    // Visible width is 9 although the string holds many more characters.
+    assert.equal(fitRanked(parts, 9, join), `${red("aaaa")}|${red("bbbb")}`);
+    assert.equal(fitRanked(parts, 8, join), red("aaaa"));
+});
+
+test("fitRanked returns undefined when not even the bare line fits", () => {
+    const parts = [{ text: "a", rank: 1 }];
+    const bare = (texts: readonly string[]): string => ["title", ...texts].join(" ");
+
+    assert.equal(fitRanked(parts, 5, bare), "title");
+    assert.equal(fitRanked(parts, 4, bare), undefined);
+    assert.equal(fitRanked([], 4, bare), undefined);
 });

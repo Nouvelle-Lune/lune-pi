@@ -189,9 +189,16 @@ export function restoredRun(agentDir: string, runId: string, spec: RunFileSpec =
     );
 }
 
+/** A widget given to `setWidget` as a component factory instead of plain lines. */
+export type WidgetFactory = () => { render(width: number): string[] };
+
 export interface FakeUiState {
     notifications: Array<{ message: string; type: string | undefined }>;
-    widgets: Array<{ key: string; content: string[] | undefined }>;
+    widgets: Array<{
+        key: string;
+        content: string[] | WidgetFactory | undefined;
+        options?: unknown;
+    }>;
 }
 
 export function fakeCtx(
@@ -201,8 +208,11 @@ export function fakeCtx(
     const ui = {
         theme: options.theme ?? fakeTheme(),
         notify: (message: string, type?: string) => state.notifications.push({ message, type }),
-        setWidget: (key: string, content: string[] | undefined) =>
-            state.widgets.push({ key, content }),
+        setWidget: (
+            key: string,
+            content: string[] | WidgetFactory | undefined,
+            options?: unknown,
+        ) => state.widgets.push({ key, content, options }),
     };
     const ctx = {
         ui,
