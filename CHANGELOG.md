@@ -19,5 +19,6 @@
 - **License-only README header.** Keep the MIT license badge and drop the CI status badge.
 - **Inspector version aligned.** Return `@lune_99/pi-shell-inspector` to 0.1.0 so all seven workspaces share the version published on npm.
 - **Single agent guide.** Consolidate the per-package `AGENTS.md` rules into the root guide, delete the duplicated package copies, and keep the Core agent notes local-only in `.gitignore` and `.npmignore`. The copies had drifted apart while repeating the same rules, so agent instructions now change in one place.
+- **Local design drafts.** Ignore `.docs/` so working design notes stay out of commits and need no branch.
 
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev
