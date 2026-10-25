@@ -288,7 +288,6 @@ class ToolCard implements Component {
                     Math.max(1, width - NESTED_INDENT.length),
                     config.previewLines,
                     call.status === "running",
-                    this.context.cwd,
                 );
                 lines.push(
                     ...preview.lines.map(
@@ -529,7 +528,6 @@ class ToolCard implements Component {
                 Math.max(1, width - 3),
                 config.expandedOutputMaxLines,
                 context.isPartial,
-                context.cwd,
             );
             lines.push(
                 ...preview.lines.map((row) =>

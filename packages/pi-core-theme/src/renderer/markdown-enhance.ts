@@ -21,8 +21,7 @@ const admonitions: Record<string, string> = {
     CAUTION: "!",
 };
 const protectedInline = /(`+).*?\1|!?\[[^\]]*\]\([^\n]*?\)|<https?:\/\/[^>]+>/g;
-const linkTarget = (text: string, href: string) =>
-    href.startsWith("file:") ? `[${text}](<${href}>)` : `[${text}](${href})`;
+const linkTarget = (text: string, href: string) => `[${text}](${href})`;
 /**
  * Code and existing links keep their text. With OSC 8 links, a code span that names an existing
  * path becomes its link text, and a link to a local path gets a file URL that terminals can open.
@@ -31,7 +30,7 @@ function linkProtected(segment: string, cwd: string | undefined): string {
     if (cwd === undefined) return segment;
     const code = /^(`+)(.*?)\1$/.exec(segment)?.[2]?.trim();
     if (code !== undefined) {
-        // Only code with a slash or a file extension costs a file-system check.
+        // The whole span must name an existing path; command arguments are never scanned.
         const href = /\/|\.[A-Za-z\d]+(?::[\d:-]+|#.*)?$/.test(code) && fileHref(code, cwd);
         return href ? `[${segment}](<${href}>)` : segment;
     }
@@ -44,7 +43,7 @@ function linkProtected(segment: string, cwd: string | undefined): string {
 function prose(value: string, cwd: string | undefined): string {
     const convert = (text: string) => {
         text = text.replace(/[①-⑳]/g, (character) => `(${character.codePointAt(0)! - 0x2460 + 1})`);
-        return replaceLinks(text, cwd, linkTarget);
+        return replaceLinks(text, linkTarget);
     };
     let start = 0;
     const parts: string[] = [];

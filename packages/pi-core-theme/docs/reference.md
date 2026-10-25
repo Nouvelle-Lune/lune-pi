@@ -75,12 +75,19 @@ The following are enabled automatically with Core theme and have no separate set
 - **Markdown:** additional Mermaid dialect fences, GitHub admonitions, clickable bare
   URLs and terminal-safe numbering. Code and existing links keep their text.
 - **Links:** when Pi detects OSC 8 link support (for example in Ghostty, iTerm2,
-  WezTerm or Kitty, or with `PI_HYPERLINKS=1`), existing file paths in messages, path-tool
-  headings and tool output become `file://` links, and URLs in tool output become links.
-  This includes inline code such as `src/index.ts:12` and Markdown links to local paths.
-  Relative paths resolve from Pi's working directory. A `:line` or `#anchor` suffix stays
-  in the text, but the link opens the file itself. Text that is not an existing path or
-  a URL does not change. In fullscreen mode, Pi opens a link on a plain click.
+  WezTerm or Kitty, or with `PI_HYPERLINKS=1`), explicit references to existing files
+  and directories become `file://` links: Markdown links to local paths, inline code
+  naming one path such as `src/index.ts:12` or `README.md`, and path-tool headings.
+  Relative paths resolve from Pi's working directory; explicit references outside it,
+  such as temporary reports or home-directory configuration files, also work. A `:line`
+  or `#anchor` suffix stays in the text, but the link opens the file itself.
+  Bare paths in prose and tool output stay plain text, including logs, search results,
+  directory listings, source code and diff bodies. They are not scanned for existing
+  files. URLs in messages and tool output remain clickable, and existing full-output
+  browser actions are unchanged. Missing paths do not gain `file://` links; existing
+  Markdown link syntax is left for Pi to render, including unresolved targets. Remote
+  URI and UNC-style network paths are not reinterpreted as local references. In fullscreen
+  mode, Pi opens a link on a plain click.
   Links have no underline. In fullscreen mode with mouse tracking on, the link under the
   pointer is underlined, including the rows of a link that wraps, but not other links with the same target. In other modes, the terminal shows its own hover, for example
   while Cmd is held in Ghostty.

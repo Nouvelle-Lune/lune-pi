@@ -38,11 +38,10 @@ All notable changes are documented here using
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
-- **Cmd+click paths and links.** When the terminal supports OSC 8 links, existing file
-  paths in messages, path-tool headings and tool output become `file://` links, and URLs in
-  tool output become links. Markdown links to local paths, such as `cards.ts:42`, also get
-  `file://` targets, so Cmd+click opens them. Links have no underline until the pointer is
-  on them. Terminals without OSC 8 support show the same text as before.
+- **Cmd+click paths and links.** When the terminal supports OSC 8 links, explicit Markdown
+  file links, inline-code paths and path-tool headings open existing files and directories.
+  URLs in messages and tool output also become links. Links have no underline until the
+  pointer is on them. Terminals without OSC 8 support show the same text as before.
 
 ### Changed
 
@@ -72,6 +71,10 @@ All notable changes are documented here using
 - **Header shows `@ files and sessions`.** The second hint row advertises `@` completion,
   which Core extends with earlier sessions, in place of the model picker
   key. That key moves to the expanded shortcut list as `select model`.
+
+- **Explicit file references.** Bare paths in prose and tool output now stay plain text,
+  avoiding filesystem checks for arbitrary logs and code. Use an inline-code path or a
+  Markdown file link for a clickable reference; path-tool headings and URLs remain linked.
 
 ### Fixed
 
