@@ -103,10 +103,9 @@ export class SubagentDockContribution {
             return { here: [], elsewhere: [] };
         }
 
-        return {
-            here: manager.branchRuns(),
-            elsewhere: manager.otherBranchRuns().filter((run) => manager.hasDeferred(run)),
-        };
+        const { here, elsewhere } = manager.runsByBranch();
+
+        return { here, elsewhere: elsewhere.filter((run) => manager.hasDeferred(run)) };
     }
 
     private alarming(run: Run): boolean {

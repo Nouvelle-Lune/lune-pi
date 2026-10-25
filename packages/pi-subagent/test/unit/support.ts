@@ -63,6 +63,7 @@ export function fakeTheme(options: { tag?: boolean } = {}): Theme {
         fg: (color: string, text: string) => (tag ? `<${color}:${text}>` : text),
         bg: (color: string, text: string) => (tag ? `[${color}:${text}]` : text),
         bold: (text: string) => text,
+        italic: (text: string) => text,
         style: (text: string) => text,
         colors: {},
     } as unknown as Theme;

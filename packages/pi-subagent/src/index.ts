@@ -80,7 +80,12 @@ export default function (pi: ExtensionAPI): void {
 
         roster = renderRoster(definitions);
         dock.attach(ctx, manager);
-        unsubscribe = manager.subscribe(() => dock.refresh());
+        // The Dock shows states and reports only; a refresh per streamed token redraws the whole TUI.
+        unsubscribe = manager.subscribe((change) => {
+            if (change === "state") {
+                dock.refresh();
+            }
+        });
     });
 
     pi.on("before_agent_start", (event) => {

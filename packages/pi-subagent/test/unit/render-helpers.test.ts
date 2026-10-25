@@ -13,7 +13,13 @@ import {
     paneGeometry,
 } from "../../src/inspector/layout.ts";
 import { Viewport } from "../../src/inspector/viewport.ts";
-import { bandRow, clipToWidth, displayLines, fitRanked } from "../../src/render/text.ts";
+import {
+    bandRow,
+    clipToWidth,
+    displayLine,
+    displayLines,
+    fitRanked,
+} from "../../src/render/text.ts";
 import { fakeTheme } from "./support.ts";
 
 test("a viewport follows the newest rows until the user scrolls up", () => {
@@ -138,6 +144,32 @@ test("displayLines strips terminal sequences, keeps what a carriage return leave
     const expected = ["red", "progress 100%", "   a", ""];
 
     assert.deepEqual(actual, expected);
+});
+
+test("displayLines removes the control characters a terminal would act on", () => {
+    const controls = "\u0000\u0007\u0008\u000b\u000c\u0001\u001f\u007f\u0080\u0085\u009f";
+    const actual = displayLines(`a${controls}b\nc\u001bd`);
+    const expected = ["ab", "cd"];
+
+    assert.deepEqual(actual, expected);
+});
+
+test("displayLines keeps printable text next to the control characters it removes", () => {
+    const actual = displayLines("caf\u00e9 \u00a0 \u4e2d\u6587 \u{1f600}\u0007");
+    const expected = ["caf\u00e9 \u00a0 \u4e2d\u6587 \u{1f600}"];
+
+    assert.deepEqual(actual, expected);
+});
+
+test("displayLine joins lines, collapses whitespace runs and trims", () => {
+    const actual = displayLine("  one \t two\r\n\n  three\u0007  ");
+    const expected = "one two three";
+
+    assert.equal(actual, expected);
+});
+
+test("displayLine of text with nothing visible is empty", () => {
+    assert.equal(displayLine(" \n\t\u0000 "), "");
 });
 
 test("bandRow pads a row to the inner width inside side margins", () => {
