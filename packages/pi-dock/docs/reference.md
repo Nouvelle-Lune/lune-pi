@@ -8,7 +8,7 @@ keyboard and press Enter to open its existing interface directly; there is no ac
 
 ```text
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ○ Shell · idle │ ○ Ask · idle                                                  │ (anthropic) claude-opus-5-5 • max
+ ○ Shell │ ○ Ask                                                                │ (anthropic) claude-opus-5-5 • max
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    …/local-extensions/pi-recap   (main)      │ R187k │ CH 98.9% │ ↑28k  ↓5.6k │ $0.008  │  27k/1.0M · 2.7%  │ (auto)
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ Choose a style in `/dock`; the panel previews it, focused, before you commit.
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
-│ ○ Shell · idle │ ○ Ask · idle        │ model • max       │   boxed
+│ ○ Shell │ ○ Ask                      │ model • max       │   boxed
 ├──────────────────────────────────────────────────────────┤
 │  ~/proj  (main)        │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%  │
 ╰──────────────────────────────────────────────────────────╯
 
- ○ Shell · idle │ ○ Ask · idle         │ model • max         compact
+ ○ Shell │ ○ Ask                       │ model • max         compact
   ~/proj  (main)         │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%
 ```
 
@@ -154,7 +154,8 @@ stays red. This is plugin-owned, ephemeral view state.
 Ask Question supplies base identity, pending request count in detail (requests, rather than
 individual questions), and the next request's subject in full. Enter opens the existing
 `/question` panel, including draft persistence on Esc. Both plugins remain registered when idle,
-with an idle base. Visibility is controlled by Dock settings and never by plugin state.
+showing only their status marker and name at every display level. Visibility is controlled by
+Dock settings and never by plugin state.
 
 The Dock protocol in Core (`@lune_99/pi-lune-extensions-core/dock`, protocol version 1) exposes `LuneDockSnapshot` and
 `LuneDockProvider`: `getSnapshot()`, `subscribe(listener)` and `activate()`. Every supplied

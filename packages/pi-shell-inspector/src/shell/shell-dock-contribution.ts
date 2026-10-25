@@ -84,7 +84,7 @@ export class ShellDockContribution {
         }
         const summary =
             jobs.length === 0
-                ? "idle"
+                ? ""
                 : [
                       running.length > 0 ? `${running.length} running` : undefined,
                       jobs.filter((job) => job.status === "completed").length > 0

@@ -151,11 +151,10 @@ describe("shell dock contribution", () => {
         directContributions.push(contribution);
         contribution.attach(createFakeContext("/work"));
 
-        assert.equal(
-            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!),
-            "○ Shell",
-            "idle providers remain registered",
-        );
+        const idle = contribution.getSnapshot();
+        for (const level of [idle.base, idle.detail!, idle.full!]) {
+            assert.equal(stripTerminalSequences(level.render(100)[0]!), "○ Shell");
+        }
 
         addJob("completed", "completed");
         assert.equal(

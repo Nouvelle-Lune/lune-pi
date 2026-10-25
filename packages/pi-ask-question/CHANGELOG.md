@@ -34,6 +34,8 @@
 
 - **Short request ids in the tool result.** New requests get an eight-digit hex id, and the `ask_user_questions` result now shows it (`Request id: 3f2a9c1e`), so the model can pass it to `withdraw_user_questions`. Requests restored from older sessions keep their UUIDs.
 
+- **Quieter idle Dock item.** All display levels show only `○ Ask` when no requests are pending, matching Agents without the `· idle` suffix. Pending-request counts and waiting indicators are unchanged.
+
 ### Fixed
 
 - **Tool card while streaming.** The `ask_user_questions` card no longer falls back to pi's raw-argument card while the model is still writing the call.

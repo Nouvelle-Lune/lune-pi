@@ -181,13 +181,15 @@ describe("question dock contribution", () => {
         assert.equal(text("full"), "● Ask · 1 pending request · Storage");
     });
 
-    it("publishes atomic levels, retains an idle base, and stays single-line at narrow widths", async () => {
+    it("publishes atomic levels, keeps idle levels label-only, and stays single-line at narrow widths", async () => {
         const session = await startSession();
         const mounted = getDockRegistry().getContributions(session.ui)[0]!;
         const idle = mounted.snapshot;
         questionManager.create([{ header: "API design", question: "Which API?" }]);
         assert.notStrictEqual(mounted.snapshot, idle);
-        assert.equal(stripTerminalSequences(idle.base.render(80)[0]!), "○ Ask");
+        for (const level of [idle.base, idle.detail!, idle.full!]) {
+            assert.equal(stripTerminalSequences(level.render(80)[0]!), "○ Ask");
+        }
         assert.match(
             stripTerminalSequences(mounted.snapshot.full!.render(200)[0]!),
             /1 pending request · API design/,
@@ -205,10 +207,13 @@ describe("question dock contribution", () => {
         }
         questionManager.clearAll();
         assert.equal(getDockRegistry().getContributions(session.ui).length, 1);
-        assert.equal(
-            stripTerminalSequences(mounted.snapshot.detail!.render(80)[0]!),
-            "○ Ask · idle",
-        );
+        for (const level of [
+            mounted.snapshot.base,
+            mounted.snapshot.detail!,
+            mounted.snapshot.full!,
+        ]) {
+            assert.equal(stripTerminalSequences(level.render(80)[0]!), "○ Ask");
+        }
     });
 
     it("uses host presence only in the matching UI scope and restores its widget when the host detaches", async () => {
