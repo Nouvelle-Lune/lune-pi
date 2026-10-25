@@ -1,11 +1,15 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 import { parseModelRef } from "./models.ts";
+import { definitionsDir, projectDefinitionsDir } from "./paths.ts";
 import { ISOLATION_MODES, THINKING_LEVELS, type Isolation } from "./run/types.ts";
+
+/** `user`: Pi's agent directory. `project`: the project's `.pi` folder. */
+export type DefinitionScope = "user" | "project";
 
 export interface AgentDefinition {
     name: string;
@@ -18,6 +22,7 @@ export interface AgentDefinition {
     /** Appended to Pi's system prompt; empty when the file has only frontmatter. */
     body: string;
     file: string;
+    scope: DefinitionScope;
 }
 
 export interface DefinitionProblem {
@@ -37,10 +42,52 @@ const INLINE_NAME_PATTERN = /^run-\d+$/;
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 /**
+ * User definitions and, in a trusted project, the project's own. A project definition replaces a
+ * user definition of the same name, and the replaced file is reported as not loaded.
+ */
+export function loadAllDefinitions(options: {
+    agentDir: string;
+    cwd: string;
+    projectTrusted: boolean;
+}): LoadedDefinitions {
+    const userDir = definitionsDir(options.agentDir);
+    const projectDir = projectDefinitionsDir(options.cwd);
+    const user = loadDefinitions(userDir, "user");
+
+    // An agent directory set to the project's `.pi` folder makes the two folders one.
+    if (!options.projectTrusted || resolve(projectDir) === resolve(userDir)) {
+        return user;
+    }
+
+    const project = loadDefinitions(projectDir, "project");
+    const definitions = [...project.definitions];
+    const problems = [...project.problems, ...user.problems];
+
+    for (const definition of user.definitions) {
+        const replacement = project.definitions.find(
+            (candidate) => candidate.name === definition.name,
+        );
+
+        if (replacement) {
+            problems.push({
+                file: definition.file,
+                message: `The project definition ${replacement.file} uses the name "${definition.name}" and replaces it.`,
+            });
+        } else {
+            definitions.push(definition);
+        }
+    }
+
+    definitions.sort(compareNames);
+
+    return { definitions, problems };
+}
+
+/**
  * Read the `*.md` files directly in `dir`. A file that fails any check is skipped and reported,
  * so a typo such as `tool:` cannot silently start runs with the default tools instead.
  */
-export function loadDefinitions(dir: string): LoadedDefinitions {
+export function loadDefinitions(dir: string, scope: DefinitionScope): LoadedDefinitions {
     if (!existsSync(dir)) {
         return { definitions: [], problems: [] };
     }
@@ -60,7 +107,7 @@ export function loadDefinitions(dir: string): LoadedDefinitions {
                 continue;
             }
 
-            parsed.push(parseDefinition(readFileSync(file, "utf8"), file));
+            parsed.push(parseDefinition(readFileSync(file, "utf8"), file, scope));
         } catch (error) {
             problems.push({
                 file,
@@ -95,12 +142,16 @@ export function loadDefinitions(dir: string): LoadedDefinitions {
         }
     }
 
-    definitions.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    definitions.sort(compareNames);
 
     return { definitions, problems };
 }
 
-export function parseDefinition(content: string, file: string): AgentDefinition {
+export function parseDefinition(
+    content: string,
+    file: string,
+    scope: DefinitionScope,
+): AgentDefinition {
     let frontmatter: unknown;
     let body: string;
 
@@ -145,6 +196,7 @@ export function parseDefinition(content: string, file: string): AgentDefinition 
         description: requiredString(fields, "description").replace(/\s+/g, " "),
         body,
         file,
+        scope,
     };
 
     if (fields.tools !== undefined) {
@@ -172,14 +224,21 @@ export function parseDefinition(content: string, file: string): AgentDefinition 
     return definition;
 }
 
-/** The `subagents` system prompt section: one line per definition, in name order. */
+/**
+ * The `subagents` system prompt section: one line per definition, in name order, with project
+ * definitions marked.
+ */
 export function renderRoster(definitions: readonly AgentDefinition[]): string | undefined {
     if (definitions.length === 0) {
         return undefined;
     }
 
     return definitions
-        .map((definition) => `- ${definition.name}: ${definition.description}`)
+        .map(
+            (definition) =>
+                `- ${definition.name}${definition.scope === "project" ? " (project)" : ""}: ` +
+                definition.description,
+        )
         .join("\n");
 }
 
@@ -188,6 +247,10 @@ export function formatDefinitionProblems(problems: readonly DefinitionProblem[])
         `Subagent definitions not loaded (${problems.length}):`,
         ...problems.map((problem) => `  ${problem.file}: ${problem.message}`),
     ].join("\n");
+}
+
+function compareNames(a: AgentDefinition, b: AgentDefinition): number {
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
 function requiredString(fields: Record<string, unknown>, key: string): string {

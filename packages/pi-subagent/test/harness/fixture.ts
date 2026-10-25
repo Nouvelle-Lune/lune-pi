@@ -362,6 +362,7 @@ export function definition(partial: Partial<AgentDefinition> & { name: string })
         description: `The ${partial.name} agent.`,
         body: "",
         file: `/agents/${partial.name}.md`,
+        scope: "user",
         ...partial,
     };
 }

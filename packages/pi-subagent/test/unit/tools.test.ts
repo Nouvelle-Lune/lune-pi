@@ -103,7 +103,7 @@ test("the model enum lists the allowed models and is absent when the list is emp
     assert.equal("model" in without, false);
 });
 
-test("thinking and isolation are fixed enums and task is the only required parameter", (t) => {
+test("thinking and isolation are fixed enums and no top-level parameter is required", (t) => {
     const tool = toolsFor(t).byName("subagent_start");
     const schema = tool.parameters as { required?: string[] };
 
@@ -117,7 +117,7 @@ test("thinking and isolation are fixed enums and task is the only required param
         "xhigh",
         "max",
     ]);
-    assert.deepEqual(schema.required, ["task"]);
+    assert.equal(schema.required, undefined);
 });
 
 test("the tools description lists the catalog without report, clips long text and names MCP", (t) => {

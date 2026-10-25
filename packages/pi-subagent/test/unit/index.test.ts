@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
 import extension from "../../src/index.ts";
+import { projectDefinitionsDir } from "../../src/paths.ts";
 import { RUN_NOTIFICATION_TYPE } from "../../src/notify/notifier.ts";
 import { SUBAGENT_TOOL_NAMES } from "../../src/tools/subagent-tools.ts";
 import { fakeCtx, fakePi, tempAgentDir, writeDefinition } from "./support.ts";
@@ -140,4 +144,77 @@ test("/agents says there is no session yet in the TUI and does nothing elsewhere
     assert.equal(tui.ui.notifications.length, 1);
     assert.equal(tui.ui.notifications[0]!.type, "warning");
     assert.equal(print.ui.notifications.length, 0);
+});
+
+function projectCwd(t: TestContext): string {
+    const cwd = mkdtempSync(join(tmpdir(), "pi-subagent-project-"));
+
+    t.after(() => rmSync(cwd, { recursive: true, force: true }));
+
+    return cwd;
+}
+
+function writeProjectDefinition(cwd: string, name: string, description: string): void {
+    const dir = projectDefinitionsDir(cwd);
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+        join(dir, `${name}.md`),
+        `---\nname: ${name}\ndescription: ${description}\n---\n`,
+    );
+}
+
+test("in a trusted project, its definitions reach the agent enum and the marked roster", async (t) => {
+    const { agentDir, pi, fire, beforeAgentStart } = load(t);
+    const cwd = projectCwd(t);
+    const { ctx } = fakeCtx({ cwd, projectTrusted: true });
+
+    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
+    writeProjectDefinition(cwd, "reviewer", "Reviews diffs.");
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    const start = pi.tools.get("subagent_start") as unknown as {
+        parameters: { properties: { agent: { enum: string[] } } };
+    };
+
+    assert.deepEqual(start.parameters.properties.agent.enum, ["alpha", "reviewer"]);
+    assert.equal(
+        (await beforeAgentStart(ctx))["subagents"],
+        "- alpha: First.\n- reviewer (project): Reviews diffs.",
+    );
+});
+
+test("in an untrusted project, its definitions are left out silently", async (t) => {
+    const { agentDir, pi, fire, beforeAgentStart } = load(t);
+    const cwd = projectCwd(t);
+    const { ctx, ui } = fakeCtx({ cwd, projectTrusted: false });
+
+    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
+    writeProjectDefinition(cwd, "reviewer", "Reviews diffs.");
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    const start = pi.tools.get("subagent_start") as unknown as {
+        parameters: { properties: { agent: { enum: string[] } } };
+    };
+
+    assert.deepEqual(start.parameters.properties.agent.enum, ["alpha"]);
+    assert.equal((await beforeAgentStart(ctx))["subagents"], "- alpha: First.");
+    assert.deepEqual(ui.notifications, []);
+});
+
+test("a project definition that replaces a user one is announced in the definitions warning", async (t) => {
+    const { agentDir, fire } = load(t);
+    const cwd = projectCwd(t);
+    const { ctx, ui } = fakeCtx({ cwd });
+
+    writeDefinition(agentDir, "r.md", "---\nname: reviewer\ndescription: User.\n---\n");
+    writeProjectDefinition(cwd, "reviewer", "Project.");
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    assert.equal(ui.notifications.length, 1);
+    assert.equal(ui.notifications[0]!.type, "warning");
+    assert.match(ui.notifications[0]!.message, /not loaded \(1\)[\s\S]*replaces it/);
 });

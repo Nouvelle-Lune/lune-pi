@@ -3,7 +3,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { formatDefinitionProblems, loadDefinitions, renderRoster } from "../../src/definitions.ts";
+import {
+    formatDefinitionProblems,
+    loadDefinitions,
+    parseDefinition,
+    renderRoster,
+} from "../../src/definitions.ts";
 import { definitionsDir } from "../../src/paths.ts";
 import { definition, tempAgentDir, writeDefinition } from "./support.ts";
 
@@ -23,7 +28,7 @@ test("a definition file yields every frontmatter field and the body", (t) => {
     const agentDir = tempAgentDir(t);
     const file = writeDefinition(agentDir, "reviewer.md", reviewer);
 
-    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(problems, []);
     assert.deepEqual(definitions, [
@@ -36,6 +41,7 @@ test("a definition file yields every frontmatter field and the body", (t) => {
             isolation: "worktree",
             body: definitions[0]!.body,
             file,
+            scope: "user",
         },
     ]);
     assert.equal(definitions[0]!.body.trim(), "Review the diff named in the task.");
@@ -45,7 +51,7 @@ test("optional fields stay unset and a frontmatter-only file has an empty body",
     const agentDir = tempAgentDir(t);
     writeDefinition(agentDir, "min.md", "---\nname: min\ndescription: Minimal.\n---\n");
 
-    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(problems, []);
     const loaded = definitions[0]!;
@@ -65,7 +71,7 @@ test("tools accept a YAML list and drop duplicates", (t) => {
         "---\nname: list\ndescription: D.\ntools:\n  - read\n  - bash\n  - read\n---\n",
     );
 
-    const { definitions } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(definitions[0]!.tools, ["read", "bash"]);
 });
@@ -78,7 +84,7 @@ test("a folded multi-line description becomes one roster line", (t) => {
         "---\nname: folded\ndescription: >\n  First part\n  second part.\n---\n",
     );
 
-    const { definitions } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.equal(definitions[0]!.description, "First part second part.");
 });
@@ -86,7 +92,10 @@ test("a folded multi-line description becomes one roster line", (t) => {
 test("a missing directory yields no definitions and no problems", (t) => {
     const agentDir = tempAgentDir(t);
 
-    assert.deepEqual(loadDefinitions(definitionsDir(agentDir)), { definitions: [], problems: [] });
+    assert.deepEqual(loadDefinitions(definitionsDir(agentDir), "user"), {
+        definitions: [],
+        problems: [],
+    });
 });
 
 const invalid: Array<[string, string, RegExp]> = [
@@ -124,7 +133,7 @@ for (const [label, content, message] of invalid) {
         const agentDir = tempAgentDir(t);
         const file = writeDefinition(agentDir, "bad.md", content);
 
-        const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+        const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
 
         assert.deepEqual(definitions, []);
         assert.equal(problems.length, 1);
@@ -138,7 +147,7 @@ test("a bad file does not stop the others from loading", (t) => {
     writeDefinition(agentDir, "bad.md", "---\nname: bad\n---\n");
     writeDefinition(agentDir, "good.md", "---\nname: good\ndescription: Fine.\n---\n");
 
-    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(
         definitions.map((item) => item.name),
@@ -152,7 +161,7 @@ test("a name used by two files loads neither and reports both", (t) => {
     const first = writeDefinition(agentDir, "a.md", "---\nname: same\ndescription: One.\n---\n");
     const second = writeDefinition(agentDir, "b.md", "---\nname: same\ndescription: Two.\n---\n");
 
-    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(definitions, []);
     assert.deepEqual(problems.map((problem) => problem.file).sort(), [first, second].sort());
@@ -177,7 +186,7 @@ test("only *.md files directly in the folder are read; sessions/ and worktrees/ 
 
     mkdirSync(join(dir, "folder.md"));
 
-    const { definitions, problems } = loadDefinitions(dir);
+    const { definitions, problems } = loadDefinitions(dir, "user");
 
     assert.deepEqual(problems, []);
     assert.deepEqual(
@@ -191,7 +200,7 @@ test("definitions come back in name order regardless of file names", (t) => {
     writeDefinition(agentDir, "1.md", "---\nname: zebra\ndescription: Z.\n---\n");
     writeDefinition(agentDir, "2.md", "---\nname: alpha\ndescription: A.\n---\n");
 
-    const { definitions } = loadDefinitions(definitionsDir(agentDir));
+    const { definitions } = loadDefinitions(definitionsDir(agentDir), "user");
 
     assert.deepEqual(
         definitions.map((item) => item.name),
@@ -208,6 +217,17 @@ test("the roster has one `- name: description` line per definition, or nothing",
     assert.equal(renderRoster([]), undefined);
 });
 
+test("the roster marks project definitions and leaves user ones unmarked", () => {
+    const expected = "- alpha: The alpha agent.\n- reviewer (project): Reviews diffs.";
+
+    const actual = renderRoster([
+        definition("alpha"),
+        definition("reviewer", { scope: "project", description: "Reviews diffs." }),
+    ]);
+
+    assert.equal(actual, expected);
+});
+
 test("the problem report names the count and each file", () => {
     const text = formatDefinitionProblems([
         { file: "/a.md", message: "Bad." },
@@ -215,4 +235,18 @@ test("the problem report names the count and each file", () => {
     ]);
 
     assert.equal(text, "Subagent definitions not loaded (2):\n  /a.md: Bad.\n  /b.md: Worse.");
+});
+
+test("parseDefinition and loadDefinitions set the given scope on each definition", (t) => {
+    const agentDir = tempAgentDir(t);
+    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: A.\n---\n");
+
+    const parsed = parseDefinition("---\nname: p\ndescription: P.\n---\n", "/p.md", "project");
+    const loaded = loadDefinitions(definitionsDir(agentDir), "project");
+
+    assert.equal(parsed.scope, "project");
+    assert.deepEqual(
+        loaded.definitions.map((item) => item.scope),
+        ["project"],
+    );
 });

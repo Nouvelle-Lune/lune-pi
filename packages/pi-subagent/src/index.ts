@@ -5,13 +5,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { loadToolCatalog } from "./catalog.ts";
-import { formatDefinitionProblems, loadDefinitions, renderRoster } from "./definitions.ts";
+import { formatDefinitionProblems, loadAllDefinitions, renderRoster } from "./definitions.ts";
 import { SubagentDockContribution } from "./dock/dock-contribution.ts";
 import { openSubagentInspector } from "./inspector/inspector.ts";
 import { allowedModelRefs } from "./models.ts";
 import { renderRunNotificationBox } from "./notify/notification-box.ts";
 import { RUN_NOTIFICATION_TYPE, type RunNotificationDetails } from "./notify/notifier.ts";
-import { definitionsDir } from "./paths.ts";
 import { RunManager } from "./run/run-manager.ts";
 import { createSubagentTools } from "./tools/subagent-tools.ts";
 
@@ -47,7 +46,11 @@ export default function (pi: ExtensionAPI): void {
 
     pi.on("session_start", async (_event, ctx) => {
         const agentDir = getAgentDir();
-        const { definitions, problems } = loadDefinitions(definitionsDir(agentDir));
+        const { definitions, problems } = loadAllDefinitions({
+            agentDir,
+            cwd: ctx.cwd,
+            projectTrusted: ctx.isProjectTrusted(),
+        });
 
         if (problems.length > 0) {
             ctx.ui.notify(formatDefinitionProblems(problems), "warning");
