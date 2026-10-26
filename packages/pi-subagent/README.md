@@ -55,6 +55,27 @@ The body is added to the end of Pi's system prompt; it does not replace it. Defi
 
 The main agent sees the loaded agents as a `subagents` section of its system prompt, one `- name: description` line each, in name order. A project definition shows as `- name (project): description`.
 
+### Create a definition with the built-in skill
+
+The package includes `create-lune-subagent`. Pi can select it when you ask to create a reusable
+subagent, or you can invoke it directly:
+
+```text
+/skill:create-lune-subagent Create a reusable code-review subagent.
+```
+
+The skill first asks whether the definition should be global (user-level) or project-level, unless
+you already specified the scope. It asks you to choose the name, description and model, then uses
+the model's capabilities and your task details to recommend thinking, tools, isolation and role
+instructions. Following the main agent's model is an explicit choice, not an assumed default.
+
+It locates the definition directory with existing shell and file tools and uses the main agent's
+tool declarations as its authoring reference, without an extra query tool or helper script. Current
+runs still reject tools supplied only by user or project extensions.
+
+You review the complete definition and destination before it writes the file. The skill does not
+start a run; use `/reload` after saving to make the definition available.
+
 ### Examples
 
 These examples have no `model` field, so they use the main agent's model.
