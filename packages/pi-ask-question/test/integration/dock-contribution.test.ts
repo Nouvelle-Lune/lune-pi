@@ -181,6 +181,36 @@ describe("question dock contribution", () => {
         assert.equal(text("full"), "● Ask · 1 pending request · Storage");
     });
 
+    it("leaves out whole parts of the full line in rank order and never cuts one with an ellipsis", () => {
+        // Contract: the title goes first, then the request count, then the waiting mark, then the
+        // `Ask` label, and last the marker; width 0 renders an empty line.
+        const request = questionManager.create([
+            { header: "Storage", question: "Which database?" },
+        ]);
+        void questionManager.waitForSettle(request.id, new AbortController().signal);
+        const full = getQuestionDockSnapshot(createFakeContext()).full!;
+        const levels = [
+            "● Ask · 1 pending request · agent waiting · Storage",
+            "● Ask · 1 pending request · agent waiting",
+            "● Ask · agent waiting",
+            "● Ask",
+            "●",
+            "",
+        ];
+
+        levels.forEach((expected, index) => {
+            const rendered = stripTerminalSequences(full.render(visibleWidth(expected))[0]!);
+            assert.equal(rendered, expected, `a row exactly this wide keeps: ${expected}`);
+            assert.equal(rendered.includes("…"), false);
+            if (index + 1 < levels.length) {
+                const narrower = stripTerminalSequences(
+                    full.render(visibleWidth(expected) - 1)[0]!,
+                );
+                assert.equal(narrower, levels[index + 1], "one column less drops one whole part");
+            }
+        });
+    });
+
     it("publishes atomic levels, keeps idle levels label-only, and stays single-line at narrow widths", async () => {
         const session = await startSession();
         const mounted = getDockRegistry().getContributions(session.ui)[0]!;

@@ -1,9 +1,21 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { fitRanked, type RankedPart } from "./dock-line.ts";
 import { shellManager } from "./shell-manager.ts";
-import { formatShellCommand } from "./shell-command.ts";
+import { collapseShellCommand } from "./shell-command.ts";
 
 const WIDGET_ID = "pi-shell-inspector";
-const PADDING = "";
+
+/**
+ * Ranks of the parts after the row's lead: a narrow row drops the lowest first, so failures stay
+ * longest and the hint goes first. The lead itself is never left out.
+ */
+const FAILED_RANK = 6;
+const KILLED_RANK = 5;
+const RUNNING_RANK = 4;
+const COMPLETED_RANK = 3;
+const COMMAND_RANK = 2;
+const ELAPSED_RANK = 1;
+const HINT_RANK = 0;
 
 export class ShellDock {
     private refreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -59,11 +71,22 @@ export class ShellDock {
             return;
         }
 
-        const summary = shellDockSummary(this.ctx);
+        const { lead, parts } = shellDockSummary(this.ctx);
+        const separator = this.ctx.ui.theme.fg("dim", " · ");
 
+        // Pi pads string rows by one column on each side; this row keeps the same margins.
         this.ctx.ui.setWidget(
             WIDGET_ID,
-            [`${PADDING}${summary}${this.ctx.ui.theme.fg("dim", " · /shell to open")}`],
+            () => ({
+                render: (width) => [
+                    ` ${
+                        fitRanked(parts, Math.max(0, width - 2), (texts) =>
+                            [lead, ...texts].join(separator),
+                        ) ?? ""
+                    }`,
+                ],
+                invalidate() {},
+            }),
             {
                 placement: "belowEditor",
             },
@@ -87,8 +110,10 @@ export class ShellDock {
     }
 }
 
-function shellDockSummary(ctx: ExtensionContext): string {
+/** The lead names the jobs; the parts after it are left out whole while the row is too wide. */
+function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedPart[] } {
     const status = shellManager.getAllJobsStatusStat();
+    const hint = { text: ctx.ui.theme.fg("dim", "/shell to open"), rank: HINT_RANK };
 
     // only one running shell case
     if (
@@ -99,11 +124,14 @@ function shellDockSummary(ctx: ExtensionContext): string {
     ) {
         const runningJob = shellManager.getRunningJobsList()[0];
         const elapsedTime = Math.floor((Date.now() - runningJob!.startedAt) / 1000);
-        return [
-            ctx.ui.theme.fg("accent", `${status.runningCount} running shell`),
-            formatShellCommand(runningJob!.command, 20),
-            `${elapsedTime}s`,
-        ].join(ctx.ui.theme.fg("dim", " · "));
+        return {
+            lead: ctx.ui.theme.fg("accent", `${status.runningCount} running shell`),
+            parts: [
+                { text: collapseShellCommand(runningJob!.command), rank: COMMAND_RANK },
+                { text: `${elapsedTime}s`, rank: ELAPSED_RANK },
+                hint,
+            ],
+        };
     }
     // only one completed shell case
     if (
@@ -116,30 +144,44 @@ function shellDockSummary(ctx: ExtensionContext): string {
         const elapsedTime = Math.floor(
             (completedJob!.finishedAt! - completedJob!.startedAt) / 1000,
         );
-        return (
-            ctx.ui.theme.fg("success", `${status.completedCount} shell completed`) +
-            ` in ${elapsedTime}s`
-        );
+        return {
+            lead:
+                ctx.ui.theme.fg("success", `${status.completedCount} shell completed`) +
+                ` in ${elapsedTime}s`,
+            parts: [hint],
+        };
     }
 
-    const parts: string[] = [];
+    const parts: RankedPart[] = [];
     const jobCount = shellManager.getAllJobsList().length;
-    parts.push(`${jobCount} ${jobCount === 1 ? "shell" : "shells"}`);
 
     if (status.runningCount > 0) {
-        parts.push(ctx.ui.theme.fg("accent", `${status.runningCount} running`));
+        parts.push({
+            text: ctx.ui.theme.fg("accent", `${status.runningCount} running`),
+            rank: RUNNING_RANK,
+        });
     }
     if (status.completedCount > 0) {
-        parts.push(ctx.ui.theme.fg("success", `${status.completedCount} completed`));
+        parts.push({
+            text: ctx.ui.theme.fg("success", `${status.completedCount} completed`),
+            rank: COMPLETED_RANK,
+        });
     }
     if (status.failedCount > 0) {
-        parts.push(ctx.ui.theme.fg("error", `${status.failedCount} failed`));
+        parts.push({
+            text: ctx.ui.theme.fg("error", `${status.failedCount} failed`),
+            rank: FAILED_RANK,
+        });
     }
     if (status.killedCount > 0) {
-        parts.push(ctx.ui.theme.fg("error", `${status.killedCount} killed`));
+        parts.push({
+            text: ctx.ui.theme.fg("error", `${status.killedCount} killed`),
+            rank: KILLED_RANK,
+        });
     }
+    parts.push(hint);
 
-    return `${parts.join(ctx.ui.theme.fg("dim", " · "))}`;
+    return { lead: `${jobCount} ${jobCount === 1 ? "shell" : "shells"}`, parts };
 }
 
 export const shellDock = new ShellDock();

@@ -31,6 +31,7 @@ import {
     waitForJobSettled,
     type FakeExtensionUi,
     type WidgetContent,
+    withoutMargin,
 } from "../harness.ts";
 
 /** Widget key of the shell dock. */
@@ -55,12 +56,8 @@ function subagentWidget(label: string): WidgetContent {
 
 /** The dock line currently mounted below the editor, or undefined when it is not mounted. */
 function dockLine(ui: FakeExtensionUi): readonly string[] | undefined {
-    const content = ui.mountedWidget("belowEditor", SH_DOCK_KEY);
-    if (content === undefined) {
-        return undefined;
-    }
-    assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
-    return content;
+    const content = ui.renderedWidget("belowEditor", SH_DOCK_KEY);
+    return content?.map(withoutMargin);
 }
 
 /**
@@ -192,8 +189,8 @@ describe("shell dock next to pi-subagents widgets", () => {
                 startJob(`job-${index}`, `sleep ${index}`, workDir);
             }
 
-            const content = session.ui.mountedWidget("belowEditor", SH_DOCK_KEY);
-            assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
+            const content = dockLine(session.ui);
+            assert.ok(content, "the dock must be mounted");
             assert.equal(content.length, 1, "the dock must render exactly one line");
             assert.match(
                 content[0] ?? "",
@@ -353,8 +350,8 @@ describe("shell dock next to pi-subagents widgets", () => {
 
             assert.match(
                 stripTerminalSequences(dockText(session.ui) ?? ""),
-                /^1 running shell · for n in 1 2 3 4; d… · \d+s · \/shell to open$/,
-                "the running dock must show the truncated command",
+                /^1 running shell · for n in 1 2 3 4; do echo x; sleep 0.25; done · \d+s · \/shell to open$/,
+                "the running dock must show the whole command",
             );
 
             const fleetWidget = subagentWidget("subagent fleet · 1 running");

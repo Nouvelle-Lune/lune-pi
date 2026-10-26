@@ -24,6 +24,7 @@ import {
     waitForJobSettled,
     type ExtensionSession,
     type FakeExtensionUi,
+    withoutMargin,
 } from "../harness.ts";
 
 /** Widget key the shell dock uses. */
@@ -46,12 +47,8 @@ async function withSession(
 
 /** The dock line mounted below the editor, or undefined when no widget is mounted. */
 function dockLine(ui: FakeExtensionUi): readonly string[] | undefined {
-    const content = ui.mountedWidget("belowEditor", WIDGET_ID);
-    if (content === undefined) {
-        return undefined;
-    }
-    assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
-    return content;
+    const content = ui.renderedWidget("belowEditor", WIDGET_ID);
+    return content?.map(withoutMargin);
 }
 
 /**

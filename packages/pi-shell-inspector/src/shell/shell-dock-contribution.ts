@@ -1,9 +1,10 @@
 import type { ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import {
     createDockContribution,
     type LuneDockSnapshot,
 } from "@lune_99/pi-lune-extensions-core/dock";
+import { fitRanked, type RankedPart } from "./dock-line.ts";
 import { shellDock } from "./shell-dock.ts";
 import { collapseShellCommand } from "./shell-command.ts";
 import { openShellInspector } from "./shell-inspector.ts";
@@ -11,6 +12,20 @@ import { shellManager, type ShellManagerEvent } from "./shell-manager.ts";
 
 export const SHELL_CONTRIBUTION_ID = "shell-inspector";
 
+/**
+ * Ranks of the line's parts: a narrow cell drops the lowest first, so failures stay longest and
+ * the runtime goes before the command it belongs to.
+ */
+const FAILED_RANK = 5;
+const RUNNING_RANK = 4;
+const COMPLETED_RANK = 3;
+const LATEST_RANK = 2;
+const ELAPSED_RANK = 1;
+
+/**
+ * The Dock item of the background shells. Its lines count the jobs by status and never cut a
+ * part: a narrow cell leaves out whole parts, then the title.
+ */
 export class ShellDockContribution {
     private generation = 0;
     private readonly acknowledged = new Set<string>();
@@ -60,10 +75,13 @@ export class ShellDockContribution {
         }
     }
 
+    /** Base names the item; detail adds the counts; full adds the latest job and its runtime. */
     getSnapshot(ctx = this.ctx!): LuneDockSnapshot {
+        const theme = ctx.ui.theme;
         const jobs = shellManager.getAllJobsList();
         const failed = jobs.filter((job) => job.status === "failed" || job.status === "killed");
         const running = jobs.filter((job) => job.status === "running");
+        const completed = jobs.filter((job) => job.status === "completed");
         let color: ThemeColor;
         let marker: string;
         if (failed.some((job) => !this.acknowledged.has(job.id))) {
@@ -72,7 +90,7 @@ export class ShellDockContribution {
         } else if (running.length > 0) {
             color = "warning";
             marker = "◐";
-        } else if (jobs.some((job) => job.status === "completed")) {
+        } else if (completed.length > 0) {
             color = "success";
             marker = "●";
         } else if (jobs.length > 0) {
@@ -82,44 +100,47 @@ export class ShellDockContribution {
             color = "dim";
             marker = "○";
         }
-        const summary =
-            jobs.length === 0
-                ? ""
-                : [
-                      running.length > 0 ? `${running.length} running` : undefined,
-                      jobs.filter((job) => job.status === "completed").length > 0
-                          ? `${jobs.filter((job) => job.status === "completed").length} completed`
-                          : undefined,
-                      failed.length > 0 ? `${failed.length} failed/killed` : undefined,
-                  ]
-                      .filter(Boolean)
-                      .join(" · ");
+        const muted = (text: string): string => theme.fg("muted", text);
+        const summary: RankedPart[] = [
+            running.length > 0
+                ? { text: muted(`${running.length} running`), rank: RUNNING_RANK }
+                : undefined,
+            completed.length > 0
+                ? { text: muted(`${completed.length} completed`), rank: COMPLETED_RANK }
+                : undefined,
+            failed.length > 0
+                ? { text: muted(`${failed.length} failed/killed`), rank: FAILED_RANK }
+                : undefined,
+        ].filter((part) => part !== undefined);
         const latest = jobs[jobs.length - 1];
-        const command = latest ? collapseShellCommand(latest.command) : undefined;
-        const elapsed = latest
-            ? Math.floor(((latest.finishedAt ?? Date.now()) - latest.startedAt) / 1000)
-            : undefined;
-        const component = (suffix: string): Component => ({
+        const details: RankedPart[] = latest
+            ? [
+                  {
+                      text: muted(`latest: ${collapseShellCommand(latest.command)}`),
+                      rank: LATEST_RANK,
+                  },
+                  {
+                      text: muted(
+                          `${Math.floor(((latest.finishedAt ?? Date.now()) - latest.startedAt) / 1000)}s`,
+                      ),
+                      rank: ELAPSED_RANK,
+                  },
+              ]
+            : [];
+        const symbol = theme.fg(color, marker);
+        // `● Shell · 2 running · 1 completed` with every part that fits, down to the marker alone.
+        const component = (parts: readonly RankedPart[]): Component => ({
             render: (width) => [
-                truncateToWidth(
-                    `${ctx.ui.theme.fg(color, marker)} Shell${suffix ? ctx.ui.theme.fg("muted", ` · ${suffix}`) : ""}`,
-                    width,
-                ),
+                fitRanked(parts, width, (texts) =>
+                    [`${symbol} Shell`, ...texts].join(muted(" · ")),
+                ) ?? (visibleWidth(symbol) <= width ? symbol : ""),
             ],
             invalidate() {},
         });
         return {
-            base: component(""),
+            base: component([]),
             detail: component(summary),
-            full: component(
-                [
-                    summary,
-                    command ? `latest: ${command}` : undefined,
-                    elapsed !== undefined ? `${elapsed}s` : undefined,
-                ]
-                    .filter(Boolean)
-                    .join(" · "),
-            ),
+            full: component([...summary, ...details]),
         };
     }
 

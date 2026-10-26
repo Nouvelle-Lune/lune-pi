@@ -216,6 +216,41 @@ describe("shell dock contribution", () => {
         );
     });
 
+    it("leaves out whole parts of the full line in rank order and never cuts one with an ellipsis", async () => {
+        // Contract: elapsed goes first, then the latest command, completed, running, failed/killed,
+        // the Shell title and finally the marker; the kept parts stay in their original order.
+        const session = await startSession();
+        addJob("r", "running");
+        addJob("c", "completed");
+        addJob("f", "failed");
+        const full = getDockRegistry().getContributions(session.ui)[0]!.snapshot.full!;
+        const levels = [
+            "✕ Shell · 1 running · 1 completed · 1 failed/killed · latest: echo f",
+            "✕ Shell · 1 running · 1 completed · 1 failed/killed",
+            "✕ Shell · 1 running · 1 failed/killed",
+            "✕ Shell · 1 failed/killed",
+            "✕ Shell",
+            "✕",
+            "",
+        ];
+
+        assert.match(
+            stripTerminalSequences(full.render(200)[0]!),
+            /^✕ Shell · 1 running · 1 completed · 1 failed\/killed · latest: echo f · \d+s$/,
+        );
+        levels.forEach((expected, index) => {
+            const rendered = stripTerminalSequences(full.render(visibleWidth(expected))[0]!);
+            assert.equal(rendered, expected, `a row exactly this wide keeps: ${expected}`);
+            assert.equal(rendered.includes("…"), false);
+            if (index + 1 < levels.length) {
+                const narrower = stripTerminalSequences(
+                    full.render(visibleWidth(expected) - 1)[0]!,
+                );
+                assert.equal(narrower, levels[index + 1], "one column less drops one whole part");
+            }
+        });
+    });
+
     it("keeps a newly failed job red when a successful inspector open acknowledges only its opening snapshot", async () => {
         // Contract: closing the inspector acknowledges only failures present when it opened, while completed work can then show green.
         const ui = createFakeUi();

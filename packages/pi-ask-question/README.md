@@ -77,7 +77,7 @@ Answers land in the transcript and resume the model:
 
 ## Pending questions
 
-`Esc` is a defer, not a dismissal: the panel closes, the request stays pending, and the dock under the editor says which question `/question` would show next. While a blocking call waits, the dock shows `agent waiting`, and `/question` opens that request first.
+`Esc` is a defer, not a dismissal: the panel closes, the request stays pending, and the dock under the editor says which question `/question` would show next. A row too narrow for the whole question shows its header instead; nothing is cut. While a blocking call waits, the dock shows `agent waiting`, and `/question` opens that request first.
 
 With the optional **Lune Dock** host active, this independent row is replaced by a shared one-line dock. Press Down in an empty main editor, select a module with Left/Right, and press Enter to open its panel directly. Closing the panel returns to dock focus. The plugin publishes its own single-line `base`, `detail`, and `full` Components through the Dock protocol in `@lune_99/pi-lune-extensions-core/dock`; `/dock` controls density, visibility and order. Idle state remains available in the shared Dock, and hiding the plugin keeps its snapshots current. Removing the host restores the independent row.
 

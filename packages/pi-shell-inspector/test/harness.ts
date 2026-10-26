@@ -26,6 +26,7 @@
  * Renderers are called directly by the registration tests, which pin the delegation contract; the
  * TUI itself is not simulated, and the real TUI is observed through `test/tui`.
  */
+import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -130,9 +131,27 @@ export type WidgetPlacement = "aboveEditor" | "belowEditor";
  * Widget payload accepted by `ctx.ui.setWidget`.
  *
  * pi renders a `string[]` as text lines (capped at `MAX_WIDGET_LINES`) and a component factory as
- * an arbitrary component; the shell dock only ever passes the array form or `undefined`.
+ * an arbitrary component; the shell dock passes a component factory (its row is fitted to the width
+ * pi hands to `render`) or `undefined`.
  */
 export type WidgetContent = readonly string[] | ((...args: unknown[]) => unknown);
+
+/**
+ * A standalone dock row without the one-column left margin it renders with.
+ *
+ * pi pads string widgets by one column on each side; the dock keeps that margin when it draws as a
+ * component, so a row that lacks it is a regression.
+ */
+export function withoutMargin(line: string): string {
+    assert.ok(
+        line.startsWith(" "),
+        `the dock row must start with a 1-space margin: ${JSON.stringify(line)}`,
+    );
+    return line.slice(1);
+}
+
+/** Width at which `renderedWidget` renders a component-factory widget unless a test picks another. */
+export const DEFAULT_WIDGET_WIDTH = 120;
 
 /** One captured `setWidget` call, in call order. */
 export interface WidgetCall {
@@ -201,6 +220,15 @@ export interface FakeExtensionUi {
     ): void;
     /** Content currently mounted for `key`, or `undefined` when the key is not mounted. */
     mountedWidget(placement: WidgetPlacement, key: string): WidgetContent | undefined;
+    /**
+     * Lines of the widget mounted for `key`, or `undefined` when the key is not mounted. A component
+     * factory is rendered at `width`, as pi would; a `string[]` is returned as it is.
+     */
+    renderedWidget(
+        placement: WidgetPlacement,
+        key: string,
+        width?: number,
+    ): readonly string[] | undefined;
     /** Mounted keys of a placement bucket, in pi's reinsertion order. */
     mountedKeys(placement: WidgetPlacement): readonly string[];
 }
@@ -255,6 +283,17 @@ export function createFakeUi(): FakeExtensionUi {
 
         mountedWidget(placement, key) {
             return buckets[placement].get(key);
+        },
+
+        renderedWidget(placement, key, width = DEFAULT_WIDGET_WIDTH) {
+            const content = buckets[placement].get(key);
+
+            if (typeof content !== "function") {
+                return content;
+            }
+
+            const component = content(undefined, this.theme) as { render(width: number): string[] };
+            return component.render(width);
         },
 
         mountedKeys(placement) {
