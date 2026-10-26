@@ -25,6 +25,9 @@ and preceding color palette. The switch uses the usual global/project scopes
 (`pi-core-theme.enabled`) and controls every appearance change below. The header uses
 Pi's native Theme styling and configured keybindings; expanding tool output also expands
 startup help. Its brand pixels keep their ice-blue palette unless a Lune palette tints them.
+When Lune Subagent is loaded, `[Agents]` below Pi's loaded-resource lists shows the
+session's reusable agent names. It uses the same styling, wrapping and expand toggle
+as those lists, respects quiet startup, and is hidden when no agents are loaded.
 
 ## Appearance options
 

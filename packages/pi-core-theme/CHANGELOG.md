@@ -42,6 +42,9 @@ All notable changes are documented here using
   file links, inline-code paths and path-tool headings open existing files and directories.
   URLs in messages and tool output also become links. Links have no underline until the
   pointer is on them. Terminals without OSC 8 support show the same text as before.
+- **Loaded agents at startup.** With Lune Subagent loaded, an `[Agents]` section below
+  Pi's loaded-resource lists names the reusable agents available to the session. It follows
+  the active theme, startup visibility and expansion controls, and stays hidden when empty.
 
 ### Changed
 

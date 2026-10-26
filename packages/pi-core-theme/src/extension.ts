@@ -59,7 +59,9 @@ export function createThemeExtension({ interactiveMode, ...host }: ThemeHost) {
                 }),
             );
             resources.use(registerSettingsPanel(createThemePanel(header), settings));
-            resources.use(registerTheme(pi, settings, header, { startupHeader, handoff }));
+            resources.use(
+                registerTheme(pi, settings, header, { startupHeader, handoff, interactiveMode }),
+            );
         } catch (error) {
             await resources.dispose();
             throw error;
