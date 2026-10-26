@@ -3,6 +3,7 @@ import type { SettingsBinding, SettingsView } from "@lune_99/pi-lune-extensions-
 import type { HeaderFactory, StartupHeader } from "./startup-header.ts";
 import type { SessionHandoff } from "./session-handoff.ts";
 import { createLuneHeader, type HeaderOptions } from "./header.ts";
+import { installStartupAgents } from "./startup-agents.ts";
 import { config, setConfig } from "./config/config.ts";
 import type { themeSettings } from "./settings.ts";
 import { capturePalette, createPalette } from "./palette.ts";
@@ -17,7 +18,7 @@ import {
     WriteExecutionMetadataStore,
 } from "./renderer/tool/diff/write-execution.ts";
 
-/** Settings owns activation; no transcript patches or timers exist for an inactive/headless session. */
+/** Settings owns activation; headless sessions never mount appearance or transcript renderers. */
 export function registerTheme(
     pi: ExtensionAPI,
     settings: SettingsBinding<typeof themeSettings.schema>,
@@ -25,13 +26,20 @@ export function registerTheme(
     continuity: {
         startupHeader?: Pick<StartupHeader, "claim">;
         handoff?: SessionHandoff;
+        interactiveMode?: { prototype: object };
     } = {},
 ) {
-    const { startupHeader, handoff } = continuity;
+    const { startupHeader, handoff, interactiveMode } = continuity;
     const headerFactory: HeaderFactory = (_tui, theme) => createLuneHeader(theme, header);
     let release: (() => void) | undefined;
     let disposed = false;
     let enabledInTui = false;
+    let currentContext: ExtensionContext | undefined;
+    const startupAgents = installStartupAgents({
+        interactiveMode,
+        events: pi.events,
+        getTheme: () => (enabledInTui ? currentContext?.ui.theme : undefined),
+    });
     const writeMetadata = new WriteExecutionMetadataStore();
     const rendererHost = createThemeRendererHost(pi, writeMetadata, () =>
         header.keyText("app.tools.expand"),
@@ -52,6 +60,7 @@ export function registerTheme(
     const mount = (context: ExtensionContext, view: SettingsView<typeof themeSettings.schema>) => {
         unmount();
         if (disposed || view.signal.aborted || context.mode !== "tui") return;
+        currentContext = context;
         // The header and palette already on screen came from the startup swap or the previous
         // instance; apply() only changes them if settings disagree.
         const adopted = handoff?.adopt() ?? {};
@@ -204,6 +213,7 @@ export function registerTheme(
             stop();
             if (writeTimer) clearTimeout(writeTimer);
             enabledInTui = false;
+            currentContext = undefined;
             if (paletteMounted) {
                 paletteMounted = false;
                 context.ui.setWidget(paletteWidgetKey, undefined);
@@ -231,6 +241,7 @@ export function registerTheme(
             disposed = true;
             unsubscribe();
             unmount();
+            startupAgents.dispose();
         },
     };
 }

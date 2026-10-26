@@ -55,6 +55,8 @@ The body is added to the end of Pi's system prompt; it does not replace it. Defi
 
 The main agent sees the loaded agents as a `subagents` section of its system prompt, one `- name: description` line each, in name order. A project definition shows as `- name (project): description`.
 
+With Lune Core Theme enabled, the same loaded names also appear in an `[Agents]` section below Pi's startup resource lists. No section is shown when no definitions are loaded.
+
 ### Create a definition with the built-in skill
 
 The package includes `create-lune-subagent`. Pi can select it when you ask to create a reusable

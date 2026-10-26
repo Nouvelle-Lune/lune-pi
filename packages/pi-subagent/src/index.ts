@@ -79,6 +79,10 @@ export default function (pi: ExtensionAPI): void {
         }
 
         roster = renderRoster(definitions);
+        pi.events.emit(
+            "lune-subagent:agents-loaded",
+            definitions.map((definition) => definition.name),
+        );
         dock.attach(ctx, manager);
         // The Dock shows states and reports only; a refresh per streamed token redraws the whole TUI.
         unsubscribe = manager.subscribe((change) => {
@@ -111,6 +115,7 @@ export default function (pi: ExtensionAPI): void {
         roster = undefined;
         unsubscribe?.();
         unsubscribe = undefined;
+        pi.events.emit("lune-subagent:agents-loaded", []);
         dock.detach({ retired: true });
         await current?.shutdown();
     });

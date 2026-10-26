@@ -72,6 +72,43 @@ test("session_start registers the four tools with the loaded definitions in the 
     assert.deepEqual(start.parameters.properties.agent.enum, ["reviewer"]);
 });
 
+const AGENTS_CHANNEL = "lune-subagent:agents-loaded";
+
+test("session_start publishes the sorted loaded names and leaves out unusable definitions", async (t) => {
+    const { agentDir, pi, fire } = load(t);
+    const cwd = projectCwd(t);
+    const { ctx } = fakeCtx({ cwd, projectTrusted: false });
+    const published: unknown[] = [];
+    pi.events.on(AGENTS_CHANNEL, (names) => published.push(names));
+
+    writeDefinition(agentDir, "b.md", "---\nname: beta\ndescription: Second.\n---\n");
+    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
+    writeDefinition(agentDir, "bad.md", "---\nname: bad\n---\n");
+    writeProjectDefinition(cwd, "reviewer", "Reviews diffs.");
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    const expected = [["alpha", "beta"]];
+    assert.deepEqual(published, expected);
+});
+
+test("shutdown publishes an empty list and a reload publishes the next session's names", async (t) => {
+    const { agentDir, pi, fire } = load(t);
+    const { ctx } = fakeCtx();
+    const published: unknown[] = [];
+    pi.events.on(AGENTS_CHANNEL, (names) => published.push(names));
+    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
+
+    await fire("session_start", {}, ctx);
+    await fire("session_shutdown", {}, ctx);
+    writeDefinition(agentDir, "b.md", "---\nname: beta\ndescription: Second.\n---\n");
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    const expected = [["alpha"], [], ["alpha", "beta"]];
+    assert.deepEqual(published, expected);
+});
+
 test("before_agent_start writes the roster into the subagents section", async (t) => {
     const { agentDir, fire, beforeAgentStart } = load(t);
     const { ctx } = fakeCtx();

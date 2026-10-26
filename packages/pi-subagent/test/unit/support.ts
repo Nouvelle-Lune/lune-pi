@@ -5,7 +5,9 @@ import type { TestContext } from "node:test";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+    createEventBus,
     SessionManager,
+    type EventBus,
     type ExtensionAPI,
     type ExtensionContext,
     type Theme,
@@ -253,18 +255,21 @@ export interface FakePi {
     >;
     renderers: Map<string, unknown>;
     sent: Array<{ message: SentMessage; options: unknown }>;
+    events: EventBus;
     /** Make the next `count` calls of `sendMessage` throw; `Infinity` keeps throwing. */
     failSends(count: number): void;
 }
 
 export function fakePi(): FakePi {
     let failures = 0;
+    const events = createEventBus();
     const pi: FakePi = {
         handlers: new Map(),
         tools: new Map(),
         commands: new Map(),
         renderers: new Map(),
         sent: [],
+        events,
         failSends: (count) => {
             failures = count;
         },
@@ -272,6 +277,7 @@ export function fakePi(): FakePi {
     };
 
     pi.api = {
+        events: pi.events,
         on(event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
             pi.handlers.set(event, [...(pi.handlers.get(event) ?? []), handler]);
         },
