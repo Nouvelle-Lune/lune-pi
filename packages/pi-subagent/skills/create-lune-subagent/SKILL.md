@@ -53,7 +53,7 @@ repeat the same information.
   hardcoded list. A fixed model must be available within the current model scope. Following the main
   agent means omitting `model`; explain that behavior instead of silently omitting the field.
 
-Runs load no user or project extensions. A model supplied only by an extension, including the
+Runs load no extensions for models. A model supplied only by an extension, including the
 llama.cpp built-in, is unavailable to a run even if the parent lists it. If the requested model is
 unavailable, explain the problem and ask for a supported choice or the necessary configuration;
 never substitute another model silently. Do not read or print credentials to check availability.
@@ -106,10 +106,11 @@ editing for changes, and a shell only when commands are needed. A shell can modi
   it still receives `report`. Explain the distinction if recommending either option.
 
 The main agent's catalog is the reference for authoring, not a guarantee of child availability.
-The current Lune runtime loads Pi native tools and the codemode, tool-search and MCP built-ins,
-but not user or project extensions. Disclose this limitation if a recommendation depends on an
-extension-only tool. Do not claim that future extension support is already implemented, or silently
-remove or substitute a tool the user chose.
+A run gets Pi native tools, the codemode, tool-search and MCP built-ins, and the tools of the user's
+extensions: for each selected extension tool, the run loads that extension with only the selected
+tools. The subagent tools are never available, and an extension tool that needs the user interface
+does not work in a run, which has none. Disclose this if a recommendation depends on such a tool. Do
+not silently remove or substitute a tool the user chose.
 
 ### Isolation
 

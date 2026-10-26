@@ -11,6 +11,7 @@ import {
     type ExtensionAPI,
     type ExtensionContext,
     type Theme,
+    type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 
 import type { AgentDefinition } from "../../src/definitions.ts";
@@ -173,11 +174,35 @@ export function writeRunFile(
     return file;
 }
 
+/** A parent tool as `getAllTools` reports it; by default from a user extension file. */
+export function toolInfo(
+    name: string,
+    options: {
+        path?: string;
+        scope?: "user" | "project" | "temporary";
+        exposure?: ToolInfo["exposure"];
+    } = {},
+): ToolInfo {
+    return {
+        name,
+        description: `The ${name} tool.`,
+        parameters: {},
+        exposure: options.exposure ?? "direct",
+        sourceInfo: {
+            path: options.path ?? `/ext/${name}.ts`,
+            source: "extension",
+            scope: options.scope ?? "user",
+            origin: "top-level",
+        },
+    } as unknown as ToolInfo;
+}
+
 export function runHost(agentDir: string, theme: Theme = fakeTheme()): RunHost {
     return {
         agentDir,
         projectTrusted: () => true,
         theme: () => theme,
+        extensionTools: () => [],
         onChange: () => undefined,
         onTurnEnd: () => undefined,
     };
@@ -256,6 +281,8 @@ export interface FakePi {
     renderers: Map<string, unknown>;
     sent: Array<{ message: SentMessage; options: unknown }>;
     events: EventBus;
+    /** The parent's tools that `getAllTools` returns; none by default. */
+    allTools: ToolInfo[];
     /** Make the next `count` calls of `sendMessage` throw; `Infinity` keeps throwing. */
     failSends(count: number): void;
 }
@@ -270,6 +297,7 @@ export function fakePi(): FakePi {
         renderers: new Map(),
         sent: [],
         events,
+        allTools: [],
         failSends: (count) => {
             failures = count;
         },
@@ -284,6 +312,7 @@ export function fakePi(): FakePi {
         registerTool(tool: { name: string }) {
             pi.tools.set(tool.name, tool);
         },
+        getAllTools: () => pi.allTools,
         registerCommand(
             name: string,
             options: { handler: (args: string, ctx: ExtensionContext) => unknown },

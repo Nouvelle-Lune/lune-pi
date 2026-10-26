@@ -28,7 +28,7 @@ The main agent starts the run with `subagent_start` and continues its own work. 
 - **Optional definitions.** Reusable roles are Markdown files, yours or the project's. A one-off task needs no file: the main agent sets up the run in the call.
 - **Several runs from one call.** The main agent can start one run per entry of `tasks`, all at the same time.
 - **Optional worktrees.** A run can work in its own Git worktree, so parallel changes do not touch your files.
-- **No extensions in runs.** A run loads none of your user or project extensions. It gets Pi's native tools and the codemode, tool-search and MCP built-ins, and it cannot start runs of its own. For the same reason, a run cannot use a model that an extension provides, such as a model of the llama.cpp built-in: the start fails and says so.
+- **Extensions only for their tools.** A run loads none of your user or project extensions by itself. It gets Pi's native tools and the codemode, tool-search and MCP built-ins, and it cannot start runs of its own. A run that selects a tool of one of your extensions loads that extension, with only the selected tools; see [Extension tools](#extension-tools). Runs load no extensions for models, so a run cannot use a model that an extension provides, such as a model of the llama.cpp built-in: the start fails and says so.
 - **Visible.** Runs show in the Dock and in the `/agents` inspector, where you can read their live transcripts and write to them.
 
 ## Agent definitions
@@ -42,14 +42,14 @@ When a project definition and a user definition have the same name, the project 
 
 Pi asks whether to trust a project only when the project has resources that Pi itself guards, such as `.pi/settings.json` or `.pi/extensions/`. A project whose only `.pi` content is `lune-subagents/` counts as trusted without a prompt, the same as its `AGENTS.md`. Read the definitions of a project you did not write before you use them.
 
-| Field         | Required | Meaning                                                                                       |
-| ------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `name`        | Yes      | Unique name. The main agent uses it to pick the agent.                                        |
-| `description` | Yes      | When to use the agent. Shown in the system prompt's agent list.                               |
-| `tools`       | No       | Pi tool names, as a comma-separated string or a list. Default: `defaultTools`.                |
-| `model`       | No       | `provider/id`. Default: the main agent's current model.                                       |
-| `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the main agent's level. |
-| `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                     |
+| Field         | Required | Meaning                                                                                               |
+| ------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `name`        | Yes      | Unique name. The main agent uses it to pick the agent.                                                |
+| `description` | Yes      | When to use the agent. Shown in the system prompt's agent list.                                       |
+| `tools`       | No       | Tool names, extension tools included, as a comma-separated string or a list. Default: `defaultTools`. |
+| `model`       | No       | `provider/id`. Default: the main agent's current model.                                               |
+| `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the main agent's level.         |
+| `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                             |
 
 The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
 
@@ -72,8 +72,9 @@ the model's capabilities and your task details to recommend thinking, tools, iso
 instructions. Following the main agent's model is an explicit choice, not an assumed default.
 
 It locates the definition directory with existing shell and file tools and uses the main agent's
-tool declarations as its authoring reference, without an extra query tool or helper script. Current
-runs still reject tools supplied only by user or project extensions.
+tool declarations as its authoring reference, without an extra query tool or helper script. A run
+that selects a tool of one of your extensions loads that extension; see
+[Extension tools](#extension-tools).
 
 You review the complete definition and destination before it writes the file. The skill does not
 start a run; use `/reload` after saving to make the definition available.
@@ -139,6 +140,17 @@ the tests and report the commands, the results and the files you changed.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
 - The task is the run's first message, unchanged. The run's system prompt is Pi's own, then the definition body, then a short fixed guide for subagents.
+
+### Extension tools
+
+A run can select a tool that one of your user or project extensions registers in the main session. The run then loads the file of that extension in its own session, with only the tools it selected. The `tools` parameter of `subagent_start` lists these tools with the others; a tool that an extension registers after the session started is missing from the list, but a run can still select it.
+
+- The extension runs in the run, not in the main session, and its event handlers run too. An extension that adds to the system prompt or blocks tool calls does the same in the run.
+- The run has no UI. A dialog that the extension opens is answered as dismissed and shows as a run diagnostic, so a tool that needs your input does not work in a run.
+- Names that the run has on its own stay Pi's. An extension that replaces `bash` in the main session does not replace it in the run, and an extension loaded for one tool adds none of its other tools.
+- The subagent tools are never available, so runs cannot start runs. Tools of project extensions are available only while Pi trusts the project.
+- An extension that fails to load, or that does not register the selected tool in the run's working directory, fails the start.
+- A run that continues after you resume the session loads the extensions of its tools again, as the main session has them at that time. When the main session no longer has one of its tools, the run cannot continue.
 
 ### Several runs in one call
 

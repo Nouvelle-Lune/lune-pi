@@ -14,10 +14,12 @@ import {
     type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 
+import type { ExtensionTool } from "./extension-tools.ts";
+
 export interface CatalogTool {
     name: string;
     description: string;
-    source: "native" | "builtin";
+    source: "native" | "builtin" | "extension";
 }
 
 export interface ToolCatalog {
@@ -26,14 +28,14 @@ export interface ToolCatalog {
     errors: string[];
 }
 
-/** The only extensions a run loads, so the only extension tools the catalog may list. */
+/** The extensions every run loads; a run loads others only for the extension tools it selects. */
 export function runExtensionFactories(): InlineExtension[] {
     return [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension()];
 }
 
 /**
- * The tools a run can select, read from Pi's own definitions rather than a hardcoded list or the
- * parent's tools: a parent extension that replaces `bash` does not replace the run's native one.
+ * The tools every run can select, read from Pi's own definitions rather than a hardcoded list or
+ * the parent's tools: a parent extension that replaces `bash` does not replace the run's native one.
  *
  * MCP tools are missing: they register only once a run's servers connect, which happens in the run.
  */
@@ -85,5 +87,25 @@ export async function loadToolCatalog(cwd: string, agentDir: string): Promise<To
     return {
         tools,
         errors: result.errors.map((error) => `${error.path}: ${error.error}`),
+    };
+}
+
+/** The catalog with the extension tools that runs can load. */
+export function addExtensionTools(
+    catalog: ToolCatalog,
+    extensionTools: readonly ExtensionTool[],
+): ToolCatalog {
+    return {
+        ...catalog,
+        tools: [
+            ...catalog.tools,
+            ...extensionTools.map(
+                (tool): CatalogTool => ({
+                    name: tool.name,
+                    description: tool.description,
+                    source: "extension",
+                }),
+            ),
+        ],
     };
 }

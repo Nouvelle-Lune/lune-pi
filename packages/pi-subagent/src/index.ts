@@ -4,9 +4,10 @@ import {
     type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { loadToolCatalog } from "./catalog.ts";
+import { addExtensionTools, loadToolCatalog } from "./catalog.ts";
 import { formatDefinitionProblems, loadAllDefinitions, renderRoster } from "./definitions.ts";
 import { SubagentDockContribution } from "./dock/dock-contribution.ts";
+import { listExtensionTools } from "./extension-tools.ts";
 import { openSubagentInspector } from "./inspector/inspector.ts";
 import { allowedModelRefs } from "./models.ts";
 import { renderRunNotificationBox } from "./notify/notification-box.ts";
@@ -65,15 +66,24 @@ export default function (pi: ExtensionAPI): void {
             );
         }
 
-        manager = new RunManager({ pi, ctx, agentDir, definitions });
+        const runTools = new Set(catalog.tools.map((tool) => tool.name));
+        // Read again for every start and resume, so tools registered after this handler count.
+        const extensionTools = () =>
+            listExtensionTools(pi.getAllTools(), {
+                runTools,
+                projectTrusted: ctx.isProjectTrusted(),
+            });
+
+        manager = new RunManager({ pi, ctx, agentDir, definitions, extensionTools });
         manager.restore();
 
-        // Built once per session: the declarations stay the same for every turn of it.
+        // Built once per session: the declarations stay the same for every turn of it. Tools that
+        // other extensions register later are missing from the list, but runs can still select them.
         for (const tool of createSubagentTools({
             manager,
             definitions,
             models: allowedModelRefs(ctx),
-            catalog,
+            catalog: addExtensionTools(catalog, extensionTools()),
         })) {
             pi.registerTool(tool);
         }

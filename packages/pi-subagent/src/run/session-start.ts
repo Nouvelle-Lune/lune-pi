@@ -1,12 +1,15 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type {
-    AgentSession,
-    AgentSessionEvent,
-    ModelRuntime,
-    SessionManager,
-    Theme,
+import {
+    SettingsManager,
+    type AgentSession,
+    type AgentSessionEvent,
+    type AgentSessionServices,
+    type ModelRuntime,
+    type SessionManager,
+    type Theme,
 } from "@earendil-works/pi-coding-agent";
 
+import { isSyntheticPath, type ExtensionTool } from "../extension-tools.ts";
 import type { ModelRef } from "../models.ts";
 import { createReportTool, REPORT_TOOL_NAME } from "./report-tool.ts";
 import {
@@ -77,6 +80,8 @@ export interface StartSessionOptions {
     tools: string[];
     /** Task tools that must exist once the session runs; "default" checks the defaultTools setting. */
     check: readonly string[] | "default";
+    /** The parent's extension tools; the run loads the extensions of those that `check` names. */
+    extensionTools: readonly ExtensionTool[];
     reason: "startup" | "resume";
     theme: Theme;
     /** Called once the model resolved, so a failed resolution leaves no run file behind. */
@@ -86,21 +91,33 @@ export interface StartSessionOptions {
     onProgress?: (text: string) => void;
 }
 
-/** Create a run's session, start its built-ins, and check its tools; the session is closed on failure. */
+/** Create a run's session, start its extensions, and check its tools; the session is closed on failure. */
 export async function startRunSession(options: StartSessionOptions): Promise<LiveSession> {
     options.onProgress?.("Preparing the run session");
 
+    // The services load the extensions of the selected tools, so the default selection is read
+    // from the run's own settings before they exist.
+    const settingsManager = SettingsManager.create(options.cwd, options.agentDir, {
+        projectTrusted: options.projectTrusted,
+    });
+    const check =
+        options.check === "default" ? (settingsManager.getDefaultTools() ?? []) : options.check;
+    const extensionTools = options.extensionTools.filter((tool) => check.includes(tool.name));
     const services = await createRunServices({
         cwd: options.cwd,
         agentDir: options.agentDir,
         projectTrusted: options.projectTrusted,
         appendSystemPrompt: options.appendSystemPrompt,
         modelRuntime: options.modelRuntime,
+        settingsManager,
+        extensionTools,
     });
 
     for (const diagnostic of services.diagnostics) {
         options.sink.diagnostic({ ...diagnostic, level: diagnostic.type, at: Date.now() });
     }
+
+    checkExtensionsLoaded(services, extensionTools, options.sink);
 
     const model = await resolveRunModel(services, options.model.provider, options.model.id);
     const sessionManager = options.openSessionManager();
@@ -118,12 +135,7 @@ export async function startRunSession(options: StartSessionOptions): Promise<Liv
     });
 
     try {
-        const check =
-            options.check === "default"
-                ? (services.settingsManager.getDefaultTools() ?? [])
-                : options.check;
-
-        await checkTools(live.session, check, options);
+        await checkTools(live.session, check, extensionTools, options);
     } catch (error) {
         await live.close();
         throw error;
@@ -133,22 +145,77 @@ export async function startRunSession(options: StartSessionOptions): Promise<Liv
 }
 
 /**
+ * An extension of a selected tool that fails to load fails the start. With `noExtensions`, every
+ * load error with a file path belongs to one of them; the built-ins report theirs at session start.
+ */
+function checkExtensionsLoaded(
+    services: AgentSessionServices,
+    extensionTools: readonly ExtensionTool[],
+    sink: SessionSink,
+): void {
+    if (extensionTools.length === 0) {
+        return;
+    }
+
+    const errors = services.resourceLoader
+        .getExtensions()
+        .errors.filter((error) => !isSyntheticPath(error.path));
+
+    if (errors.length > 0) {
+        throw new Error(
+            "The extensions of the run's tools failed to load:\n" +
+                errors.map((error) => `${error.path}: ${error.error}`).join("\n"),
+        );
+    }
+
+    const byPath = new Map<string, string[]>();
+
+    for (const tool of extensionTools) {
+        byPath.set(tool.path, [...(byPath.get(tool.path) ?? []), tool.name]);
+    }
+
+    for (const [path, names] of byPath) {
+        sink.diagnostic({
+            level: "info",
+            message: `Loaded the extension ${path} for ${names.join(", ")}.`,
+            at: Date.now(),
+        });
+    }
+}
+
+/**
  * Every selected tool must exist in the run itself; a missing one fails the start rather than
  * being dropped. MCP tools register only once their server connects, so they are waited for.
  */
 async function checkTools(
     session: AgentSession,
     names: readonly string[],
+    extensionTools: readonly ExtensionTool[],
     options: StartSessionOptions,
 ): Promise<void> {
     const registered = (): Set<string> => new Set(session.getAllTools().map((tool) => tool.name));
     const missing = names.filter((name) => name !== REPORT_TOOL_NAME && !registered().has(name));
+    // An extension can register a tool depending on its working directory or settings.
+    const unregistered = extensionTools.filter((tool) => missing.includes(tool.name));
+
+    if (unregistered.length > 0) {
+        throw new Error(
+            unregistered
+                .map(
+                    (tool) =>
+                        `The extension ${tool.path} did not register ${tool.name} in the run.`,
+                )
+                .join("\n"),
+        );
+    }
+
     const other = missing.filter((name) => !name.startsWith("mcp__"));
 
     if (other.length > 0) {
         throw new Error(
             `Not available in a run: ${other.join(", ")}. Runs have Pi's native tools, codemode, ` +
-                "tool_search and the MCP tools of the run's configured servers.",
+                "tool_search, the MCP tools of the run's configured servers and the tools of your " +
+                "extensions, except the subagent tools.",
         );
     }
 

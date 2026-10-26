@@ -9,6 +9,7 @@ import type {
     Theme,
 } from "@earendil-works/pi-coding-agent";
 
+import type { ExtensionTool } from "../extension-tools.ts";
 import { formatModelRef, parseModelRef } from "../models.ts";
 import { markUserMessage, SUBAGENT_GUIDE } from "./guide.ts";
 import { openRunFile, readRunEntries, transcriptMessages, usageFromEntries } from "./run-file.ts";
@@ -38,6 +39,8 @@ export interface RunHost {
     readonly modelRuntime?: ModelRuntime;
     projectTrusted(): boolean;
     theme(): Theme;
+    /** The parent's current extension tools; a resumed run loads the extensions of its own again. */
+    extensionTools(): readonly ExtensionTool[];
     onChange(run: Run, change: RunChange): void;
     onTurnEnd(run: Run, record: TurnRecord): void;
 }
@@ -470,6 +473,7 @@ export class Run implements RunEventTarget {
             // The snapshot's list is the allowlist from now on, the default selection included.
             tools: snapshot.tools,
             check: snapshot.tools,
+            extensionTools: this.host.extensionTools(),
             reason: "resume",
             theme: this.host.theme(),
             openSessionManager: () => openRunFile(this.file),
