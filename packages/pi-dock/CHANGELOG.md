@@ -84,3 +84,7 @@
   instead of blank padding, so module boundaries stay readable in a wide row.
 - **Document dock rendering rules.** Explain how the 12-column estimate limits visible
   cells and how scrolling keeps the selected item in view.
+- **The info row keeps the cache hit rate the longest.** Tokens and cost now give way before
+  `CH`, so a shrinking row keeps the hit rate beside context use and `(auto)` once cost is gone.
+  The drop order is cache writes, cache reads, tokens, cost, hit rate and `(auto)`; the hit-rate
+  slot survives down to 80 columns instead of 104, and cost down to 90 instead of 79.

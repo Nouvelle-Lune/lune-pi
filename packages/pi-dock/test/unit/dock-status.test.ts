@@ -714,8 +714,8 @@ describe("dock info row", () => {
             if (width >= 120) return ALL_SLOTS;
             if (width >= 112) return ["read", "cacheHit", "tokens", "cost", "context", "auto"];
             if (width >= 104) return ["cacheHit", "tokens", "cost", "context", "auto"];
-            if (width >= 93) return ["tokens", "cost", "context", "auto"];
-            if (width >= 79) return ["cost", "context", "auto"];
+            if (width >= 90) return ["cacheHit", "cost", "context", "auto"];
+            if (width >= 80) return ["cacheHit", "context", "auto"];
             if (width >= 69) return ["context", "auto"];
             return ["context"];
         }
@@ -902,12 +902,12 @@ describe("dock info row", () => {
             assert.deepEqual(present(needed).sort(), Object.keys(markers).sort());
         });
 
-        it("drops cache writes, then reads, then CH, then tokens, then cost, then (auto) as the width shrinks", () => {
+        it("drops cache writes, then reads, then tokens, then cost, then CH, then (auto) as the width shrinks", () => {
             const survivors: SlotName[][] = [
                 ["read", "cacheHit", "tokens", "cost", "context", "auto"],
                 ["cacheHit", "tokens", "cost", "context", "auto"],
-                ["tokens", "cost", "context", "auto"],
-                ["cost", "context", "auto"],
+                ["cacheHit", "cost", "context", "auto"],
+                ["cacheHit", "context", "auto"],
                 ["context", "auto"],
                 ["context"],
             ];
@@ -928,17 +928,17 @@ describe("dock info row", () => {
                         blockWidth("read", "cacheHit", "tokens", "cost", "context", "auto"),
                 ],
                 [
-                    "cacheHit",
+                    "tokens",
                     WORKSPACE_RESERVE + blockWidth("cacheHit", "tokens", "cost", "context", "auto"),
                 ],
-                ["tokens", WORKSPACE_RESERVE + blockWidth("tokens", "cost", "context", "auto")],
-                ["cost", WORKSPACE_RESERVE + blockWidth("cost", "context", "auto")],
+                ["cost", WORKSPACE_RESERVE + blockWidth("cacheHit", "cost", "context", "auto")],
+                ["cacheHit", WORKSPACE_RESERVE + blockWidth("cacheHit", "context", "auto")],
                 ["auto", WORKSPACE_RESERVE + blockWidth("context", "auto")],
             ];
 
             assert.deepEqual(
                 thresholds.map(([, width]) => width),
-                [120, 112, 104, 93, 79, 69],
+                [120, 112, 104, 90, 80, 69],
             );
             for (const [name, width] of thresholds) {
                 assert.ok(present(width).includes(name), `${name} at ${width}`);
@@ -964,15 +964,28 @@ describe("dock info row", () => {
             assert.ok(!present(needed - 1, without).includes("write"));
         });
 
-        it("shows no tokens slot at 80 columns however large the counts, and only context and (auto) for zeros", () => {
+        it("shows no tokens slot however large the counts, and keeps CH once cost has given way", () => {
             const large = createStatus({
                 autoCompact: true,
                 usage: { input: 5e8, output: 5e7, cost: 9999 },
             });
+            const cached = createStatus({
+                autoCompact: true,
+                usage: { input: 5e8, output: 5e7, cost: 9999, cacheRead: 3000, cacheHitRate: 50 },
+            });
             const zero = createStatus({ autoCompact: true });
 
-            assert.deepEqual(slotsOf(renderInfoRow(large, 80, identityTheme)), [
+            assert.deepEqual(slotsOf(renderInfoRow(large, 90, identityTheme)), [
                 "$9999.0",
+                " 25k/200k · 12.3%",
+                "(auto)",
+            ]);
+            assert.deepEqual(slotsOf(renderInfoRow(large, 80, identityTheme)), [
+                " 25k/200k · 12.3%",
+                "(auto)",
+            ]);
+            assert.deepEqual(slotsOf(renderInfoRow(cached, 80, identityTheme)), [
+                "CH 50.0%",
                 " 25k/200k · 12.3%",
                 "(auto)",
             ]);

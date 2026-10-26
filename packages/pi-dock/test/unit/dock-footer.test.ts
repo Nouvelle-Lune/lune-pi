@@ -69,9 +69,9 @@ describe("dock footer", () => {
     });
 
     it("starts the model on a bar of the info row, so the two rows share it", () => {
-        // The model lands on the cost slot, whose bar is drawn once there is a cost.
+        // The model lands on the cache-hit slot, whose bar is drawn once the provider reports cache traffic.
         const [, dockRow, , infoRow] = render(80, {
-            status: createStatus({ usage: { cost: 0.12 } }),
+            status: createStatus({ usage: { cost: 0.12, cacheRead: 3000, cacheHitRate: 50 } }),
         });
 
         const modelBar = barColumns(dockRow!).at(-1)!;
@@ -433,7 +433,10 @@ describe("dock footer styles", () => {
     describe("boxed", () => {
         it("frames every row in a rounded box exactly as wide as the terminal", () => {
             const lines = renderStyle("boxed", 80, {
-                status: createStatus({ extensionStatuses: ["alpha"], usage: { cost: 0.12 } }),
+                status: createStatus({
+                    extensionStatuses: ["alpha"],
+                    usage: { cost: 0.12, cacheRead: 3000, cacheHitRate: 50 },
+                }),
             });
 
             assert.equal(lines.length, 6);

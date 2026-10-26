@@ -35,7 +35,7 @@ the rightmost bar that leaves room for it within half the row, drops the provide
 that alignment, and sits flush right only when no bar fits even the bare model.
 
 Which slots are reserved depends on the terminal width alone: a narrow terminal drops cache writes,
-cache reads, hit rate, tokens, cost and `(auto)` in that order, always keeps context use, and gives
+cache reads, tokens, cost, hit rate and `(auto)` in that order, always keeps context use, and gives
 the rest to the working directory, which is shortened from the left against the full reservation so
 it does not move either. Below 40 columns the model is hidden so the cells keep the whole row.
 Provider shows only when more than one is available, and `(auto)` reflects the compaction setting

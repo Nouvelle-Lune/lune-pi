@@ -287,9 +287,10 @@ function counterSlot(keep: number, label: string, count: (usage: DockUsage) => n
  * read once per session, so (auto) only claims its columns when it will be shown. Whether a slot
  * is drawn is a separate question, answered by `hasData`.
  *
- * Slots run from the one most likely to stay empty to the ones always drawn, which is also the order
- * a narrow row drops them in, except that (auto) goes before context. Blank slots therefore gather
+ * Slots run from the one most likely to stay empty to the ones always drawn, so blank slots gather
  * on the left, where they read as part of the gap after the directory, not as a hole between numbers.
+ * `keep` orders the drop independently: the counters and cost give way first, while the hit rate
+ * stays until only context and (auto) share the row.
  */
 function statSlots(status: DockStatus): StatSlot[] {
     const slots: StatSlot[] = [
@@ -297,7 +298,7 @@ function statSlots(status: DockStatus): StatSlot[] {
         counterSlot(1, "W", (usage) => usage.cacheWrite),
         counterSlot(2, "R", (usage) => usage.cacheRead),
         {
-            keep: 3,
+            keep: 5,
             width: 3 + PERCENT_WIDTH,
             // A provider that reports no cache traffic has no hit rate worth quoting.
             hasData: ({ usage }) =>
@@ -306,13 +307,13 @@ function statSlots(status: DockStatus): StatSlot[] {
                 theme.fg("muted", `CH ${formatPercent(usage.cacheHitRate ?? 0)}`),
         },
         {
-            keep: 4,
+            keep: 3,
             width: 2 * (1 + COUNT_WIDTH) + 1,
             hasData: ({ usage }) => usage.input > 0 || usage.output > 0,
             render: ({ usage }, theme) => counters(theme, ["↑", usage.input], ["↓", usage.output]),
         },
         {
-            keep: 5,
+            keep: 4,
             width: COST_WIDTH,
             hasData: ({ usage }) => usage.cost > 0,
             render: ({ usage }, theme) => theme.fg("muted", formatCost(usage.cost)),
