@@ -28,6 +28,8 @@
 
 - **Quieter idle Dock item.** All display levels show only `○ Shell` when no jobs are tracked, matching Agents without the `· idle` suffix. Job summaries, status markers and inspector behavior are unchanged.
 
+- **Dock lines drop whole parts instead of cutting them.** A short Lune Dock cell leaves out the runtime, then the latest command, then the counts, with failures kept longest, then `Shell`, down to the marker alone, as the Agents item does. The row below the editor no longer cuts the running command at 20 columns: it shows the whole command or leaves it out, after the `/shell to open` hint.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added

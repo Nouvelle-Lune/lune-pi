@@ -27,6 +27,7 @@ import {
     type FakeBranchEntry,
     type FakePiHost,
     type FakeUi,
+    dockRow,
 } from "../harness.ts";
 
 const WIDGET_KEY = "pi-ask-question";
@@ -584,7 +585,7 @@ describe("withdraw and block", () => {
             await startBlock(session, { signal: controller.signal });
 
             assert.equal(
-                session.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(session.ui, WIDGET_KEY),
                 "1 pending question · agent waiting · Which database? · /question to answer",
             );
 
@@ -592,7 +593,7 @@ describe("withdraw and block", () => {
             await drain();
 
             assert.equal(
-                session.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(session.ui, WIDGET_KEY),
                 "1 pending question · Which database? · /question to answer",
             );
         });

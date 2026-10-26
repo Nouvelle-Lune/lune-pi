@@ -26,6 +26,7 @@ import {
     waitFor,
     waitForJobSettled,
     type ExtensionSession,
+    withoutMargin,
 } from "../harness.ts";
 
 /** Panel width used by every test: wide enough for the right pane to keep long lines untruncated. */
@@ -93,15 +94,13 @@ describe("pi-shell-inspector clear key", () => {
 
     /** The mounted dock line, or undefined when the dock is not mounted. */
     function dockText(): string | undefined {
-        const content = session.ui.mountedWidget("belowEditor", WIDGET_ID);
+        const content = session.ui.renderedWidget("belowEditor", WIDGET_ID);
 
         if (content === undefined) {
             return undefined;
         }
 
-        assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
-
-        return content.join("\n");
+        return content.map(withoutMargin).join("\n");
     }
 
     it("clears a completed shell and leaves no dock behind", async () => {

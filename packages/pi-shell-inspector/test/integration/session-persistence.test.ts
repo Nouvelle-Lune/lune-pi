@@ -35,6 +35,7 @@ import {
     type FakeExtensionUi,
     type FakePiHost,
     type SeededSessionEntry,
+    withoutMargin,
 } from "../harness.ts";
 import {
     SHELL_STATUS_ENTRY,
@@ -143,13 +144,12 @@ class LifecycleDriver {
 
     /** The single dock line, or undefined when the dock is not mounted. */
     dockText(): string | undefined {
-        const content = this.ui.mountedWidget("belowEditor", WIDGET_ID);
+        const content = this.ui.renderedWidget("belowEditor", WIDGET_ID);
         if (content === undefined) {
             return undefined;
         }
-        assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
         assert.equal(content.length, 1, "the dock must stay a single line");
-        return content[0];
+        return withoutMargin(content[0]!);
     }
 
     /** Widget calls that mounted or cleared the shell dock (including the refresh timer). */

@@ -36,6 +36,7 @@ import {
     type FakePiHost,
     type FakeUi,
     type SendMessageCall,
+    dockRow,
 } from "../harness.ts";
 
 const WIDGET_KEY = "pi-ask-question";
@@ -349,10 +350,7 @@ describe("pi-ask-question extension", () => {
             assert.equal(ui.customCalls.length, 1);
             assert.equal(ui.customCalls[0]!.overlay, true);
             assert.equal(questionManager.getPendingRequests().length, 1);
-            assert.equal(
-                ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
-                "1 pending question · Which database? · /question to answer",
-            );
+            assert.equal(dockRow(ui), "1 pending question · Which database? · /question to answer");
         });
 
         it("persists the pending request before the user sees it", async () => {
@@ -1072,10 +1070,7 @@ describe("pi-ask-question extension", () => {
             assert.match(panelText(ui), /Which database\?/, "the first call owns the panel");
             assert.equal(questionManager.getPendingRequests().length, 2);
             // The dock names the question the panel would show next, which is the queued one.
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which port\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which port\?/);
 
             answerFocusedOption(ui);
             assert.ok(
@@ -1083,10 +1078,7 @@ describe("pi-ask-question extension", () => {
                 "the queued call surfaces",
             );
             assert.match(panelText(ui), /Which port\?/);
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /1 pending question · Which port\?/,
-            );
+            assert.match(String(dockRow(ui)), /1 pending question · Which port\?/);
         });
 
         it("walks through three pending requests in order", async () => {
@@ -1239,19 +1231,13 @@ describe("pi-ask-question extension", () => {
 
             // Showing the second request moved it behind the deferred first one, and the dock
             // has to say so while the second panel is still up.
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which database\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which database\?/);
 
             ui.panel!.handleInput?.("\x1b");
             await ui.panelClosed;
             await drain();
 
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which database\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which database\?/);
 
             void host.commands
                 .get("question")!
@@ -1332,7 +1318,7 @@ describe("pi-ask-question extension", () => {
             assert.equal(restored.length, 1);
             assert.equal(restored[0]!.questions[0]!.question, "Which database?");
             assert.equal(
-                second.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(second.ui),
                 "1 pending question · Which database? · /question to answer",
             );
 

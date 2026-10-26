@@ -62,7 +62,7 @@ Examples:
 5 shells · 3 running · 1 completed · 1 failed · /shell to open
 ```
 
-The dock updates while jobs are running and disappears when there are no shell jobs to show.
+The dock updates while jobs are running and disappears when there are no shell jobs to show. It never cuts a part: on a narrow terminal it leaves out the hint, the runtime and the command first.
 
 With the optional **Lune Dock** host active, this independent row is replaced by a shared one-line dock. Press Down in an empty main editor, select a module with Left/Right, and press Enter to open its panel directly. Closing the panel returns to dock focus. The plugin publishes its own single-line `base`, `detail`, and `full` Components through the Dock protocol in `@lune_99/pi-lune-extensions-core/dock`; `/dock` controls density, visibility and order. Idle state remains available in the shared Dock, and hiding the plugin keeps its snapshots current. Removing the host restores the independent row.
 

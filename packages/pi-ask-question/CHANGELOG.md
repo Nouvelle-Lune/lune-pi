@@ -36,6 +36,8 @@
 
 - **Quieter idle Dock item.** All display levels show only `○ Ask` when no requests are pending, matching Agents without the `· idle` suffix. Pending-request counts and waiting indicators are unchanged.
 
+- **Dock lines drop whole parts instead of cutting them.** A short Lune Dock cell leaves out the request title, then the count, then `Ask`, so `agent waiting` stays longest. The row below the editor no longer cuts the question at 40 columns: it shows the whole question, its header when the question does not fit, or neither. The `/question to answer` hint stays longer than both.
+
 ### Fixed
 
 - **Tool card while streaming.** The `ask_user_questions` card no longer falls back to pi's raw-argument card while the model is still writing the call.
