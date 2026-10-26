@@ -8,7 +8,7 @@ import extension from "../../src/index.ts";
 import { projectDefinitionsDir } from "../../src/paths.ts";
 import { RUN_NOTIFICATION_TYPE } from "../../src/notify/notifier.ts";
 import { SUBAGENT_TOOL_NAMES } from "../../src/tools/subagent-tools.ts";
-import { fakeCtx, fakePi, tempAgentDir, writeDefinition } from "./support.ts";
+import { fakeCtx, fakePi, tempAgentDir, toolInfo, writeDefinition } from "./support.ts";
 
 function load(t: TestContext) {
     const agentDir = tempAgentDir(t);
@@ -254,4 +254,21 @@ test("a project definition that replaces a user one is announced in the definiti
     assert.equal(ui.notifications.length, 1);
     assert.equal(ui.notifications[0]!.type, "warning");
     assert.match(ui.notifications[0]!.message, /not loaded \(1\)[\s\S]*replaces it/);
+});
+
+test("the tools parameter of subagent_start lists the parent's extension tools, not the excluded ones", async (t) => {
+    const { pi, fire } = load(t);
+    const { ctx } = fakeCtx();
+
+    pi.allTools = [toolInfo("ext_tool"), toolInfo("hidden_tool", { exposure: "hidden" })];
+    await fire("session_start", {}, ctx);
+    t.after(() => fire("session_shutdown", {}, ctx));
+
+    const start = pi.tools.get("subagent_start") as unknown as {
+        parameters: { properties: { tools: { description: string } } };
+    };
+    const description = start.parameters.properties.tools.description;
+
+    assert.match(description, /^- ext_tool: The ext_tool tool\.$/m);
+    assert.ok(!description.includes("hidden_tool"));
 });

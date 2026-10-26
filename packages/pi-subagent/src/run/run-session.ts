@@ -8,13 +8,17 @@ import {
     type AgentSessionServices,
     type ExtensionError,
     type ExtensionUIContext,
+    type LoadExtensionsResult,
     type ModelRuntime,
+    type RegisteredTool,
     type SessionManager,
+    type SettingsManager,
     type Theme,
     type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
 import { runExtensionFactories } from "../catalog.ts";
+import { isSyntheticPath, type ExtensionTool } from "../extension-tools.ts";
 
 export interface RunServicesOptions {
     cwd: string;
@@ -24,24 +28,34 @@ export interface RunServicesOptions {
     appendSystemPrompt: readonly string[];
     /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
     modelRuntime?: ModelRuntime;
+    /** The run's settings; created for `cwd` when left out. */
+    settingsManager?: SettingsManager;
+    /** The extension tools the run selected; it loads their extensions. */
+    extensionTools: readonly ExtensionTool[];
 }
 
 /**
  * Services for one run's working directory: its settings, resources and its own model runtime.
  *
- * `noExtensions` keeps user and project extensions out, including installed Lune packages; the
- * three built-in factories are the only extensions, and the run inherits nothing else from the parent.
+ * `noExtensions` keeps user and project extensions out, including installed Lune packages. The
+ * run loads the three built-in factories and, for each selected extension tool, the file of the
+ * extension that registers it, which then registers only the selected tools.
  */
 export async function createRunServices(
     options: RunServicesOptions,
 ): Promise<AgentSessionServices> {
+    const selected = new Set(options.extensionTools.map((tool) => tool.name));
+
     return createAgentSessionServices({
         cwd: options.cwd,
         agentDir: options.agentDir,
+        settingsManager: options.settingsManager,
         modelRuntime: options.modelRuntime,
         resourceLoaderOptions: {
             noExtensions: true,
             extensionFactories: runExtensionFactories(),
+            additionalExtensionPaths: [...new Set(options.extensionTools.map((tool) => tool.path))],
+            extensionsOverride: (base) => keepSelectedTools(base, selected),
             // The override takes literal text. `appendSystemPrompt` would read an entry that happens
             // to name an existing file as that file, and it would drop a discovered APPEND_SYSTEM.md.
             appendSystemPromptOverride: (base) => [
@@ -55,6 +69,42 @@ export async function createRunServices(
     });
 }
 
+/**
+ * With `noExtensions`, the only extensions with a file are those loaded for selected tools. Their
+ * tool maps keep only the selected tools, also for tools they register later, so an extension
+ * loaded for one tool adds no others and does not replace the run's native tools.
+ */
+function keepSelectedTools(
+    result: LoadExtensionsResult,
+    selected: ReadonlySet<string>,
+): LoadExtensionsResult {
+    for (const extension of result.extensions) {
+        if (!isSyntheticPath(extension.path)) {
+            extension.tools = new SelectedTools(selected, extension.tools);
+        }
+    }
+
+    return result;
+}
+
+/** A tool map that ignores tools outside the selection; the extension API registers through `set`. */
+class SelectedTools extends Map<string, RegisteredTool> {
+    private readonly selected: ReadonlySet<string>;
+
+    constructor(selected: ReadonlySet<string>, tools: Iterable<[string, RegisteredTool]>) {
+        super();
+        this.selected = selected;
+
+        for (const [name, tool] of tools) {
+            this.set(name, tool);
+        }
+    }
+
+    override set(name: string, tool: RegisteredTool): this {
+        return this.selected.has(name) ? super.set(name, tool) : this;
+    }
+}
+
 /** Resolve a model in the run's own runtime and check its auth the way `session.prompt()` does. */
 export async function resolveRunModel(
     services: AgentSessionServices,
@@ -65,8 +115,8 @@ export async function resolveRunModel(
 
     if (!model) {
         throw new Error(
-            `The model ${provider}/${id} is not available to a run. Runs load no extensions, so ` +
-                "models that an extension provides are missing.",
+            `The model ${provider}/${id} is not available to a run. Runs load extensions only ` +
+                "for selected tools, so models that an extension provides are missing.",
         );
     }
 
@@ -108,10 +158,10 @@ export interface LiveSession {
 }
 
 /**
- * Create the run's SDK session and start its built-ins.
+ * Create the run's SDK session and start its extensions.
  *
  * Events are subscribed before `bindExtensions()`, which emits `session_start` and starts the MCP
- * connections, so nothing the built-ins report during startup is missed.
+ * connections, so nothing the extensions report during startup is missed.
  */
 export async function openLiveSession(options: LiveSessionOptions): Promise<LiveSession> {
     const { session } = await createAgentSessionFromServices({
@@ -149,7 +199,7 @@ export async function openLiveSession(options: LiveSessionOptions): Promise<Live
 }
 
 /**
- * Abort, then let the built-ins shut down, then release the session. `dispose()` alone does not
+ * Abort, then let the extensions shut down, then release the session. `dispose()` alone does not
  * run the MCP shutdown handlers that close server connections.
  */
 async function closeSession(
@@ -176,7 +226,7 @@ async function closeSession(
 }
 
 /**
- * The run has no UI. Notifications become run diagnostics, and a dialog that a built-in opens is
+ * The run has no UI. Notifications become run diagnostics, and a dialog that an extension opens is
  * answered as dismissed, with a diagnostic, instead of waiting for a user who cannot see it.
  */
 function createHeadlessUi(
@@ -186,7 +236,7 @@ function createHeadlessUi(
     const dismissed = (kind: string, title: string): void => {
         onDiagnostic({
             level: "warning",
-            message: `A built-in extension asked for input (${kind}: ${title}), but runs have no UI.`,
+            message: `An extension asked for input (${kind}: ${title}), but runs have no UI.`,
             at: Date.now(),
         });
     };

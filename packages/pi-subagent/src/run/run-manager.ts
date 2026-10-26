@@ -12,6 +12,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { AgentDefinition } from "../definitions.ts";
+import type { ExtensionTool } from "../extension-tools.ts";
 import { allowedModelRefs, formatModelRef, parseModelRef } from "../models.ts";
 import {
     RUN_NOTIFICATION_TYPE,
@@ -67,6 +68,7 @@ export class RunManager implements RunHost {
     private readonly pi: ExtensionAPI;
     private readonly ctx: ExtensionContext;
     private readonly definitions: readonly AgentDefinition[];
+    private readonly listExtensionTools: () => readonly ExtensionTool[];
     private readonly runs = new Map<string, Run>();
     /** Ended turns of runs on another branch; sent when their branch is active again. */
     private readonly deferred = new Map<string, RunNotice[]>();
@@ -81,6 +83,8 @@ export class RunManager implements RunHost {
         ctx: ExtensionContext;
         agentDir: string;
         definitions: readonly AgentDefinition[];
+        /** The parent's extension tools at the time of a start or resume; none when left out. */
+        extensionTools?: () => readonly ExtensionTool[];
         /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
         modelRuntime?: ModelRuntime;
     }) {
@@ -89,6 +93,7 @@ export class RunManager implements RunHost {
         this.agentDir = options.agentDir;
         this.modelRuntime = options.modelRuntime;
         this.definitions = options.definitions;
+        this.listExtensionTools = options.extensionTools ?? (() => []);
         this.sessionId = options.ctx.sessionManager.getSessionId();
         this.notifier = new RunNotifier(
             options.pi,
@@ -112,6 +117,10 @@ export class RunManager implements RunHost {
 
     theme(): Theme {
         return this.ctx.ui.theme;
+    }
+
+    extensionTools(): readonly ExtensionTool[] {
+        return this.listExtensionTools();
     }
 
     onChange(run: Run, change: RunChange): void {
@@ -336,6 +345,7 @@ export class RunManager implements RunHost {
                     ? [...new Set([...taskTools, REPORT_TOOL_NAME])]
                     : [`+${REPORT_TOOL_NAME}`],
                 check: taskTools ?? "default",
+                extensionTools: this.extensionTools(),
                 reason: "startup",
                 theme: ctx.ui.theme,
                 openSessionManager: () => {

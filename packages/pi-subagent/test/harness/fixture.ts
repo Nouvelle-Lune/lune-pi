@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import type { AgentDefinition } from "../../src/definitions.ts";
+import type { ExtensionTool } from "../../src/extension-tools.ts";
 import { RunManager } from "../../src/run/run-manager.ts";
 import type { Run } from "../../src/run/run.ts";
 import type { LiveSession } from "../../src/run/run-session.ts";
@@ -99,7 +100,11 @@ export interface Fixture {
     state: FakeCtxState;
     ctx: ExtensionContext;
     /** A manager over the parent session; it is shut down when the test ends. */
-    createManager(definitions?: readonly AgentDefinition[], ctx?: ExtensionContext): RunManager;
+    createManager(
+        definitions?: readonly AgentDefinition[],
+        ctx?: ExtensionContext,
+        extensionTools?: () => readonly ExtensionTool[],
+    ): RunManager;
 }
 
 /**
@@ -179,12 +184,13 @@ export async function createFixture(
         models: { first: first as Model<string>, second: second as Model<string> },
         state,
         ctx,
-        createManager(definitions = [], managerCtx = ctx) {
+        createManager(definitions = [], managerCtx = ctx, extensionTools) {
             const manager = new RunManager({
                 pi: pi.asApi(),
                 ctx: managerCtx,
                 agentDir,
                 definitions,
+                extensionTools,
                 modelRuntime: runtime,
             });
 
