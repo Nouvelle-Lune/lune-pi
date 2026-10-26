@@ -186,3 +186,6 @@ All notable changes are documented here using
   its Panel section shows the error and Ctrl+S retries, instead of the section vanishing.
 - **Incompatible Dock no longer breaks contributors.** `attach` keeps the standalone view
   and warns through `ctx.ui.notify` instead of throwing when the shared Dock is incompatible.
+- **Session scans cannot notify a retired context.** Late scan failures after reload, session
+  replacement or shutdown no longer crash Pi by accessing the previous session's UI.
+  Errors from the active session remain visible.

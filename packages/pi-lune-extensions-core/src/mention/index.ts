@@ -33,8 +33,11 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
     resources.defer(
         pi.on("session_start", (_event, ctx) => {
             retire();
-            const report = (error: unknown) =>
+            const report = (error: unknown) => {
+                // A retired scan can settle after Pi invalidates its session context.
+                if (catalog !== sessions) return;
                 ctx.ui.notify(`Session list failed: ${errorMessage(error)}`, "error");
+            };
             const sessions = new SessionCatalog(ctx.sessionManager.getSessionDir(), report);
             catalog = sessions;
             if (ctx.mode !== "tui") return;
