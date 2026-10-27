@@ -28,8 +28,8 @@ Dock starts enabled with the `ruled` style. Lune Shell Inspector and Lune Ask Qu
 
 - **Brings Lune's signals together.** Shell Inspector shows job activity; Ask Question shows pending requests. Each module opens its existing panel directly.
 - **Gets you there from the keyboard.** Press Down in an empty editor, choose a module with Left/Right, and press Enter. Closing the panel returns focus to the dock.
-- **Keeps the session in view.** The model, thinking level and response token speed sit beside the modules. Speed is dim after a response; while generating or without reliable measurements it reads `— tok/s`, highlighted during generation. The next row carries the working directory, branch, tokens, cache, cost and context use.
-- **Holds the numbers steady.** Usage statistics sit on a fixed grid, so new or changing values never move a bar or a label, and the model lines up with the bars below it.
+- **Keeps the session in view.** The model, thinking level and response token speed sit right-aligned beside the modules. Speed stays hidden until a reliable measurement exists, then keeps the last measured value after completion or cancellation. It is highlighted during generation and dim afterward. The next row carries the working directory, branch, tokens, cache, cost and context use.
+- **Holds the numbers steady.** Usage statistics sit on a fixed grid, so new or changing values never move a bar or a label. The divider before the right-aligned model follows the same grid.
 - **Fits the space you have.** Narrow terminals hide the whole speed segment before shortening the model, shorten the directory and drop whole statistic slots. A crowded module row scrolls around your selection.
 - **Lets you choose the density.** Pick a style, adjust module detail, hide modules or change their order. Settings apply immediately and persist across sessions.
 

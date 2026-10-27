@@ -321,17 +321,16 @@ describe("dock status source", () => {
 });
 
 describe("dock model segment", () => {
-    // Wide enough for the provider, model, thinking level and the 15-column speed segment together.
+    // Wide enough for the provider, model, thinking level and speed segment together.
     const budget = 60;
     const bare = "claude-test • high";
-    const unknownSpeed = " ·      — tok/s";
 
-    it("shows the provider, the model, the thinking level and the unknown speed when they fit", () => {
+    it("shows the provider, the model and the thinking level when they fit", () => {
         const status = createStatus({ showProvider: true });
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, `(anthropic) ${bare}${unknownSpeed}`);
+        assert.equal(actual, `(anthropic) ${bare}`);
     });
 
     it("omits the provider unless more than one is available", () => {
@@ -339,16 +338,16 @@ describe("dock model segment", () => {
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, bare + unknownSpeed);
+        assert.equal(actual, bare);
     });
 
     it("drops the provider before it truncates the model", () => {
         const status = createStatus({ showProvider: true });
-        const bareWidth = visibleWidth(bare + unknownSpeed);
+        const bareWidth = visibleWidth(bare);
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, bareWidth));
 
-        assert.equal(actual, bare + unknownSpeed);
+        assert.equal(actual, bare);
     });
 
     it("truncates the model name when even the bare name does not fit", () => {
@@ -372,7 +371,7 @@ describe("dock model segment", () => {
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, "claude-test" + unknownSpeed);
+        assert.equal(actual, "claude-test");
     });
 
     it("names the absence of a model without a speed segment", () => {
@@ -396,9 +395,9 @@ describe("dock model speed segment", () => {
 
     it("appends the latest measured rate with one decimal", () => {
         const cases: [number, string][] = [
-            [55.84, " ·   55.8 tok/s"],
-            [12.34, " ·   12.3 tok/s"],
-            [999.9, " ·  999.9 tok/s"],
+            [55.84, " · 55.8 tok/s"],
+            [12.34, " · 12.3 tok/s"],
+            [999.9, " · 999.9 tok/s"],
         ];
 
         for (const [tokensPerSecond, expected] of cases) {
@@ -408,44 +407,48 @@ describe("dock model speed segment", () => {
         }
     });
 
-    it("shows an em dash rather than a zero when no reliable rate exists", () => {
-        const cases: DockStatus["tokenSpeed"][] = [
-            { tokensPerSecond: undefined, generating: false },
-            { tokensPerSecond: undefined, generating: true },
-            { tokensPerSecond: 0, generating: false },
+    it("omits the speed segment when no reliable positive finite rate exists", () => {
+        const cases: [string, DockStatus["tokenSpeed"]][] = [
+            ["no measurement", { tokensPerSecond: undefined, generating: false }],
+            [
+                "generating without a prior measurement",
+                { tokensPerSecond: undefined, generating: true },
+            ],
+            ["zero", { tokensPerSecond: 0, generating: false }],
+            ["negative", { tokensPerSecond: -12.5, generating: false }],
+            ["not a number", { tokensPerSecond: Number.NaN, generating: false }],
+            ["infinite", { tokensPerSecond: Number.POSITIVE_INFINITY, generating: false }],
         ];
 
-        for (const tokenSpeed of cases) {
+        for (const [name, tokenSpeed] of cases) {
             const actual = segment(tokenSpeed);
 
-            assert.equal(actual, bare + " ·      — tok/s", JSON.stringify(tokenSpeed));
-            assert.doesNotMatch(actual, /0\.0/);
+            assert.equal(actual, bare, name);
+            assert.doesNotMatch(actual, /tok\/s|—|0/, name);
         }
     });
 
     it("reports a positive rate below a tenth as <0.1", () => {
         const actual = segment({ tokensPerSecond: 0.06, generating: false });
 
-        assert.equal(actual, bare + " ·   <0.1 tok/s");
+        assert.equal(actual, bare + " · <0.1 tok/s");
     });
 
-    it("keeps the speed segment 15 columns wide from no rate to a huge one", () => {
-        const rates = [undefined, 0.06, 12.3, 999.9, 12345.6, 1_500_000_000];
-
-        for (const tokensPerSecond of rates) {
+    it("bounds only a large rate to six numeric columns", () => {
+        for (const tokensPerSecond of [12_345.6, 999_999_999, 1_500_000_000]) {
             const actual = segment({ tokensPerSecond, generating: false });
+            const match = actual.match(/^claude-test • high · (\S+) tok\/s$/);
 
-            assert.equal(
-                visibleWidth(actual),
-                visibleWidth(bare) + 15,
-                `rate ${tokensPerSecond}: ${JSON.stringify(actual)}`,
+            assert.ok(match, `${tokensPerSecond} tokens per second: ${JSON.stringify(actual)}`);
+            assert.ok(
+                match[1]!.length <= 6,
+                `${tokensPerSecond} exceeds six numeric columns: ${JSON.stringify(match[1])}`,
             );
-            assert.match(actual, / tok\/s$/);
         }
     });
 
     it("hides the whole speed segment before shortening the model and thinking", () => {
-        const withSpeed = bare + " ·   55.8 tok/s";
+        const withSpeed = bare + " · 55.8 tok/s";
         const cases: [number, string][] = [
             [visibleWidth(withSpeed), withSpeed],
             [visibleWidth(withSpeed) - 1, bare],
@@ -469,7 +472,7 @@ describe("dock model speed segment", () => {
             tokenSpeed: { tokensPerSecond: 55.8, generating: false },
         });
         const named = `(anthropic) ${bare}`;
-        const speed = " ·   55.8 tok/s";
+        const speed = " · 55.8 tok/s";
         const cases: [number, string][] = [
             [visibleWidth(named + speed), named + speed],
             [visibleWidth(bare + speed), bare + speed],
@@ -483,27 +486,26 @@ describe("dock model speed segment", () => {
         }
     });
 
-    it("highlights the speed while generating and dims it once the response ends", () => {
-        function speedColors(tokenSpeed: DockStatus["tokenSpeed"]): string[] {
+    it("highlights a measured speed while generating, dims it once finished, and draws none without a rate", () => {
+        function speedColors(tokenSpeed: DockStatus["tokenSpeed"]): string[] | undefined {
             const { theme, colorsOf } = createRecordingTheme();
             const text = stripTerminalSequences(
                 renderModelSegment(createStatus({ tokenSpeed }), theme, budget),
             );
-            const suffix = text.slice(-15);
-            assert.match(suffix, / tok\/s$/);
-            return colorsOf(suffix);
+            if (!text.endsWith(" tok/s")) return undefined;
+            return colorsOf(text.slice(bare.length));
         }
 
         const actual = {
-            generating: speedColors({ tokensPerSecond: undefined, generating: true }),
+            generating: speedColors({ tokensPerSecond: 55.8, generating: true }),
             ended: speedColors({ tokensPerSecond: 55.8, generating: false }),
-            unknown: speedColors({ tokensPerSecond: undefined, generating: false }),
+            unknown: speedColors({ tokensPerSecond: undefined, generating: true }),
         };
 
         assert.deepEqual(actual, {
             generating: ["accent"],
             ended: ["dim"],
-            unknown: ["dim"],
+            unknown: undefined,
         });
     });
 });

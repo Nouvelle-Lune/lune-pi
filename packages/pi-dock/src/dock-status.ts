@@ -193,16 +193,28 @@ export class DockStatusSource {
             duration > 0
                 ? (output / duration) * 1000
                 : undefined;
+        // Virtual selections route to physical message models; keep the selection that began this response.
+        const provider = continuing ? previous.provider : ctx.model?.provider;
+        const model = continuing ? previous.model : ctx.model?.id;
+        const sameSelection =
+            previous?.ui === ctx.ui &&
+            previous.sessionId === sessionId &&
+            previous.provider === provider &&
+            previous.model === model;
         this.response = {
             ui: ctx.ui,
             sessionId,
             requestTimestamp: message.timestamp,
-            // Virtual selections route to physical message models; keep the selection that began this response.
-            provider: continuing ? previous.provider : ctx.model?.provider,
-            model: continuing ? previous.model : ctx.model?.id,
+            provider,
+            model,
             speed: {
+                // An unfinished or cancelled response must not erase the last measured rate.
                 tokensPerSecond:
-                    rate !== undefined && Number.isFinite(rate) && rate > 0 ? rate : undefined,
+                    rate !== undefined && Number.isFinite(rate) && rate > 0
+                        ? rate
+                        : sameSelection
+                          ? previous.speed.tokensPerSecond
+                          : undefined,
                 generating,
             },
         };
@@ -281,14 +293,14 @@ export class DockStatusSource {
     }
 }
 
-const SPEED_VALUE_WIDTH = 6;
+const MAX_SPEED_VALUE_WIDTH = 6;
 
-function formatTokenSpeed(rate: number | undefined): string {
-    if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return "—";
+function formatTokenSpeed(rate: number | undefined): string | undefined {
+    if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return undefined;
     if (rate < 0.1) return "<0.1";
     for (const decimals of [1, 0]) {
         const text = rate.toFixed(decimals);
-        if (text.length <= SPEED_VALUE_WIDTH) return text;
+        if (text.length <= MAX_SPEED_VALUE_WIDTH) return text;
     }
     return rate.toExponential(0);
 }
@@ -302,10 +314,9 @@ export function modelSegmentVariants(status: DockStatus, theme: Theme): string[]
     const withProvider =
         status.showProvider && model ? theme.fg("accent", `(${model.provider}) `) + bare : bare;
     if (!model) return [bare];
-    const speed = theme.fg(
-        status.tokenSpeed.generating ? "accent" : "dim",
-        ` · ${padStart(formatTokenSpeed(status.tokenSpeed.tokensPerSecond), SPEED_VALUE_WIDTH)} tok/s`,
-    );
+    const value = formatTokenSpeed(status.tokenSpeed.tokensPerSecond);
+    if (value === undefined) return [...new Set([withProvider, bare])];
+    const speed = theme.fg(status.tokenSpeed.generating ? "accent" : "dim", ` · ${value} tok/s`);
     return [...new Set([withProvider + speed, bare + speed, withProvider, bare])];
 }
 
@@ -484,7 +495,7 @@ function reserveSlots(status: DockStatus, width: number, workspace: boolean): St
 
 /**
  * Where the info row draws the bar before each reserved slot, counted in columns from the right
- * edge, leftmost first. The dock row puts the model on one of these so both rows share a bar.
+ * edge, leftmost first. The dock row reuses one for its model divider so both rows share a bar.
  */
 export function statColumns(status: DockStatus, width: number, workspace: boolean): number[] {
     const slots = reserveSlots(status, width, workspace);
