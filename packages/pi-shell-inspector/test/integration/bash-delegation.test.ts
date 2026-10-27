@@ -13,7 +13,6 @@ import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createBuiltInBash,
     createFakeContext,
@@ -257,7 +256,7 @@ describe("pi-shell-inspector bash delegation", () => {
             `expected the call to succeed: ${run.error?.message ?? ""}`,
         );
         assert.deepEqual(
-            shellManager.getAllJobsList(),
+            session.manager.getAllJobsList(),
             [],
             "a foreground call must not be recorded as a job",
         );
@@ -290,7 +289,11 @@ describe("pi-shell-inspector bash delegation", () => {
             run.error instanceof TypeError,
             `expected the cwd dereference to throw, got ${run.error?.name}`,
         );
-        assert.equal(shellManager.getJob("call-no-context"), undefined, "no job may be recorded");
+        assert.equal(
+            session.manager.getJob("call-no-context"),
+            undefined,
+            "no job may be recorded",
+        );
         assert.equal(session.ui.widgetCalls.length, widgetCallsBefore, "the dock must not react");
     });
 });

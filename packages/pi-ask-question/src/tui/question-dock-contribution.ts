@@ -6,9 +6,10 @@ import {
 } from "@lune_99/pi-lune-extensions-core/dock";
 import { openPendingQuestions } from "../commands/question.ts";
 import { singleLine } from "../core/question-format.ts";
-import { questionManager } from "../core/questionManager.ts";
+import type { QuestionManager } from "../core/questionManager.ts";
 import { fitRanked, type RankedPart } from "./dock-line.ts";
-import { questionDock } from "./question-dock.ts";
+import type { QuestionPanels } from "./panel/question-panel.ts";
+import { QuestionDock } from "./question-dock.ts";
 
 export const QUESTION_CONTRIBUTION_ID = "ask-question";
 
@@ -24,15 +25,18 @@ const TITLE_RANK = 0;
  * Base says whether the agent waits; detail adds the count; full adds the next request's title.
  * No level cuts a part: a narrow cell leaves out whole parts, then the title, down to the marker.
  */
-export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot {
+export function getQuestionDockSnapshot(
+    ctx: ExtensionContext,
+    manager: QuestionManager,
+): LuneDockSnapshot {
     const theme = ctx.ui.theme;
     const muted = (text: string): string => theme.fg("muted", text);
-    const count = questionManager.getPendingRequests().length;
-    const next = questionManager.nextPendingRequest();
+    const count = manager.getPendingRequests().length;
+    const next = manager.nextPendingRequest();
     const title = singleLine(next?.questions[0]?.header ?? next?.questions[0]?.question ?? "");
     // A waited-on request is always the next one; every level shows that the agent is paused.
     const waiting: RankedPart[] =
-        next !== undefined && questionManager.isWaiting(next.id)
+        next !== undefined && manager.isWaiting(next.id)
             ? [{ text: muted("agent waiting"), rank: WAITING_RANK }]
             : [];
     const summary: RankedPart[] = [
@@ -63,11 +67,15 @@ export function getQuestionDockSnapshot(ctx: ExtensionContext): LuneDockSnapshot
     };
 }
 
-export function createQuestionDockContribution(persist: (ctx: ExtensionContext) => void) {
+export function createQuestionDockContribution(
+    manager: QuestionManager,
+    panels: QuestionPanels,
+    persist: (ctx: ExtensionContext) => void,
+) {
     return createDockContribution({
         id: QUESTION_CONTRIBUTION_ID,
-        getSnapshot: getQuestionDockSnapshot,
-        activate: (ctx) => openPendingQuestions(ctx, persist),
-        standalone: questionDock,
+        getSnapshot: (ctx) => getQuestionDockSnapshot(ctx, manager),
+        activate: (ctx) => openPendingQuestions(ctx, manager, panels, persist),
+        standalone: new QuestionDock(manager),
     });
 }

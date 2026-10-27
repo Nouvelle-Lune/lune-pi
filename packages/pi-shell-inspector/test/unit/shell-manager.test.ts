@@ -21,7 +21,6 @@ import { DEFAULT_MAX_LINES, truncateTail } from "@earendil-works/pi-coding-agent
 
 import {
     ShellManager,
-    shellManager,
     type ShellJob,
     type ShellJobOutcome,
 } from "../../src/shell/shell-manager.ts";
@@ -69,23 +68,39 @@ async function screenLines(manager: ShellManager, id: string): Promise<string[]>
 }
 
 describe("ShellManager", () => {
-    describe("exported singleton", () => {
-        it("exposes one shared manager instance for the extension", () => {
-            // Contract: the module exports a ready-made ShellManager so every session handler and
-            // background tool call in one pi process observes the same job list.
-            assert.ok(
-                shellManager instanceof ShellManager,
-                `shellManager must be a ShellManager instance, got ${String(shellManager)}`,
+    describe("instances", () => {
+        it("keeps the job tables of separate managers independent", () => {
+            // Contract: the module exports no shared manager; every extension load creates its own, so
+            // jobs, clears and settles of one instance never reach another.
+            const first = new ShellManager();
+            const second = new ShellManager();
+
+            const firstController = startRunningJob(first, { id: "first-job" });
+            assert.equal(
+                first.getJob("first-job")?.status,
+                "running",
+                "the owning manager must store the job",
+            );
+            assert.equal(
+                second.getJob("first-job"),
+                undefined,
+                "another manager must not see the job",
+            );
+            assert.deepEqual(second.getAllJobsList(), [], "the other job table must stay empty");
+
+            second.clearAllJobs();
+            assert.equal(
+                firstController.signal.aborted,
+                false,
+                "clearing another manager must not stop the job",
+            );
+            assert.equal(
+                first.getJob("first-job")?.status,
+                "running",
+                "clearing another manager must leave the job running",
             );
 
-            shellManager.clearAllJobs();
-            startRunningJob(shellManager, { id: "singleton-job" });
-            assert.equal(
-                shellManager.getJob("singleton-job")?.status,
-                "running",
-                "the shared manager must store the job",
-            );
-            shellManager.clearAllJobs();
+            first.clearAllJobs();
         });
     });
 

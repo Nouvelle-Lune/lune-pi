@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fitRanked, type RankedPart } from "./dock-line.ts";
-import { shellManager } from "./shell-manager.ts";
+import type { ShellManager } from "./shell-manager.ts";
 import { collapseShellCommand } from "./shell-command.ts";
 
 const WIDGET_ID = "pi-shell-inspector";
@@ -21,11 +21,14 @@ export class ShellDock {
     private refreshTimer: ReturnType<typeof setInterval> | undefined;
     private selected = false;
     private ctx: ExtensionContext | undefined;
+    private readonly manager: ShellManager;
 
-    constructor() {}
+    constructor(manager: ShellManager) {
+        this.manager = manager;
+    }
 
     private syncRefreshTimer(): void {
-        const hasRunningJobs = shellManager.jobsStatusStat.runningCount > 0;
+        const hasRunningJobs = this.manager.jobsStatusStat.runningCount > 0;
 
         if (hasRunningJobs && !this.refreshTimer) {
             this.refreshTimer = setInterval(() => {
@@ -63,7 +66,7 @@ export class ShellDock {
 
         this.syncRefreshTimer();
 
-        const jobs = shellManager.getAllJobsList();
+        const jobs = this.manager.getAllJobsList();
 
         if (jobs.length === 0) {
             this.selected = false;
@@ -71,7 +74,7 @@ export class ShellDock {
             return;
         }
 
-        const { lead, parts } = shellDockSummary(this.ctx);
+        const { lead, parts } = shellDockSummary(this.ctx, this.manager);
         const separator = this.ctx.ui.theme.fg("dim", " · ");
 
         // Pi pads string rows by one column on each side; this row keeps the same margins.
@@ -111,8 +114,11 @@ export class ShellDock {
 }
 
 /** The lead names the jobs; the parts after it are left out whole while the row is too wide. */
-function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedPart[] } {
-    const status = shellManager.getAllJobsStatusStat();
+function shellDockSummary(
+    ctx: ExtensionContext,
+    manager: ShellManager,
+): { lead: string; parts: RankedPart[] } {
+    const status = manager.getAllJobsStatusStat();
     const hint = { text: ctx.ui.theme.fg("dim", "/shell to open"), rank: HINT_RANK };
 
     // only one running shell case
@@ -122,7 +128,7 @@ function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedP
         status.failedCount === 0 &&
         status.killedCount === 0
     ) {
-        const runningJob = shellManager.getRunningJobsList()[0];
+        const runningJob = manager.getRunningJobsList()[0];
         const elapsedTime = Math.floor((Date.now() - runningJob!.startedAt) / 1000);
         return {
             lead: ctx.ui.theme.fg("accent", `${status.runningCount} running shell`),
@@ -140,7 +146,7 @@ function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedP
         status.failedCount === 0 &&
         status.killedCount === 0
     ) {
-        const completedJob = shellManager.getCompletedJobsList()[0];
+        const completedJob = manager.getCompletedJobsList()[0];
         const elapsedTime = Math.floor(
             (completedJob!.finishedAt! - completedJob!.startedAt) / 1000,
         );
@@ -153,7 +159,7 @@ function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedP
     }
 
     const parts: RankedPart[] = [];
-    const jobCount = shellManager.getAllJobsList().length;
+    const jobCount = manager.getAllJobsList().length;
 
     if (status.runningCount > 0) {
         parts.push({
@@ -183,5 +189,3 @@ function shellDockSummary(ctx: ExtensionContext): { lead: string; parts: RankedP
 
     return { lead: `${jobCount} ${jobCount === 1 ? "shell" : "shells"}`, parts };
 }
-
-export const shellDock = new ShellDock();

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { shellManager } from "./shell-manager.ts";
+import type { ShellManager } from "./shell-manager.ts";
 
 /** Custom message type of a settled-shell batch; the transcript box is registered for it. */
 export const BACKGROUND_SHELL_NOTIFICATION_TYPE = "background-shell-notification";
@@ -227,6 +227,7 @@ class MessageSendBuffer<T> {
 
 export function registerBackgroundShellNotifications(
     pi: ExtensionAPI,
+    manager: ShellManager,
     ctx?: ExtensionContext,
 ): () => void {
     // Resolve the UI before the runtime can invalidate context getters during reload.
@@ -286,7 +287,7 @@ export function registerBackgroundShellNotifications(
         reportFailure,
     );
 
-    const unsubscribe = shellManager.subscribe((event) => {
+    const unsubscribe = manager.subscribe((event) => {
         if (
             event.type !== "job-completed" &&
             event.type !== "job-failed" &&
@@ -295,13 +296,13 @@ export function registerBackgroundShellNotifications(
             return;
         }
 
-        const job = shellManager.getJob(event.id);
+        const job = manager.getJob(event.id);
 
         if (!job) {
             return;
         }
 
-        const output = shellManager.getJobOutput(event.id);
+        const output = manager.getJobOutput(event.id);
 
         messageBuffer.push({
             jobId: job.id,

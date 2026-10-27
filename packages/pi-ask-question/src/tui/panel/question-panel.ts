@@ -15,10 +15,10 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { requestHeaders } from "../../core/question-format.ts";
-import {
-    questionManager,
-    type AskQuestionDraft,
-    type AskQuestionRequest,
+import type {
+    AskQuestionDraft,
+    AskQuestionRequest,
+    QuestionManager,
 } from "../../core/questionManager.ts";
 import { readClipboardPaste, type ClipboardPaste } from "./clipboard-paste.ts";
 import { QuestionPanelController } from "./question-panel-controller.ts";
@@ -62,80 +62,84 @@ export interface OpenQuestionPanelOptions {
 export type PanelCloseReason = "settled" | "deferred" | "withdrawn";
 
 /**
- * Ownership of the single overlay.
+ * Ownership of the single overlay for the requests of one question manager.
  *
- * A panel is a long-lived async operation and a session boundary resets module state, so a
+ * A panel is a long-lived async operation and a session boundary resets the ownership, so a
  * flag is not enough: a panel that resolves after the reset would clear the ownership of the
  * panel that replaced it. The generation is bumped on every reset, and the owner symbol
  * identifies one invocation, so a stale continuation can neither release nor continue the
  * new panel.
  */
-let panelGeneration = 0;
-let panelOwner: symbol | undefined;
+export class QuestionPanels {
+    private readonly manager: QuestionManager;
+    private generation = 0;
+    private owner: symbol | undefined;
 
-/**
- * A session boundary disposes overlays without resolving their custom() promise in some
- * cases, so the ownership must not survive into the next session and block `/question`.
- */
-export function resetQuestionPanelState(): void {
-    panelGeneration++;
-    panelOwner = undefined;
-}
-
-/**
- * Show pending requests in `nextPendingRequest` order until there is nothing left to answer.
- *
- * Called immediately after a request is created, and again from `/question`. A request that
- * arrives while a panel is open does not have to wait for `/question`: it is already pending,
- * so the loop picks it up as soon as the current panel settles or is withdrawn - and because it
- * was never shown, it comes before a request the user only deferred. Deferring (Esc) ends the loop on
- * purpose - the user asked for quiet, not for the next question - and the request stays pending
- * for `/question`.
- *
- * The panel never settles the request when Esc closes it, so the promise completing only
- * means the overlay is gone, not that the questions were answered.
- */
-export async function openQuestionPanel(
-    ctx: ExtensionContext,
-    options: OpenQuestionPanelOptions = {},
-): Promise<void> {
-    if (ctx.mode !== "tui" || panelOwner !== undefined) {
-        return;
+    constructor(manager: QuestionManager) {
+        this.manager = manager;
     }
 
-    const generation = panelGeneration;
-    const owner = Symbol("question-panel");
+    /**
+     * A session boundary disposes overlays without resolving their custom() promise in some
+     * cases, so the ownership must not survive the boundary and block `/question`.
+     */
+    reset(): void {
+        this.generation++;
+        this.owner = undefined;
+    }
 
-    panelOwner = owner;
+    /**
+     * Show pending requests in `nextPendingRequest` order until there is nothing left to answer.
+     *
+     * Called immediately after a request is created, and again from `/question`. A request that
+     * arrives while a panel is open does not have to wait for `/question`: it is already pending,
+     * so the loop picks it up as soon as the current panel settles or is withdrawn - and because
+     * it was never shown, it comes before a request the user only deferred. Deferring (Esc) ends
+     * the loop on purpose - the user asked for quiet, not for the next question - and the request
+     * stays pending for `/question`.
+     *
+     * The panel never settles the request when Esc closes it, so the promise completing only
+     * means the overlay is gone, not that the questions were answered.
+     */
+    async open(ctx: ExtensionContext, options: OpenQuestionPanelOptions = {}): Promise<void> {
+        if (ctx.mode !== "tui" || this.owner !== undefined) {
+            return;
+        }
 
-    try {
-        let reason: PanelCloseReason | undefined;
+        const generation = this.generation;
+        const owner = Symbol("question-panel");
 
-        do {
-            const request = questionManager.nextPendingRequest();
+        this.owner = owner;
 
-            if (!request) {
-                break;
+        try {
+            let reason: PanelCloseReason | undefined;
+
+            do {
+                const request = this.manager.nextPendingRequest();
+
+                if (!request) {
+                    break;
+                }
+
+                // Claim it before showing it, so a request the user defers does not outrank one
+                // that has never been shown.
+                this.manager.markShown(request.id);
+
+                reason = await showQuestionPanel(ctx, this.manager, request, options);
+
+                // The session ended or changed branch while the overlay was up; this panel must
+                // not continue into the queue that replaced it.
+                if (this.generation !== generation || this.owner !== owner) {
+                    return;
+                }
+            } while (
+                (reason === "settled" || reason === "withdrawn") &&
+                this.manager.getPendingRequests().length > 0
+            );
+        } finally {
+            if (this.generation === generation && this.owner === owner) {
+                this.owner = undefined;
             }
-
-            // Claim it before showing it, so a request the user defers does not outrank one
-            // that has never been shown.
-            questionManager.markShown(request.id);
-
-            reason = await showQuestionPanel(ctx, request, options);
-
-            // The session may have been replaced while the overlay was up; that session owns
-            // its own panel now, and this one must not continue into its queue.
-            if (panelGeneration !== generation || panelOwner !== owner) {
-                return;
-            }
-        } while (
-            (reason === "settled" || reason === "withdrawn") &&
-            questionManager.getPendingRequests().length > 0
-        );
-    } finally {
-        if (panelGeneration === generation && panelOwner === owner) {
-            panelOwner = undefined;
         }
     }
 }
@@ -143,6 +147,7 @@ export async function openQuestionPanel(
 /** One overlay for one request; `undefined` when it could not be opened at all. */
 async function showQuestionPanel(
     ctx: ExtensionContext,
+    manager: QuestionManager,
     request: AskQuestionRequest,
     options: OpenQuestionPanelOptions,
 ): Promise<PanelCloseReason | undefined> {
@@ -152,6 +157,7 @@ async function showQuestionPanel(
         return await ctx.ui.custom<PanelCloseReason>(
             (tui, theme, keybindings, done) => {
                 const panel = new QuestionPanel({
+                    manager,
                     request,
                     tui,
                     theme,
@@ -162,7 +168,7 @@ async function showQuestionPanel(
                 });
 
                 // The withdrawal comes from a tool call, not from this panel's input.
-                unsubscribe = questionManager.subscribe((event) => {
+                unsubscribe = manager.subscribe((event) => {
                     if (event.type === "request-withdrawn" && event.id === request.id) {
                         panel.closeWithdrawn();
                         ctx.ui.notify(
@@ -199,6 +205,7 @@ async function showQuestionPanel(
 }
 
 export interface QuestionPanelOptions {
+    manager: QuestionManager;
     request: AskQuestionRequest;
     tui: TUI;
     theme: Theme;
@@ -218,6 +225,7 @@ export class QuestionPanel implements Component, Focusable {
     /** Set by the TUI when this overlay owns input. */
     focused = false;
 
+    private readonly manager: QuestionManager;
     private readonly request: AskQuestionRequest;
     private readonly keybindings: KeybindingsManager;
     private readonly requestRender: () => void;
@@ -241,6 +249,7 @@ export class QuestionPanel implements Component, Focusable {
     private previewScroll = 0;
 
     constructor(options: QuestionPanelOptions) {
+        this.manager = options.manager;
         this.request = options.request;
         this.keybindings = options.keybindings;
         this.close = (reason) => {
@@ -765,13 +774,13 @@ export class QuestionPanel implements Component, Focusable {
             return;
         }
 
-        if (questionManager.submit(this.request.id, this.controller.collectAnswers())) {
+        if (this.manager.submit(this.request.id, this.controller.collectAnswers())) {
             this.close("settled");
         }
     }
 
     private skipRequest(): void {
-        if (questionManager.skip(this.request.id)) {
+        if (this.manager.skip(this.request.id)) {
             this.close("settled");
         }
     }

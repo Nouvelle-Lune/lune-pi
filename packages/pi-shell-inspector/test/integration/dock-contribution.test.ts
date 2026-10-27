@@ -6,9 +6,9 @@ import { getDockRegistry, type DockHost } from "@lune_99/pi-lune-extensions-core
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import luneShellInspector from "../../src/index.ts";
+import { installShellInspector } from "../../src/index.ts";
 import { ShellDockContribution } from "../../src/shell/shell-dock-contribution.ts";
-import { shellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
+import { ShellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
 import {
     createFakeContext,
     createFakeUi,
@@ -22,6 +22,8 @@ const directContributions: ShellDockContribution[] = [];
 
 interface ShellSession {
     host: ShellHost;
+    /** Shell manager of the extension load this session runs on. */
+    manager: ShellManager;
     ui: FakeExtensionUi;
     ctx: ExtensionContext;
     closed: boolean;
@@ -30,6 +32,7 @@ interface ShellSession {
 type ShellHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
 interface ShellHost {
+    readonly manager: ShellManager;
     readonly commands: Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>;
     fire(event: string, ctx: ExtensionContext): Promise<void>;
 }
@@ -63,9 +66,10 @@ function createShellHost(): ShellHost {
         sendMessage() {},
     } as unknown as ExtensionAPI;
 
-    luneShellInspector(api);
+    const manager = installShellInspector(api);
 
     return {
+        manager,
         commands,
         async fire(event, ctx) {
             for (const handler of handlers.get(event) ?? []) await handler({ type: event }, ctx);
@@ -74,8 +78,8 @@ function createShellHost(): ShellHost {
 }
 
 /** Start a background-job record with the requested settled state. */
-function addJob(id: string, status: ShellJobStatus): void {
-    shellManager.startJob({
+function addJob(manager: ShellManager, id: string, status: ShellJobStatus): void {
+    manager.startJob({
         id,
         command: `echo ${id}`,
         cwd: "/work",
@@ -83,25 +87,25 @@ function addJob(id: string, status: ShellJobStatus): void {
     });
     if (status === "running") return;
     if (status === "completed") {
-        shellManager.settleJob(id, { type: "completed", exitCode: 0 });
+        manager.settleJob(id, { type: "completed", exitCode: 0 });
         return;
     }
     if (status === "failed") {
-        shellManager.settleJob(id, {
+        manager.settleJob(id, {
             type: "failed",
             error: "Command exited with code 1",
             exitCode: 1,
         });
         return;
     }
-    shellManager.settleJob(id, { type: "killed", error: "killed by test" });
+    manager.settleJob(id, { type: "killed", error: "killed by test" });
 }
 
 /** Start the real extension lifecycle with an isolated UI scope. */
 async function startSession(ui = createFakeUi(), host = createShellHost()): Promise<ShellSession> {
     const ctx = createFakeContext("/work", { ui });
     await host.fire("session_start", ctx);
-    const session = { host, ui, ctx, closed: false };
+    const session = { host, manager: host.manager, ui, ctx, closed: false };
     liveSessions.push(session);
     return session;
 }
@@ -130,8 +134,11 @@ function holdOverlayOpen(ui: FakeExtensionUi): { close(): void } {
 }
 
 describe("shell dock contribution", () => {
+    // Fresh job table for the contributions the tests build directly; sessions bring their own.
+    let manager: ShellManager;
+
     beforeEach(() => {
-        shellManager.clearAllJobs();
+        manager = new ShellManager();
     });
 
     afterEach(async () => {
@@ -142,12 +149,12 @@ describe("shell dock contribution", () => {
             }
         }
         for (const contribution of directContributions.splice(0)) contribution.detach();
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
     });
 
     it("aggregates running, completed, failed, and killed jobs into the shared item status", () => {
         // Contract: the shell item counts tracked jobs and prioritizes unseen failures over running and completed work.
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(createFakeContext("/work"));
 
@@ -156,13 +163,13 @@ describe("shell dock contribution", () => {
             assert.equal(stripTerminalSequences(level.render(100)[0]!), "○ Shell");
         }
 
-        addJob("completed", "completed");
+        addJob(manager, "completed", "completed");
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
             "● Shell · 1 completed",
         );
 
-        addJob("running", "running");
+        addJob(manager, "running", "running");
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
             "◐",
@@ -173,13 +180,13 @@ describe("shell dock contribution", () => {
             /1 running · 1 completed/,
         );
 
-        addJob("failed", "failed");
+        addJob(manager, "failed", "failed");
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
             "✕",
             "a failed job outranks running work",
         );
-        addJob("killed", "killed");
+        addJob(manager, "killed", "killed");
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
             "✕",
@@ -193,7 +200,7 @@ describe("shell dock contribution", () => {
 
     it("publishes complete passive single-line snapshots with command and elapsed time", async () => {
         const session = await startSession();
-        addJob("latest", "completed");
+        addJob(session.manager, "latest", "completed");
         const mounted = getDockRegistry().getContributions(session.ui)[0]!;
         const previous = mounted.snapshot;
         assert.match(
@@ -207,7 +214,7 @@ describe("shell dock contribution", () => {
                 assert.ok(visibleWidth(lines[0]!) <= width);
             }
         }
-        addJob("second", "completed");
+        addJob(session.manager, "second", "completed");
         assert.notStrictEqual(mounted.snapshot, previous);
         assert.match(stripTerminalSequences(previous.detail!.render(200)[0]!), /1 completed/);
         assert.match(
@@ -220,9 +227,9 @@ describe("shell dock contribution", () => {
         // Contract: elapsed goes first, then the latest command, completed, running, failed/killed,
         // the Shell title and finally the marker; the kept parts stay in their original order.
         const session = await startSession();
-        addJob("r", "running");
-        addJob("c", "completed");
-        addJob("f", "failed");
+        addJob(session.manager, "r", "running");
+        addJob(session.manager, "c", "completed");
+        addJob(session.manager, "f", "failed");
         const full = getDockRegistry().getContributions(session.ui)[0]!.snapshot.full!;
         const levels = [
             "✕ Shell · 1 running · 1 completed · 1 failed/killed · latest: echo f",
@@ -255,15 +262,15 @@ describe("shell dock contribution", () => {
         // Contract: closing the inspector acknowledges only failures present when it opened, while completed work can then show green.
         const ui = createFakeUi();
         const ctx = createFakeContext("/work", { ui });
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(ctx);
-        addJob("old-failure", "failed");
-        addJob("completed", "completed");
+        addJob(manager, "old-failure", "failed");
+        addJob(manager, "completed", "completed");
         const overlay = holdOverlayOpen(ui);
 
         const opening = contribution.open(ctx);
-        addJob("new-failure", "failed");
+        addJob(manager, "new-failure", "failed");
         overlay.close();
         await opening;
 
@@ -272,7 +279,7 @@ describe("shell dock contribution", () => {
             "✕",
             "the failure that arrived while the panel was open remains unseen",
         );
-        assert.equal(shellManager.clearJob("new-failure"), true);
+        assert.equal(manager.clearJob("new-failure"), true);
         contribution.onManagerEvent({ type: "job-cleared", id: "new-failure" });
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
@@ -285,10 +292,10 @@ describe("shell dock contribution", () => {
         // Contract: reading a failed job clears its unseen alert, but an item containing only failures still communicates failure.
         const ui = createFakeUi();
         const ctx = createFakeContext("/work", { ui });
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(ctx);
-        addJob("only-failure", "failed");
+        addJob(manager, "only-failure", "failed");
         const overlay = holdOverlayOpen(ui);
 
         const opening = contribution.open(ctx);
@@ -310,10 +317,10 @@ describe("shell dock contribution", () => {
         const ui = createFakeUi();
         ui.custom = () => Promise.reject(new Error("overlay failed"));
         const ctx = createFakeContext("/work", { ui });
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(ctx);
-        addJob("failed", "failed");
+        addJob(manager, "failed", "failed");
 
         await assert.rejects(contribution.open(ctx), /overlay failed/);
         assert.equal(
@@ -326,11 +333,11 @@ describe("shell dock contribution", () => {
         // Contract: clearing tracked jobs resets the acknowledgement set, so a later job reusing an ID is reported as a new failure.
         const ui = createFakeUi();
         const ctx = createFakeContext("/work", { ui });
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(ctx);
-        addJob("reused-id", "failed");
-        addJob("completed", "completed");
+        addJob(manager, "reused-id", "failed");
+        addJob(manager, "completed", "completed");
         const overlay = holdOverlayOpen(ui);
 
         const opening = contribution.open(ctx);
@@ -342,9 +349,9 @@ describe("shell dock contribution", () => {
             "the viewed failure is acknowledged beside completed history",
         );
 
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
         contribution.onManagerEvent({ type: "jobs-cleared" });
-        addJob("reused-id", "failed");
+        addJob(manager, "reused-id", "failed");
 
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
@@ -355,17 +362,17 @@ describe("shell dock contribution", () => {
 
     it("returns from busy to healthy when the last running job completes beside completed history", () => {
         // Contract: running work keeps the aggregate busy until it settles, then completed history is healthy.
-        const contribution = new ShellDockContribution();
+        const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(createFakeContext("/work"));
-        addJob("completed", "completed");
-        addJob("running", "running");
+        addJob(manager, "completed", "completed");
+        addJob(manager, "running", "running");
 
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
             "◐",
         );
-        assert.equal(shellManager.settleJob("running", { type: "completed", exitCode: 0 }), true);
+        assert.equal(manager.settleJob("running", { type: "completed", exitCode: 0 }), true);
         assert.equal(
             stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
             "●",
@@ -377,7 +384,7 @@ describe("shell dock contribution", () => {
         const session = await startSession();
         const otherUi = createFakeUi();
         const before = session.ui.widgetCalls.length;
-        addJob("visible", "completed");
+        addJob(session.manager, "visible", "completed");
         const otherHostRelease = attachHost(otherUi);
 
         assert.ok(
@@ -406,7 +413,7 @@ describe("shell dock contribution", () => {
     it("retires old registrations across repeated starts, reload, and shutdown without stale UI writes", async () => {
         // Contract: each session start owns one manager listener and one UI registration, and retired contexts receive no later writes.
         const first = await startSession();
-        addJob("before-restart", "completed");
+        addJob(first.manager, "before-restart", "completed");
         const firstCallsAtRestart = first.ui.widgetCalls.length;
         const secondUi = createFakeUi();
         const secondCtx = createFakeContext("/work", { ui: secondUi });
@@ -425,7 +432,7 @@ describe("shell dock contribution", () => {
         );
         const firstCallsAfterRestart = first.ui.widgetCalls.length;
 
-        addJob("after-restart", "completed");
+        addJob(first.manager, "after-restart", "completed");
         assert.equal(
             first.ui.widgetCalls.length,
             firstCallsAfterRestart,
@@ -449,7 +456,7 @@ describe("shell dock contribution", () => {
             "a reloaded extension owns one fresh registration",
         );
         const callsBeforeReloadedJob = secondUi.widgetCalls.length;
-        addJob("after-reload", "completed");
+        addJob(reloaded.manager, "after-reload", "completed");
         assert.equal(
             secondUi.widgetCalls.length,
             callsBeforeReloadedJob + 2,

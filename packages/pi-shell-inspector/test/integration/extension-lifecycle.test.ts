@@ -1,8 +1,8 @@
 /**
  * Session lifecycle contract of pi-shell-inspector.
  *
- * The extension keeps the shared `ShellManager` in sync with the session: `session_start` empties
- * the job list (aborting any shell the previous session left running), renders the dock and
+ * The extension keeps the `ShellManager` of its load in sync with the session: a new load starts
+ * with an empty job list, `session_start` renders the dock and
  * subscribes it to every later job mutation; `session_shutdown` unsubscribes, clears the dock and
  * drops the jobs. Around that, only background tool calls (`mode: "background"`) create jobs: the
  * dock appears while the command runs, follows the streamed output and keeps the settled job
@@ -13,9 +13,9 @@
  * and the widget calls the session's UI received.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import type { ShellManager } from "../../src/shell/shell-manager.ts";
 import {
     createTempWorkDir,
     openSession,
@@ -69,37 +69,27 @@ function dockCalls(ui: FakeExtensionUi): number {
 }
 
 /** Start a job directly in the manager, the way the background runner does. */
-function startJob(id: string, command: string, cwd: string): AbortController {
+function startJob(
+    manager: ShellManager,
+    id: string,
+    command: string,
+    cwd: string,
+): AbortController {
     const controller = new AbortController();
-    shellManager.startJob({ id, command, cwd, controller });
+    manager.startJob({ id, command, cwd, controller });
     return controller;
 }
 
 describe("pi-shell-inspector session lifecycle", () => {
-    beforeEach(() => {
-        shellManager.clearAllJobs();
-    });
-
-    afterEach(() => {
-        shellManager.clearAllJobs();
-    });
-
     describe("session_start", () => {
         it("starts with an empty job list and no mounted dock", async () => {
-            // Contract: module state survives extension reloads, so a new session clears whatever the
-            // previous one left behind and mounts nothing while there is no job.
-            const stale = startJob("stale", "sleep 999", "/tmp");
-
+            // Contract: every extension load owns its job table, so a session starts with no job and
+            // mounts nothing until one is started.
             await withSession("start-empty", async (session) => {
                 assert.deepEqual(
-                    shellManager.getAllJobsList(),
+                    session.manager.getAllJobsList(),
                     [],
-                    "starting a session must drop stale jobs",
-                );
-                assert.equal(
-                    stale.signal.aborted,
-                    true,
-                    "starting a session must stop leftover processes",
+                    "a new load must start with an empty job table",
                 );
                 assert.equal(
                     dockLine(session.ui),
@@ -120,29 +110,29 @@ describe("pi-shell-inspector session lifecycle", () => {
             await withSession("start-subscribe", async (session) => {
                 assert.equal(dockCalls(session.ui), 1, "session_start renders once");
 
-                startJob("job-1", "sleep 30", "/tmp");
+                startJob(session.manager, "job-1", "sleep 30", "/tmp");
                 assert.match(
                     dockText(session.ui) ?? "",
                     /^1 running shell · sleep 30 · \d+s · \/shell to open$/,
                     "a running job must be shown with its command and elapsed time",
                 );
 
-                shellManager.appendOutput("job-1", "chunk\n");
+                session.manager.appendOutput("job-1", "chunk\n");
                 assert.match(
                     dockText(session.ui) ?? "",
                     /^1 running shell · sleep 30 · \d+s · \/shell to open$/,
                     "appended output must not change the running summary",
                 );
 
-                shellManager.settleJob("job-1", { type: "completed", exitCode: 3 });
+                session.manager.settleJob("job-1", { type: "completed", exitCode: 3 });
                 assert.match(
                     dockText(session.ui) ?? "",
                     /^1 shell completed in \d+s · \/shell to open$/,
                     "the settled job must turn the dock into the completed summary",
                 );
 
-                startJob("job-2", "sleep 60", "/tmp");
-                shellManager.settleJob("job-2", { type: "killed", error: "timeout:1" });
+                startJob(session.manager, "job-2", "sleep 60", "/tmp");
+                session.manager.settleJob("job-2", { type: "killed", error: "timeout:1" });
                 assert.equal(
                     dockText(session.ui),
                     "2 shells · 1 completed · 1 killed · /shell to open",
@@ -157,9 +147,9 @@ describe("pi-shell-inspector session lifecycle", () => {
             });
         });
 
-        it("hands the dock over from an ended session to the next one", async () => {
+        it("renders only the jobs of its own load after another session ended", async () => {
             // Contract: an ended session has unsubscribed in session_shutdown, so its context is never
-            // rendered again; a session started afterwards is the only one following the manager.
+            // rendered again; a session started afterwards follows only the manager of its own load.
             const firstDir = createTempWorkDir("handover-first");
             const secondDir = createTempWorkDir("handover-second");
             const first = await openSession(firstDir);
@@ -170,7 +160,8 @@ describe("pi-shell-inspector session lifecycle", () => {
             try {
                 const secondCallsAfterStart = dockCalls(second.ui);
 
-                startJob("job-1", "sleep 30", "/tmp");
+                startJob(second.manager, "job-1", "sleep 30", "/tmp");
+                startJob(first.manager, "stray", "sleep 30", "/tmp");
 
                 assert.equal(
                     dockCalls(first.ui),
@@ -180,14 +171,15 @@ describe("pi-shell-inspector session lifecycle", () => {
                 assert.equal(
                     dockCalls(second.ui),
                     secondCallsAfterStart + 1,
-                    "the new session must render",
+                    "the new session must render only the mutation of its own manager",
                 );
                 assert.match(
                     dockText(second.ui) ?? "",
                     /^1 running shell · sleep 30 · \d+s · \/shell to open$/,
-                    "the new session must render the shared manager's job",
+                    "the new session must render its own job",
                 );
             } finally {
+                first.manager.clearAllJobs();
                 await second.host.emit("session_shutdown", second.ctx);
                 removeTempWorkDir(firstDir);
                 removeTempWorkDir(secondDir);
@@ -200,7 +192,7 @@ describe("pi-shell-inspector session lifecycle", () => {
             const workDir = createTempWorkDir("shutdown-clears");
             const session = await openSession(workDir);
             try {
-                const running = startJob("job-1", "sleep 30", workDir);
+                const running = startJob(session.manager, "job-1", "sleep 30", workDir);
                 assert.match(
                     dockText(session.ui) ?? "",
                     /^1 running shell · sleep 30 · \d+s · \/shell to open$/,
@@ -214,7 +206,11 @@ describe("pi-shell-inspector session lifecycle", () => {
                     undefined,
                     "the dock must be cleared on shutdown",
                 );
-                assert.deepEqual(shellManager.getAllJobsList(), [], "shutdown must drop the jobs");
+                assert.deepEqual(
+                    session.manager.getAllJobsList(),
+                    [],
+                    "shutdown must drop the jobs",
+                );
                 assert.equal(
                     running.signal.aborted,
                     true,
@@ -234,7 +230,7 @@ describe("pi-shell-inspector session lifecycle", () => {
                 await session.host.emit("session_shutdown", session.ctx);
                 const callsAfterShutdown = dockCalls(session.ui);
 
-                startJob("late", "sleep 5", workDir);
+                startJob(session.manager, "late", "sleep 5", workDir);
 
                 assert.equal(
                     dockCalls(session.ui),
@@ -264,7 +260,7 @@ describe("pi-shell-inspector session lifecycle", () => {
                     "a background call must show the running job in the dock",
                 );
 
-                const settled = await waitForJobSettled(jobId);
+                const settled = await waitForJobSettled(session.manager, jobId);
 
                 assert.equal(
                     settled.output.content,
@@ -291,7 +287,7 @@ describe("pi-shell-inspector session lifecycle", () => {
                 });
                 const callsAfterStart = dockCalls(session.ui);
 
-                const settled = await waitForJobSettled(jobId);
+                const settled = await waitForJobSettled(session.manager, jobId);
 
                 assert.equal(
                     settled.output.content,

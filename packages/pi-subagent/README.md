@@ -146,8 +146,10 @@ the tests and report the commands, the results and the files you changed.
 A run can select a tool that one of your user or project extensions registers in the main session. The run then loads the file of that extension in its own session, with only the tools it selected. The `tools` parameter of `subagent_start` lists these tools with the others; a tool that an extension registers after the session started is missing from the list, but a run can still select it.
 
 - The extension runs in the run, not in the main session, and its event handlers run too. An extension that adds to the system prompt or blocks tool calls does the same in the run.
-- The run has no UI. A dialog that the extension opens is answered as dismissed and shows as a run diagnostic, so a tool that needs your input does not work in a run.
+- Pi reuses a loaded extension module for the sessions in the same working directory. A `shared` run can therefore use the same module as the main session and as other `shared` runs. An extension that keeps session state at module level, and not in the state that its factory creates, shares that state with them.
+- The run has no UI, so a tool that needs your input does not work in a run. A tool that checks for the interactive UI returns an error. A dialog that an extension opens is answered as dismissed and shows as a run diagnostic.
 - Names that the run has on its own stay Pi's. An extension that replaces `bash` in the main session does not replace it in the run, and an extension loaded for one tool adds none of its other tools.
+- A tool that works together with a replaced built-in tool is therefore incomplete in a run. For example, Lune Shell Inspector's `background_shell` shows background jobs, but only its `bash` starts them, so a run has no jobs to show.
 - The subagent tools are never available, so runs cannot start runs. Tools of project extensions are available only while Pi trusts the project.
 - An extension that fails to load, or that does not register the selected tool in the run's working directory, fails the start.
 - A run that continues after you resume the session loads the extensions of its tools again, as the main session has them at that time. When the main session no longer has one of its tools, the run cannot continue.

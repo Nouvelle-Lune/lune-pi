@@ -568,7 +568,3 @@ function disposeScreen(terminal: XtermTerminal): void {
     screenFeeds.get(terminal)?.dispose();
     terminal.dispose();
 }
-
-// Shared singleton: its state outlives extension reloads, which is why the
-// extension clears it explicitly on session start.
-export const shellManager = new ShellManager();

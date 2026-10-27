@@ -12,22 +12,21 @@
  * runs the extension inside a real pi process.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
-import luneAskQuestion from "../../src/index.ts";
 import {
     QUESTION_STATE_ENTRY,
-    questionManager,
     type AskQuestion,
     type AskQuestionAnswer,
 } from "../../src/core/questionManager.ts";
+import type { QuestionManager } from "../../src/core/questionManager.ts";
 import { ASK_QUESTION_ANSWER_MESSAGE } from "../../src/core/question-delivery.ts";
-import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
 import {
     createFakeContext,
-    createFakePiHost,
+    loadAskQuestion,
+    type AskQuestionHost,
     createFakeTheme,
     createFakeUi,
     requireTool,
@@ -38,6 +37,19 @@ import {
     type SendMessageCall,
     dockRow,
 } from "../harness.ts";
+
+/**
+ * The question manager of the extension load made last. A test has one session unless it says
+ * otherwise, so this is the manager of the session under test.
+ */
+let questionManager: QuestionManager;
+
+/** Load the extension afresh; each load owns its manager, so nothing carries over between tests. */
+function load(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    const host = loadAskQuestion(options);
+    questionManager = host.manager;
+    return host;
+}
 
 const WIDGET_KEY = "pi-ask-question";
 const ENTER = "\r";
@@ -61,7 +73,7 @@ const liveSessions: Session[] = [];
 
 /** Register the extension and start a session over `branch`, defaulting to a fresh one. */
 async function startSession(branch: FakeBranchEntry[] = []): Promise<Session> {
-    const host = createFakePiHost(luneAskQuestion, { branch });
+    const host = load({ branch });
     const ui = createFakeUi();
     const ctx = createFakeContext({ ui, branch });
 
@@ -272,14 +284,8 @@ function settledAnswers(record: Record<string, unknown>): AskQuestionAnswer[] | 
 }
 
 describe("pi-ask-question extension", () => {
-    beforeEach(() => {
-        resetQuestionPanelState();
-        questionManager.clearAll();
-    });
-
     afterEach(async () => {
-        // The manager and the dock are module singletons, so a listener left subscribed after
-        // its test would fire into a finished test's fake ui on every later manager event.
+        // Shut every session down so no listener, overlay or dock registration outlives its test.
         for (const session of liveSessions.splice(0)) {
             await session.host.fire(
                 "session_shutdown",
@@ -290,7 +296,7 @@ describe("pi-ask-question extension", () => {
 
     describe("registration", () => {
         it("registers the tool, the command and the answer renderer", () => {
-            const host = createFakePiHost(luneAskQuestion);
+            const host = load();
 
             assert.ok(host.tools.has("ask_user_questions"));
             assert.ok(host.commands.has("question"));
@@ -1411,7 +1417,9 @@ describe("pi-ask-question extension", () => {
             await ask(host, ui, QUESTIONS, "call-1");
             assert.equal(ui.customCalls.length, 1);
 
-            // The session is replaced while the first overlay is still up.
+            // The session is replaced while the first overlay is still up: pi ends the old
+            // session before it starts the next one on the same extension load.
+            await host.fire("session_shutdown", createFakeContext({ ui, branch: [] }));
             const replacement = createFakeUi();
             const replacementQuestions: AskQuestion[] = [
                 {
@@ -1446,11 +1454,12 @@ describe("pi-ask-question extension", () => {
             await ask(host, ui, QUESTIONS, "call-1");
             assert.equal(ui.customCalls.length, 1);
 
+            // pi ends the replaced session before it starts the next one on the same load.
+            await host.fire("session_shutdown", createFakeContext({ ui, branch: [] }));
+
             const writesToFirst = ui.widgetCalls.length;
             const replacement = createFakeUi();
 
-            // The fake host can deliver a second session_start to the same extension
-            // instance, which is what a reload looks like from the module's side.
             await host.fire("session_start", createFakeContext({ ui: replacement, branch: [] }));
 
             assert.equal(
@@ -1568,7 +1577,7 @@ describe("pi-ask-question extension", () => {
 
     describe("tool call card", () => {
         it("renders each stage of the arguments while the model streams them", () => {
-            const tool = requireTool(createFakePiHost(luneAskQuestion), "ask_user_questions");
+            const tool = requireTool(load(), "ask_user_questions");
             const stages: unknown[] = [
                 {},
                 { questions: [{}] },
@@ -1597,7 +1606,7 @@ describe("pi-ask-question extension", () => {
 
     describe("transcript renderer", () => {
         it("renders the answered questions", () => {
-            const host = createFakePiHost(luneAskQuestion);
+            const host = load();
             const renderer = host.messageRenderers.get(ASK_QUESTION_ANSWER_MESSAGE);
             assert.ok(renderer);
 

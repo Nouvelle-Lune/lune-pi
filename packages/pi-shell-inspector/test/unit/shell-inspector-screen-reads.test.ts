@@ -14,8 +14,11 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TuiMouseEvent } from "@earendil-works/pi-tui";
 
 import { ShellInspector } from "../../src/shell/shell-inspector.ts";
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import { ShellManager } from "../../src/shell/shell-manager.ts";
 import { readJobScreen } from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+let manager = new ShellManager();
 
 const SHIFT_UP = "\x1b[1;2A";
 const END = "\x1b[F";
@@ -28,7 +31,7 @@ const theme = {
 } as unknown as Theme;
 
 async function addJob(id: string, output: string): Promise<void> {
-    shellManager.startJob({
+    manager.startJob({
         id,
         command: `cmd ${id}`,
         cwd: "/work",
@@ -41,10 +44,10 @@ async function addJob(id: string, output: string): Promise<void> {
 let screenReads = 0;
 
 async function write(id: string, output: string): Promise<void> {
-    shellManager.appendOutput(id, output);
+    manager.appendOutput(id, output);
 
     const readsBefore = screenReads;
-    await readJobScreen(id);
+    await readJobScreen(manager, id);
     screenReads = readsBefore;
 }
 
@@ -62,22 +65,23 @@ describe("shell inspector screen reads", () => {
     let restoreRead: () => void;
 
     beforeEach(() => {
-        shellManager.clearAllJobs();
+        manager = new ShellManager();
         screenReads = 0;
 
-        const original = shellManager.getScreenLines.bind(shellManager);
-        shellManager.getScreenLines = (id: string) => {
+        const original = manager.getScreenLines.bind(manager);
+        manager.getScreenLines = (id: string) => {
             screenReads += 1;
 
             return original(id);
         };
         restoreRead = () => {
             // The instance property shadows the prototype method; deleting it restores the original.
-            delete (shellManager as { getScreenLines?: unknown }).getScreenLines;
+            delete (manager as { getScreenLines?: unknown }).getScreenLines;
         };
 
         inspector = new ShellInspector(
             { ui: { theme } } as unknown as ExtensionContext,
+            manager,
             () => {},
             () => {},
             () => TERMINAL_ROWS,
@@ -88,7 +92,7 @@ describe("shell inspector screen reads", () => {
     afterEach(() => {
         inspector.dispose();
         restoreRead();
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
     });
 
     function wheel(x: number, y: number, wheelDelta: number): void {
@@ -174,7 +178,7 @@ describe("shell inspector screen reads", () => {
     it("shows the new job's output when a cleared job's id is reused", async () => {
         await addJob("a", lines("old", 30));
         inspector.render(WIDTH);
-        shellManager.settleJob("a", { type: "completed", exitCode: 0 });
+        manager.settleJob("a", { type: "completed", exitCode: 0 });
         inspector.handleInput("c");
 
         await addJob("a", lines("new", 30));

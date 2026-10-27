@@ -4,7 +4,7 @@ import { Text } from "@earendil-works/pi-tui";
 
 import { committedRequestIds } from "../core/question-delivery.ts";
 import { requestHeaders, singleLine, summarizeText } from "../core/question-format.ts";
-import { questionManager } from "../core/questionManager.ts";
+import type { QuestionManager } from "../core/questionManager.ts";
 
 import Type from "typebox";
 
@@ -29,7 +29,7 @@ export type WithdrawUserQuestionsDetails =
  * Lets the agent take back its own pending question. The tool stays active at all times:
  * switching tools on and off changes the system prompt and breaks the prompt cache.
  */
-export function withdrawUserQuestions() {
+export function withdrawUserQuestions(manager: QuestionManager) {
     return defineTool({
         name: "withdraw_user_questions",
         label: "Withdraw User Questions",
@@ -50,7 +50,7 @@ export function withdrawUserQuestions() {
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
             const requestId = params.requestId.trim();
             const reason = singleLine(params.reason);
-            const outcome = questionManager.withdraw(requestId, reason);
+            const outcome = manager.withdraw(requestId, reason);
 
             if (outcome.status === "withdrawn") {
                 return {

@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { ShellDockContribution } from "./shell/shell-dock-contribution.ts";
 
-import { shellManager } from "./shell/shell-manager.ts";
+import { ShellManager } from "./shell/shell-manager.ts";
 
 import { BashTool, BackgroundShellTool, KillBackgroundShellTool } from "./tools/bash-tool.ts";
 import {
@@ -13,7 +13,18 @@ import {
 import { renderBackgroundShellNotificationBox } from "./shell/shell-notification-box.ts";
 
 export default function (pi: ExtensionAPI): void {
-    const dock = new ShellDockContribution();
+    installShellInspector(pi);
+}
+
+/**
+ * Register the extension on `pi` and return the shell manager of this load.
+ *
+ * The manager belongs to the load, not to the module: Pi reuses a loaded module for the sessions it
+ * starts in the same working directory, subagent runs included, and each of them owns its jobs.
+ */
+export function installShellInspector(pi: ExtensionAPI): ShellManager {
+    const shellManager = new ShellManager();
+    const dock = new ShellDockContribution(shellManager);
 
     // Registered once per load: the transcript looks the renderer up by custom type when it draws
     // the message, so a session-scoped registration would only re-register the same function.
@@ -31,9 +42,6 @@ export default function (pi: ExtensionAPI): void {
         unsubscribeShellManager?.();
         unsubscribeShellManager = undefined;
         dock.detach({ retired: true });
-        // Module state may survive extension reloads, so a new session starts
-        // with an explicitly empty shell view.
-        shellManager.clearAllJobs();
         // Restore the shell manager state from the session context.
         shellManager.restoreShellManager(ctx);
 
@@ -46,7 +54,11 @@ export default function (pi: ExtensionAPI): void {
         unsubscribeBackgroundShellNotifications?.();
 
         // Register background shell notifications
-        unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(pi, ctx);
+        unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(
+            pi,
+            shellManager,
+            ctx,
+        );
     });
 
     pi.on("session_shutdown", () => {
@@ -66,7 +78,11 @@ export default function (pi: ExtensionAPI): void {
         try {
             shellManager.clearAllJobs(pi);
         } finally {
-            unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(pi, ctx);
+            unsubscribeBackgroundShellNotifications = registerBackgroundShellNotifications(
+                pi,
+                shellManager,
+                ctx,
+            );
         }
     });
 
@@ -77,11 +93,11 @@ export default function (pi: ExtensionAPI): void {
     });
 
     // Register tools
-    // The background tools only read the shared shell manager, so they ship with the wrapper that
-    // starts the jobs; a separate extension could not see them.
-    pi.registerTool(BashTool());
-    pi.registerTool(BackgroundShellTool());
-    pi.registerTool(KillBackgroundShellTool());
+    // The background tools only read the jobs of this load's shell manager, so they ship with the
+    // wrapper that starts them; a separate extension could not see them.
+    pi.registerTool(BashTool(shellManager));
+    pi.registerTool(BackgroundShellTool(shellManager));
+    pi.registerTool(KillBackgroundShellTool(shellManager));
 
     // Register commands
     pi.registerCommand("shell", {
@@ -93,4 +109,6 @@ export default function (pi: ExtensionAPI): void {
             await dock.open(ctx);
         },
     });
+
+    return shellManager;
 }

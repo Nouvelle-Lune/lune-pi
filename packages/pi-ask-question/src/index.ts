@@ -8,7 +8,7 @@ import {
     releaseDeliveredQuestions,
     type QuestionDeliveryOptions,
 } from "./core/question-delivery.ts";
-import { questionManager } from "./core/questionManager.ts";
+import { QuestionManager } from "./core/questionManager.ts";
 import { askUserQuestions } from "./tools/ask-user-questions.ts";
 import { withdrawUserQuestions } from "./tools/withdraw-user-questions.ts";
 import {
@@ -16,9 +16,23 @@ import {
     type AskQuestionAnswerMessageDetails,
 } from "./tui/question-answer-message.ts";
 import { createQuestionDockContribution } from "./tui/question-dock-contribution.ts";
-import { resetQuestionPanelState } from "./tui/panel/question-panel.ts";
+import { QuestionPanels } from "./tui/panel/question-panel.ts";
 
 export default function (pi: ExtensionAPI): void {
+    installAskQuestion(pi);
+}
+
+/**
+ * Register the extension on `pi` and return the question manager of this load.
+ *
+ * The manager and the panel ownership belong to the load, not to the module: Pi reuses a loaded
+ * module for the sessions it starts in the same working directory, subagent runs included, and
+ * each of them owns its questions.
+ */
+export function installAskQuestion(pi: ExtensionAPI): QuestionManager {
+    const questionManager = new QuestionManager();
+    const panels = new QuestionPanels(questionManager);
+
     /**
      * Write the question state, and report a failure instead of throwing it.
      *
@@ -38,7 +52,7 @@ export default function (pi: ExtensionAPI): void {
         }
     };
 
-    const dock = createQuestionDockContribution(persist);
+    const dock = createQuestionDockContribution(questionManager, panels, persist);
 
     let unsubscribeManager: (() => void) | undefined;
     let unsubscribeNotifications: (() => void) | undefined;
@@ -67,10 +81,7 @@ export default function (pi: ExtensionAPI): void {
         unsubscribe();
         dock.detach({ retired: true });
 
-        // Module state may survive extension reloads, so a session starts from its own
-        // branch: clear first, then restore the question state recorded there.
-        resetQuestionPanelState();
-        questionManager.clearAll();
+        // A session starts from the question state recorded on its branch.
         questionManager.restore(ctx);
         dock.attach(ctx);
 
@@ -100,18 +111,22 @@ export default function (pi: ExtensionAPI): void {
 
         // Registered after the persist listener: the snapshot has to exist before the
         // answer message resumes the model.
-        unsubscribeNotifications = registerQuestionAnswerNotifications(pi, deliveryOptions(ctx));
+        unsubscribeNotifications = registerQuestionAnswerNotifications(
+            pi,
+            questionManager,
+            deliveryOptions(ctx),
+        );
 
         // A session can start with settled answers whose message never reached the previous
         // one; the outbox is durable, so reconcile it against this branch. Confirmed answers
         // are released (and persisted), the rest are attempted again.
-        reconcileQuestionDeliveries(pi, ctx, deliveryOptions(ctx));
+        reconcileQuestionDeliveries(pi, questionManager, ctx, deliveryOptions(ctx));
     });
 
     // A settled run has appended every answer message it accepted, so the confirmed ones leave
     // the outbox here instead of riding along in every snapshot until the next session start.
     pi.on("agent_settled", (_event, ctx) => {
-        releaseDeliveredQuestions(ctx);
+        releaseDeliveredQuestions(questionManager, ctx);
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
@@ -119,6 +134,9 @@ export default function (pi: ExtensionAPI): void {
         persist(ctx);
         unsubscribe();
         dock.detach();
+        // A panel that is still up belongs to the session that ends; the reset stops it from
+        // continuing after the boundary.
+        panels.reset();
         questionManager.clearAll();
     });
 
@@ -129,23 +147,25 @@ export default function (pi: ExtensionAPI): void {
     pi.on("session_tree", (_event, ctx) => {
         // The branch changed under the overlay, so a panel that is still up belongs to the
         // branch being left; the reset stops it from continuing into this one.
-        resetQuestionPanelState();
+        panels.reset();
         questionManager.clearAll();
         questionManager.restore(ctx);
 
         // Reconciliation reads the branch that is active now, never the one being left:
         // branch A's undelivered answers must not be sent into branch B.
-        reconcileQuestionDeliveries(pi, ctx, deliveryOptions(ctx));
+        reconcileQuestionDeliveries(pi, questionManager, ctx, deliveryOptions(ctx));
 
         dock.refresh();
     });
 
-    pi.registerTool(askUserQuestions(persist));
-    pi.registerTool(withdrawUserQuestions());
-    registerQuestionCommand(pi, persist);
+    pi.registerTool(askUserQuestions(questionManager, panels, persist));
+    pi.registerTool(withdrawUserQuestions(questionManager));
+    registerQuestionCommand(pi, questionManager, panels, persist);
 
     pi.registerMessageRenderer<AskQuestionAnswerMessageDetails>(
         ASK_QUESTION_ANSWER_MESSAGE,
         (message, _options, theme) => renderQuestionAnswerMessage(message.details, theme),
     );
+
+    return questionManager;
 }

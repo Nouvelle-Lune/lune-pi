@@ -6,7 +6,7 @@ import {
     type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { shellManager } from "../shell/shell-manager.ts";
+import type { ShellManager } from "../shell/shell-manager.ts";
 
 export const backgroundStartOutputSchema = Type.Object({
     background: Type.Literal(true),
@@ -26,18 +26,19 @@ const backgroundOps = createLocalBashOperations();
  * on any other exit - or the execution itself fails.
  */
 export function startBackgroundShell(input: {
+    manager: ShellManager;
     toolCallId: string;
     command: string;
     label?: string;
     timeout?: number;
     ctx: ExtensionContext;
 }): AgentToolResult {
-    const { toolCallId, command, ctx, timeout } = input;
+    const { manager, toolCallId, command, ctx, timeout } = input;
 
     // The job owns this controller so a kill can abort the running process tree.
     const controller = new AbortController();
 
-    shellManager.startJob({
+    manager.startJob({
         id: toolCallId,
         command,
         label: normalizeLabel(input.label),
@@ -52,23 +53,23 @@ export function startBackgroundShell(input: {
 
             onData(data) {
                 // prevent appending output after the shutdown kills the job
-                if (shellManager.getJob(toolCallId)?.status !== "running") {
+                if (manager.getJob(toolCallId)?.status !== "running") {
                     return;
                 }
                 // Retention (bounded tail plus the full-output file) is enforced by appendOutput.
-                shellManager.appendOutput(toolCallId, data.toString("utf8"));
+                manager.appendOutput(toolCallId, data.toString("utf8"));
             },
         })
         .then(({ exitCode }) => {
             if (exitCode === 0) {
-                shellManager.settleJob(toolCallId, {
+                manager.settleJob(toolCallId, {
                     type: "completed",
                     exitCode: exitCode ?? undefined,
                 });
                 return;
             }
             const errorMessage = `Background shell exited with code ${exitCode ?? "unknown"}`;
-            shellManager.settleJob(toolCallId, {
+            manager.settleJob(toolCallId, {
                 type: "failed",
                 exitCode: exitCode ?? undefined,
                 error: errorMessage,
@@ -80,14 +81,14 @@ export function startBackgroundShell(input: {
             // any other error (timeout, missing cwd, spawn failure) is an execution failure.
             // settleJob is idempotent, so a job that was already settled or cleared is ignored.
             if (controller.signal.aborted) {
-                shellManager.settleJob(toolCallId, {
+                manager.settleJob(toolCallId, {
                     type: "killed",
                     error: error.message,
                 });
                 return;
             }
 
-            shellManager.settleJob(toolCallId, {
+            manager.settleJob(toolCallId, {
                 type: "failed",
                 error: error.message,
             });

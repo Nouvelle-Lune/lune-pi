@@ -359,8 +359,8 @@ describe("ShellManager persistence", () => {
         });
 
         it("still clears without a pi session and writes nothing", () => {
-            // Contract: session_start calls clearAllJobs() without pi to drop whatever module state
-            // survived an extension reload; that path must not require an append target.
+            // Contract: session_tree calls clearAllJobs() without pi to drop the departed branch's
+            // jobs before restoring; that path must not require an append target.
             const manager = new ShellManager();
             const controller = startRunningJob(manager, { id: "job-a" });
 
@@ -999,9 +999,9 @@ describe("ShellManager persistence", () => {
             );
         });
 
-        it("clears then restores the way session_start does", () => {
-            // Contract: session_start empties the module-level state and then rebuilds from the
-            // branch; the two calls composed must land on exactly the snapshot's jobs.
+        it("clears then restores the way session_tree does", () => {
+            // Contract: session_tree empties the departed branch's jobs and then rebuilds from the
+            // arrived branch; the two calls composed must land on exactly the snapshot's jobs.
             const log = newSessionLog();
             const writer = new ShellManager();
             startRunningJob(writer, { id: "persisted" });
@@ -1009,7 +1009,7 @@ describe("ShellManager persistence", () => {
             appendShellStatus(writer, log);
 
             const manager = new ShellManager();
-            startRunningJob(manager, { id: "stale-module-state" });
+            startRunningJob(manager, { id: "stale-branch-job" });
             manager.clearAllJobs();
             manager.restoreShellManager(contextFor(log));
 
@@ -1019,9 +1019,9 @@ describe("ShellManager persistence", () => {
                 "clear then restore must land on the snapshot's jobs",
             );
             assert.equal(
-                manager.getJob("stale-module-state"),
+                manager.getJob("stale-branch-job"),
                 undefined,
-                "the pre-clear module state must stay gone",
+                "the pre-clear job must stay gone",
             );
         });
     });
