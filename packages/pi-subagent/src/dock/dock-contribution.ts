@@ -10,6 +10,7 @@ import {
 import { fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
+import { DockAlerts } from "./dock-alert.ts";
 
 export const SUBAGENT_CONTRIBUTION_ID = "subagents";
 
@@ -46,14 +47,13 @@ const HINT_RANK = 0;
 /**
  * The Dock item of the runs on the current branch, and of runs on other branches whose ended turn
  * waits for that branch. Its lines count the runs by status and never cut a part: a narrow cell
- * leaves out whole parts, then the title. Failed and blocked runs keep the marker red until the
- * user has seen them in the inspector; a later failure turns it red again.
+ * leaves out whole parts, then the title. A failed or blocked turn turns the marker red for a short
+ * time, or until the user sees the run in the inspector; a later failure turns it red again.
  */
 export class SubagentDockContribution {
     private ctx: ExtensionContext | undefined;
     private manager: RunManager | undefined;
-    /** Run ID to the number of ended turns the user had seen in the inspector. */
-    private readonly acknowledged = new Map<string, number>();
+    private readonly alerts = new DockAlerts(() => this.refresh());
     private readonly standalone: StandaloneDock;
     private readonly dock: DockHandle;
 
@@ -77,7 +77,7 @@ export class SubagentDockContribution {
     detach(options?: { retired?: boolean }): void {
         this.ctx = undefined;
         this.manager = undefined;
-        this.acknowledged.clear();
+        this.alerts.clear();
         this.dock.detach(options);
     }
 
@@ -89,8 +89,7 @@ export class SubagentDockContribution {
 
     /** The user saw the run's outcome in the inspector. */
     acknowledge(run: Run): void {
-        if (this.acknowledged.get(run.id) !== run.turns) {
-            this.acknowledged.set(run.id, run.turns);
+        if (this.alerts.acknowledge(alertKey(run))) {
             this.refresh();
         }
     }
@@ -109,7 +108,7 @@ export class SubagentDockContribution {
     }
 
     private alarming(run: Run): boolean {
-        return run.needsAttention && this.acknowledged.get(run.id) !== run.turns;
+        return run.needsAttention && this.alerts.shows(alertKey(run), turnEndedAt(run));
     }
 
     /** Base names the item; detail adds the counts; full adds the run that changed last. */
@@ -226,6 +225,11 @@ export class SubagentDockContribution {
             return ["warning", "◐"];
         }
 
+        // Settled with failures: green would claim success, and red stays for new failures.
+        if (runs.some((run) => run.needsAttention)) {
+            return ["muted", "●"];
+        }
+
         if (runs.length > 0) {
             return ["success", "●"];
         }
@@ -250,6 +254,18 @@ function dockStatus(run: Run): DockStatus {
         default:
             return run.lastTurn ? "unreported" : "idle";
     }
+}
+
+/** Each ended turn can raise its own alert, so seeing one failure does not hide a later one. */
+function alertKey(run: Run): string {
+    return `${run.id}#${run.turns}`;
+}
+
+/** A run that failed to load has no turn time; its alert starts when the Dock first shows it. */
+function turnEndedAt(run: Run): number | undefined {
+    const time = Date.parse(run.lastTurn?.endedAt ?? "");
+
+    return Number.isNaN(time) ? undefined : time;
 }
 
 function lastActivity(run: Run): number {
