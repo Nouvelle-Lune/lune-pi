@@ -35,6 +35,8 @@
   global and project scopes, and `/dock` opens its section of Core's settings panel.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`; Dock previews use Claude Opus 5.5 as their fixed model example.
 
+- **Response token speed beside the model.** A fixed-width `tok/s` segment shows the latest response's output tokens divided by Pi's measured response duration, dimmed after completion. Generation highlights `— tok/s` because Pi has no reliable cross-provider live token count; missing measurements also stay unknown. Narrow terminals hide the entire segment before truncating the model, without changing the statistics row.
+
 ### Fixed
 
 - **Running shells use a yellow marker.** Shell Inspector owns its running, completed and

@@ -18,7 +18,7 @@ The dock **replaces Pi's built-in footer**, so every statistic it showed stays v
 
 | Row  | Left                                         | Right                                                                                                               |
 | ---- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Dock | Module cells, one per contributing extension | `(provider) model • thinking level`                                                                                 |
+| Dock | Module cells, one per contributing extension | `(provider) model • thinking level · 48.2 tok/s`                                                                    |
 | Info | Working directory, git branch, session name  | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
 
 Statuses set by other extensions through `ctx.ui.setStatus()` follow on a row of their own.
@@ -31,8 +31,20 @@ Slots that often stay blank, such as cache writes for providers that do not repo
 the left, so their blank columns join the gap after the directory.
 
 The model starts on one of the info row's bars, so the bar before it continues a bar below. It takes
-the rightmost bar that leaves room for it within half the row, drops the provider before it gives up
-that alignment, and sits flush right only when no bar fits even the bare model.
+the rightmost bar that leaves room for it within half the row, drops the provider and then the speed
+before it gives up that alignment, and sits flush right only when no bar fits even the bare model.
+
+The speed segment follows the thinking level (or model name for models without thinking) and reserves
+a fixed width, so changing values do not move the model or module cells. It is highlighted while an
+assistant response is generating and dimmed when finished, retaining that response's measured speed
+until the next response starts. Speed is the provider-reported output tokens divided by Pi's measured
+response duration, including the wait for the first token, not a pure decoding benchmark. Pi does not
+provide a reliable cross-provider live token count, so generation shows `— tok/s`; finalized responses
+without positive, finite output tokens and duration also show `—`, never an invented zero. Text length,
+stream chunks, tool usage and tool execution time are not used. The measurement resets on detachment,
+reload, session replacement or tree navigation, and is hidden for a different model. Narrow terminals
+drop the entire speed segment before truncating the model; no part of its number or unit is clipped.
+The model visibility switch also controls speed, and `classic` leaves Pi's footer unchanged.
 
 Which slots are reserved depends on the terminal width alone: a narrow terminal drops cache writes,
 cache reads, tokens, cost, hit rate and `(auto)` in that order, always keeps context use, and gives

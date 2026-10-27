@@ -15,9 +15,11 @@ import { DockComponent } from "../../src/dock-controller.ts";
 import luneDock from "../../src/index.ts";
 import {
     FakeDockUi,
+    assistantMessage,
     createAgentFixture,
     createMainEditor,
     createSessionContext,
+    createUsage,
     identityTheme,
     keys,
     settle,
@@ -76,8 +78,9 @@ async function loadExtension(t: TestContext, options: StartOptions = {}) {
         },
     } as unknown as ExtensionAPI;
 
-    const emit = async (name: string) => {
-        for (const handler of [...(handlers.get(name) ?? [])]) await handler({ type: name }, ctx);
+    const emit = async (name: string, payload: Record<string, unknown> = {}) => {
+        const event = { type: name, ...payload };
+        for (const handler of [...(handlers.get(name) ?? [])]) await handler(event, ctx);
     };
     t.after(() => emit("session_shutdown"));
 
@@ -351,6 +354,59 @@ describe("dock extension session events", () => {
         await settle();
 
         assert.ok(f.ui.tui.renderRequests > before, "a tree navigation must request a fresh frame");
+    });
+
+    it("shows the measured token speed of the current assistant response", async (t) => {
+        const f = await loadExtension(t);
+        await f.start();
+        const request = { timestamp: 1000 };
+
+        await f.emit("message_start", { message: assistantMessage(createUsage(), request) });
+        const generating = f.render(120)[1]!;
+        await f.emit("message_update", {
+            message: assistantMessage(createUsage({ output: 400 }), request),
+        });
+        const streaming = f.render(120)[1]!;
+        await f.emit("message_end", {
+            message: assistantMessage(createUsage({ output: 500 }), {
+                ...request,
+                durationMs: 2000,
+            }),
+        });
+        const ended = f.render(120)[1]!;
+
+        assert.match(generating, /claude-test • medium · {6}— tok\/s/);
+        assert.equal(streaming, generating, "partial usage stays unknown while streaming");
+        assert.match(ended, /claude-test • medium · {2}250\.0 tok\/s/);
+        assert.doesNotMatch(ended, /— tok\/s/);
+    });
+
+    it("resets the token speed after a completed tree navigation", async (t) => {
+        const f = await loadExtension(t);
+        await f.start();
+        await f.emit("message_end", {
+            message: assistantMessage(createUsage({ output: 500 }), { durationMs: 2000 }),
+        });
+        assert.match(f.render(120)[1]!, /250\.0 tok\/s/);
+
+        await f.emit("session_tree");
+
+        assert.match(f.render(120)[1]!, /— tok\/s/);
+        assert.doesNotMatch(f.render(120)[1]!, /250\.0/);
+    });
+
+    it("resets the token speed when the session starts again", async (t) => {
+        const f = await loadExtension(t);
+        await f.start();
+        await f.emit("message_end", {
+            message: assistantMessage(createUsage({ output: 500 }), { durationMs: 2000 }),
+        });
+        assert.match(f.render(120)[1]!, /250\.0 tok\/s/);
+
+        await f.start();
+
+        assert.match(f.render(120)[1]!, /— tok\/s/);
+        assert.doesNotMatch(f.render(120)[1]!, /250\.0/);
     });
 
     it("detaches the dock and removes every subscription on shutdown", async (t) => {
