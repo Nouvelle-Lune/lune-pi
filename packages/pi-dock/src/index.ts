@@ -35,7 +35,10 @@ export default scopedExtension((pi, resources) => {
         }),
     );
     resources.defer(pi.on("session_before_tree", () => dock.resetInteraction()));
-    resources.defer(pi.on("session_tree", () => dock.invalidate()));
+    resources.defer(pi.on("session_tree", () => dock.resetTokenSpeed()));
+    resources.defer(pi.on("message_start", (event, ctx) => dock.observeMessage(event, ctx)));
+    resources.defer(pi.on("message_update", (event, ctx) => dock.observeMessage(event, ctx)));
+    resources.defer(pi.on("message_end", (event, ctx) => dock.observeMessage(event, ctx)));
 
     pi.registerCommand("dock", {
         description: "Open Lune Dock settings",

@@ -85,7 +85,7 @@ describe("dock controller", () => {
         assert.equal(lines.length, 5, "rule, dock row, rule, info row, rule");
         assert.match(
             dockRowOf(componentOf(ui)),
-            /^ 2 shells │ 1 question +│ claude-test • medium *$/,
+            /^ 2 shells │ 1 question +│ claude-test • medium · {6}— tok\/s *$/,
         );
         assert.deepEqual(
             ui.widgetCalls
@@ -376,7 +376,11 @@ describe("dock controller", () => {
         release();
         await settle();
 
-        assert.equal(dockRowOf(component).trim(), "claude-test • medium", "no cell may remain");
+        assert.equal(
+            dockRowOf(component).trim(),
+            "claude-test • medium ·      — tok/s",
+            "no cell may remain",
+        );
         assert.equal(component.focused, false, "an empty dock must release keyboard focus");
         assert.equal(ui.tui.focusedComponent, editor);
     });
@@ -398,7 +402,11 @@ describe("dock controller", () => {
         await settle();
 
         assert.equal(ui.tui.getFocusedComponent(), overlay);
-        assert.equal(dockRowOf(component).trim(), "claude-test • medium", "no cell may remain");
+        assert.equal(
+            dockRowOf(component).trim(),
+            "claude-test • medium ·      — tok/s",
+            "no cell may remain",
+        );
 
         ui.tui.overlay = false;
         ui.tui.setFocus(component);
@@ -647,7 +655,7 @@ describe("dock controller footer", () => {
 
         const first = component.render(120).map(stripTerminalSequences);
 
-        assert.match(first[1]!, /\(openai\) gpt-test *$/);
+        assert.match(first[1]!, /\(openai\) gpt-test · {6}— tok\/s *$/);
         assert.match(first[3]!, /\/work\/project .*\(feature\)/);
         assert.match(
             first[3]!,

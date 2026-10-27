@@ -11,6 +11,7 @@ import {
     renderInfoRow,
     renderModelSegment,
     renderStatusRow,
+    type DockStatus,
 } from "../../src/dock-status.ts";
 import {
     FakeFooterData,
@@ -320,14 +321,17 @@ describe("dock status source", () => {
 });
 
 describe("dock model segment", () => {
-    const budget = 40;
+    // Wide enough for the provider, model, thinking level and the 15-column speed segment together.
+    const budget = 60;
+    const bare = "claude-test • high";
+    const unknownSpeed = " ·      — tok/s";
 
-    it("shows the provider, the model and the dimmed thinking level when they fit", () => {
+    it("shows the provider, the model, the thinking level and the unknown speed when they fit", () => {
         const status = createStatus({ showProvider: true });
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, "(anthropic) claude-test • high");
+        assert.equal(actual, `(anthropic) ${bare}${unknownSpeed}`);
     });
 
     it("omits the provider unless more than one is available", () => {
@@ -335,28 +339,30 @@ describe("dock model segment", () => {
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, "claude-test • high");
+        assert.equal(actual, bare + unknownSpeed);
     });
 
     it("drops the provider before it truncates the model", () => {
         const status = createStatus({ showProvider: true });
-        const bareWidth = visibleWidth("claude-test • high");
+        const bareWidth = visibleWidth(bare + unknownSpeed);
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, bareWidth));
 
-        assert.equal(actual, "claude-test • high");
+        assert.equal(actual, bare + unknownSpeed);
     });
 
     it("truncates the model name when even the bare name does not fit", () => {
         const status = createStatus({ showProvider: true });
 
         const actual = renderModelSegment(status, identityTheme, 9);
+        const plain = stripTerminalSequences(actual);
 
         assert.ok(
             visibleWidth(actual) <= 9,
             `segment exceeds its budget: ${JSON.stringify(actual)}`,
         );
-        assert.match(stripTerminalSequences(actual), /^claude/);
+        assert.match(plain, /^claude/);
+        assert.doesNotMatch(plain, /tok\/s/, "the speed segment must give way to the model");
     });
 
     it("shows no thinking level for a model that cannot reason", () => {
@@ -366,15 +372,139 @@ describe("dock model segment", () => {
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
-        assert.equal(actual, "claude-test");
+        assert.equal(actual, "claude-test" + unknownSpeed);
     });
 
-    it("names the absence of a model", () => {
+    it("names the absence of a model without a speed segment", () => {
         const status = createStatus({ model: undefined, showProvider: true });
 
         const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
 
         assert.equal(actual, "no-model");
+        assert.doesNotMatch(actual, /tok\/s/);
+    });
+});
+
+describe("dock model speed segment", () => {
+    const bare = "claude-test • high";
+    const budget = 60;
+
+    function segment(tokenSpeed: DockStatus["tokenSpeed"]) {
+        const status = createStatus({ tokenSpeed });
+        return stripTerminalSequences(renderModelSegment(status, identityTheme, budget));
+    }
+
+    it("appends the latest measured rate with one decimal", () => {
+        const cases: [number, string][] = [
+            [55.84, " ·   55.8 tok/s"],
+            [12.34, " ·   12.3 tok/s"],
+            [999.9, " ·  999.9 tok/s"],
+        ];
+
+        for (const [tokensPerSecond, expected] of cases) {
+            const actual = segment({ tokensPerSecond, generating: false });
+
+            assert.equal(actual, bare + expected, `${tokensPerSecond} tokens per second`);
+        }
+    });
+
+    it("shows an em dash rather than a zero when no reliable rate exists", () => {
+        const cases: DockStatus["tokenSpeed"][] = [
+            { tokensPerSecond: undefined, generating: false },
+            { tokensPerSecond: undefined, generating: true },
+            { tokensPerSecond: 0, generating: false },
+        ];
+
+        for (const tokenSpeed of cases) {
+            const actual = segment(tokenSpeed);
+
+            assert.equal(actual, bare + " ·      — tok/s", JSON.stringify(tokenSpeed));
+            assert.doesNotMatch(actual, /0\.0/);
+        }
+    });
+
+    it("reports a positive rate below a tenth as <0.1", () => {
+        const actual = segment({ tokensPerSecond: 0.06, generating: false });
+
+        assert.equal(actual, bare + " ·   <0.1 tok/s");
+    });
+
+    it("keeps the speed segment 15 columns wide from no rate to a huge one", () => {
+        const rates = [undefined, 0.06, 12.3, 999.9, 12345.6, 1_500_000_000];
+
+        for (const tokensPerSecond of rates) {
+            const actual = segment({ tokensPerSecond, generating: false });
+
+            assert.equal(
+                visibleWidth(actual),
+                visibleWidth(bare) + 15,
+                `rate ${tokensPerSecond}: ${JSON.stringify(actual)}`,
+            );
+            assert.match(actual, / tok\/s$/);
+        }
+    });
+
+    it("hides the whole speed segment before shortening the model and thinking", () => {
+        const withSpeed = bare + " ·   55.8 tok/s";
+        const cases: [number, string][] = [
+            [visibleWidth(withSpeed), withSpeed],
+            [visibleWidth(withSpeed) - 1, bare],
+            [visibleWidth(bare), bare],
+        ];
+
+        for (const [width, expected] of cases) {
+            const status = createStatus({
+                tokenSpeed: { tokensPerSecond: 55.8, generating: false },
+            });
+
+            const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, width));
+
+            assert.equal(actual, expected, `${width} columns`);
+        }
+    });
+
+    it("keeps the speed by dropping the provider, then restores the provider before the bare model", () => {
+        const status = createStatus({
+            showProvider: true,
+            tokenSpeed: { tokensPerSecond: 55.8, generating: false },
+        });
+        const named = `(anthropic) ${bare}`;
+        const speed = " ·   55.8 tok/s";
+        const cases: [number, string][] = [
+            [visibleWidth(named + speed), named + speed],
+            [visibleWidth(bare + speed), bare + speed],
+            [visibleWidth(named), named],
+        ];
+
+        for (const [width, expected] of cases) {
+            const actual = stripTerminalSequences(renderModelSegment(status, identityTheme, width));
+
+            assert.equal(actual, expected, `${width} columns`);
+        }
+    });
+
+    it("highlights the speed while generating and dims it once the response ends", () => {
+        function speedColors(tokenSpeed: DockStatus["tokenSpeed"]): string[] {
+            const { theme, colorsOf } = createRecordingTheme();
+            const text = stripTerminalSequences(
+                renderModelSegment(createStatus({ tokenSpeed }), theme, budget),
+            );
+            const suffix = text.slice(-15);
+            assert.match(suffix, / tok\/s$/);
+            return colorsOf(suffix);
+        }
+
+        const actual = {
+            generating: speedColors({ tokensPerSecond: undefined, generating: true }),
+            ended: speedColors({ tokensPerSecond: 55.8, generating: false }),
+            unknown: speedColors({ tokensPerSecond: undefined, generating: false }),
+        };
+
+        assert.deepEqual(actual, {
+            generating: ["accent"],
+            ended: ["dim"],
+            unknown: ["dim"],
+        });
     });
 });
 

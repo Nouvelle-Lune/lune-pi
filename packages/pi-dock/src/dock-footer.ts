@@ -4,6 +4,7 @@ import type { LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock"
 import { DockView, type VisibleDockItem } from "./dock-renderer.ts";
 import {
     CELL_SEPARATOR,
+    modelSegmentVariants,
     renderContextCell,
     renderInfoRow,
     renderModelSegment,
@@ -215,12 +216,10 @@ export class DockFooter {
         }
         if (!status || width < MIN_MODEL_ROW_WIDTH) return flush("");
         if (minimal && layout.showUsage) {
-            // Context use outranks the provider prefix: drop the provider before the counter.
+            // Context use outranks optional model segments, so speed never displaces the counter.
             const context = renderContextCell(status, theme);
-            for (const showProvider of new Set([status.showProvider, false])) {
-                const model = layout.showModel
-                    ? renderModelSegment({ ...status, showProvider }, theme, Infinity)
-                    : "";
+            const models = layout.showModel ? modelSegmentVariants(status, theme) : [""];
+            for (const model of models) {
                 const combined = model
                     ? model + theme.fg("dim", CELL_SEPARATOR) + context
                     : context;
@@ -236,8 +235,8 @@ export class DockFooter {
 
     /**
      * Starts the model on one of the info row's bars, so the bar before it continues a bar below
-     * instead of floating between two. The rightmost bar with room wins; the provider goes before
-     * the alignment does, and a model too wide for any bar within budget sits flush right instead.
+     * instead of floating between two. The rightmost bar with room wins; optional model segments
+     * go before the alignment does, and a model too wide for any bar sits flush right instead.
      */
     private placeModel(
         width: number,
@@ -250,8 +249,7 @@ export class DockFooter {
             .map((column) => column - SEPARATOR_WIDTH)
             .filter((span) => span <= budget)
             .sort((a, b) => a - b);
-        for (const showProvider of new Set([status.showProvider, false])) {
-            const text = renderModelSegment({ ...status, showProvider }, theme, Infinity);
+        for (const text of modelSegmentVariants(status, theme)) {
             const span = spans.find((candidate) => candidate >= visibleWidth(text));
             if (span !== undefined) return { text, width: span };
         }

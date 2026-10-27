@@ -88,9 +88,9 @@ describe("dock footer", () => {
         const bare = barColumns(render(120, { status })[1]!).at(-1);
         const named = barColumns(render(120, { status: withProvider })[1]!).at(-1);
 
-        // Context and (auto) span 29 columns, the cost 10 more; "claude-test • high" fits the first,
-        // and the provider moves it one bar left instead of being dropped.
-        assert.deepEqual([bare, named], [120 - 29 + 1, 120 - 39 + 1]);
+        // Context and (auto) span 29 columns, the cost 10 more; "claude-test • high ·      — tok/s"
+        // spans 33 and fits the cost bar, and the provider moves it one bar left instead of being dropped.
+        assert.deepEqual([bare, named], [120 - 39 + 1, 120 - 53 + 1]);
     });
 
     it("keeps the model where it is as usage arrives", () => {
@@ -121,10 +121,10 @@ describe("dock footer", () => {
     });
 
     it("names the provider only when Pi names it", () => {
-        const withProvider = render(100, { status: createStatus({ showProvider: true }) })[1]!;
-        const without = render(100, { status: createStatus({ showProvider: false }) })[1]!;
+        const withProvider = render(120, { status: createStatus({ showProvider: true }) })[1]!;
+        const without = render(120, { status: createStatus({ showProvider: false }) })[1]!;
 
-        assert.match(withProvider, /\(anthropic\) claude-test • high *$/);
+        assert.match(withProvider, /\(anthropic\) claude-test • high · {6}— tok\/s *$/);
         assert.doesNotMatch(without, /anthropic/);
     });
 
@@ -526,12 +526,12 @@ describe("dock footer styles", () => {
 
     describe("compact", () => {
         it("draws the cells and the info row without any frame", () => {
-            const lines = renderStyle("compact", 100);
+            const lines = renderStyle("compact", 120);
 
             assert.equal(lines.length, 2);
             assert.match(
                 lines[0]!,
-                /^ shells │ questions .* │ \(anthropic\) claude-test • high *$/,
+                /^ shells │ questions .* │ \(anthropic\) claude-test • high · {6}— tok\/s *$/,
             );
             assert.match(lines[1]!, /\/work\/project/);
             assert.doesNotMatch(lines.join("\n"), /[─╭╰├]/);
@@ -603,7 +603,7 @@ describe("dock footer styles", () => {
             assert.equal(lines.length, 1);
             assert.match(
                 lines[0]!,
-                /^ shells │ questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/,
+                /^ shells │ questions .* │ claude-test • high · {6}— tok\/s │ {2}25k\/200k · 12\.3%$/,
             );
             assert.doesNotMatch(lines[0]!, /\/work\/project/);
         });
@@ -618,9 +618,12 @@ describe("dock footer styles", () => {
         });
 
         it("names the provider when there is room", () => {
-            const [row] = renderStyle("minimal", 100);
+            const [row] = renderStyle("minimal", 120);
 
-            assert.match(row!, / │ \(anthropic\) claude-test • high │ {2}25k\/200k · 12\.3%$/);
+            assert.match(
+                row!,
+                / │ \(anthropic\) claude-test • high · {6}— tok\/s │ {2}25k\/200k · 12\.3%$/,
+            );
         });
 
         it("drops the provider before the context use", () => {
@@ -633,7 +636,7 @@ describe("dock footer styles", () => {
         it("shows only the model when usage is hidden", () => {
             const [row] = renderStyle("minimal", 100, {}, { showUsage: false });
 
-            assert.match(row!, /\(anthropic\) claude-test • high$/);
+            assert.match(row!, /\(anthropic\) claude-test • high · {6}— tok\/s$/);
             assert.doesNotMatch(row!, /12\.3%/);
         });
 

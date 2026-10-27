@@ -20,7 +20,7 @@ import {
     type DockLayout,
 } from "./dock-footer.ts";
 import type { VisibleDockItem } from "./dock-renderer.ts";
-import { DockStatusSource, type DockStatus } from "./dock-status.ts";
+import { DockStatusSource, type DockMessageEvent, type DockStatus } from "./dock-status.ts";
 
 export const WIDGET_ID = "pi-dock";
 
@@ -137,6 +137,21 @@ export class DockController {
         return this.statusSource.collect(this.ctx, this.footerData);
     }
 
+    observeMessage(event: DockMessageEvent, ctx: ExtensionContext): void {
+        if (
+            !this.ctx ||
+            this.ctx.ui !== ctx.ui ||
+            this.ctx.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()
+        )
+            return;
+        if (this.statusSource.observeMessage(event, ctx)) this.tui?.requestRender();
+    }
+
+    resetTokenSpeed(): void {
+        this.statusSource.resetTokenSpeed();
+        this.invalidate();
+    }
+
     /** Nothing to draw before attachment, or when a style that shows statistics has no footer data yet. */
     footerInput(focused: boolean): DockFooterInput | undefined {
         if (!this.ctx) return undefined;
@@ -177,6 +192,7 @@ export class DockController {
     detach(): void {
         this.generation++;
         this.queuedGeneration = undefined;
+        this.statusSource.resetTokenSpeed();
         this.unsubscribeInput?.();
         this.unsubscribeInput = undefined;
         this.leaveFocus();
