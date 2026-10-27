@@ -311,3 +311,48 @@ test("a run whose file cannot be read shows the load error and nothing else", (t
     );
     assert.equal(snapshot("x").runId, "x");
 });
+
+test("formatRunStatus gives each earlier report in full; formatRunList only a line per report", (t) => {
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        turns: [
+            turn({
+                earlierReports: [
+                    {
+                        status: "blocked",
+                        summary: "First try summary.",
+                        reason: "No key.",
+                    },
+                    { status: "needs_input", summary: "Second try summary.", question: "Which?" },
+                ],
+                report: { status: "done", summary: "Final summary." },
+            }),
+        ],
+    });
+
+    const status = formatRunStatus(run);
+    const list = formatRunList([run], 0);
+
+    assert.match(
+        status,
+        /Earlier report in that turn, replaced by a later one: blocked\nReason: No key\.\nSummary:\nFirst try summary\.\n/,
+    );
+    assert.match(
+        status,
+        /Earlier report in that turn, replaced by a later one: needs_input\nQuestion: Which\?\nSummary:\nSecond try summary\./,
+    );
+    assert.ok(status.indexOf("First try summary.") < status.indexOf("Report: done"));
+    assert.match(status, /Report: done\nSummary:\nFinal summary\./);
+    assert.match(list, /Earlier report in that turn, replaced by a later one: blocked/);
+    assert.match(list, /Earlier report in that turn, replaced by a later one: needs_input/);
+    assert.doesNotMatch(list, /First try summary|No key|Which\?|Second try summary/);
+    assert.match(list, /Final summary\./);
+});
+
+test("a turn with one report shows no earlier report line", (t) => {
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        turns: [turn({ report: { status: "done", summary: "Only." } })],
+    });
+
+    assert.doesNotMatch(formatRunStatus(run), /Earlier report/);
+    assert.doesNotMatch(formatRunList([run], 0), /Earlier report/);
+});

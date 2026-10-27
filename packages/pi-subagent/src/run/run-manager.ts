@@ -18,6 +18,7 @@ import {
     RUN_NOTIFICATION_TYPE,
     RunNotifier,
     buildRunNotification,
+    deliveredTurns,
     type RunNotice,
 } from "../notify/notifier.ts";
 import { runSessionFile, runWorktreePath } from "../paths.ts";
@@ -105,6 +106,13 @@ export class RunManager implements RunHost {
                     return run !== undefined && this.isOnBranch(run);
                 },
                 hold: (notice) => this.defer(notice),
+            },
+            {
+                busy: () => !this.ctx.isIdle(),
+                aborting: () => this.ctx.signal?.aborted === true,
+                abortClearsQueues: () => this.ctx.mode === "tui",
+                // The whole file: a notice that reached another branch must not be sent again.
+                deliveredTurns: () => deliveredTurns(this.ctx.sessionManager.getEntries()),
             },
         );
     }
@@ -561,6 +569,11 @@ export class RunManager implements RunHost {
      */
     resumeNotifications(): void {
         this.notifier.resume();
+    }
+
+    /** Called when a run of the main agent settles, to confirm the notices sent to it. */
+    mainAgentSettled(aborted: boolean): void {
+        this.notifier.settled(aborted);
     }
 
     /**

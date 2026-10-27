@@ -211,7 +211,7 @@ test("a long error line is wrapped and counted in rows", (t) => {
     ]);
 });
 
-test("a report call still shows its status, reason, question and summary in full", (t) => {
+test("a report call with a result shows its status, reason, question and summary in full", (t) => {
     const run = runOf(t, [
         assistant([
             call("t1", "report", {
@@ -221,6 +221,7 @@ test("a report call still shows its status, reason, question and summary in full
                 summary: lines(6, "summary"),
             }),
         ]),
+        result("t1", "Report recorded."),
     ]);
 
     const rows = render(run);
@@ -229,6 +230,62 @@ test("a report call still shows its status, reason, question and summary in full
     assert.ok(rows.includes("    Reason: Blocked on a choice."));
     assert.ok(rows.includes("    Question: Which branch?"));
     assert.equal(rows.filter((row) => row.startsWith("    summary ")).length, 6);
+});
+
+test("a report call whose run still works on it is marked as being written, status muted", (t) => {
+    const run = runOf(t, [
+        assistant([call("t1", "report", { status: "done", summary: "Almost there." })]),
+    ]);
+
+    run.state = "running";
+
+    const themed = new TranscriptRenderer(fakeTheme({ tag: true })).render(run, 80);
+
+    assert.equal(themed[0], "<toolTitle:Report> <muted:done><dim: · ><warning:writing>");
+    assert.ok(themed.includes("    <muted:Almost there.>"));
+    assert.equal(render(run)[0], "Report done · writing");
+});
+
+test("a report call whose tool is running is marked as being written", (t) => {
+    const run = runOf(t, [
+        assistant([call("t1", "report", { status: "done", summary: "Almost there." })]),
+    ]);
+
+    run.state = "running";
+    run.runningTools.set("t1", {
+        toolCallId: "t1",
+        name: "report",
+        args: {},
+        startedAt: Date.now(),
+    });
+
+    assert.equal(render(run)[0], "Report done · writing");
+});
+
+test("a cancelled report call is marked as not sent, status and summary muted", (t) => {
+    const run = runOf(t, [
+        assistant([call("t1", "report", { status: "blocked", summary: "Never sent." })]),
+    ]);
+
+    const themed = new TranscriptRenderer(fakeTheme({ tag: true })).render(run, 80);
+
+    assert.equal(themed[0], "<toolTitle:Report> <muted:blocked><dim: · ><muted:not sent>");
+    assert.ok(themed.includes("    <muted:Never sent.>"));
+    assert.equal(render(run)[0], "Report blocked · not sent");
+});
+
+test("a report call with a result has no mark and keeps its colours", (t) => {
+    const run = runOf(t, [
+        assistant([call("t1", "report", { status: "done", summary: "All done." })]),
+        result("t1", "Report recorded."),
+    ]);
+
+    const themed = new TranscriptRenderer(fakeTheme({ tag: true })).render(run, 80);
+
+    assert.equal(themed[0], "<toolTitle:Report> <success:done>");
+    assert.ok(themed.some((row) => row.includes("<text:All done.>")));
+    assert.ok(!themed.join("\n").includes("writing"));
+    assert.ok(!themed.join("\n").includes("not sent"));
 });
 
 test("a tool summary is one line even when the command spans several", (t) => {

@@ -378,13 +378,26 @@ export class TranscriptRenderer {
         return rows;
     }
 
+    /**
+     * `Report done`. The arguments stream before the call runs, and the main agent gets the report
+     * only when the turn ends, so until the call has a result its status is muted and marked.
+     */
     private reportRows(call: ToolCall, context: BlockContext): string[] {
         const args = call.arguments as Record<string, unknown>;
         const status = typeof args.status === "string" ? displayLine(args.status) : "report";
         const result = context.results.get(call.id);
+        const progress = callStatus(result, context.run.runningTools.get(call.id), context.pending);
+        const draft = progress === "running" || progress === "cancelled";
+        const mark =
+            progress === "running"
+                ? this.theme.fg("warning", "writing")
+                : progress === "cancelled"
+                  ? this.theme.fg("muted", "not sent")
+                  : undefined;
         const rows = [
             `${this.theme.bold(this.theme.fg("toolTitle", "Report"))} ` +
-                this.theme.fg(reportColor(status), status),
+                this.theme.fg(draft ? "muted" : reportColor(status), status) +
+                (mark ? this.theme.fg("dim", " · ") + mark : ""),
         ];
 
         if (result?.isError) {
@@ -400,7 +413,7 @@ export class TranscriptRenderer {
         }
 
         if (typeof args.summary === "string") {
-            append(rows, this.indented(args.summary, context.width, "text"));
+            append(rows, this.indented(args.summary, context.width, draft ? "muted" : "text"));
         }
 
         return rows;

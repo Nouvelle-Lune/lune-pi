@@ -19,7 +19,12 @@ import {
 } from "../render/lune-theme.ts";
 import { bandRow, clipToWidth, displayLines, EXPAND_KEY } from "../render/text.ts";
 import { formatDuration } from "../tools/format.ts";
-import type { RunNotificationDetails, RunNotificationRun } from "./notifier.ts";
+import type {
+    ContentSlice,
+    EarlierReportNote,
+    RunNotificationDetails,
+    RunNotificationRun,
+} from "./notifier.ts";
 
 /** Lines of a report a collapsed box shows; the rest stay behind the expand hint. */
 const PREVIEW_LINES = 5;
@@ -148,6 +153,10 @@ class RunNotificationBox implements Component {
             }
 
             rows.push(...this.reportRows(run, bodyWidth));
+
+            for (const earlier of run.earlierReports ?? []) {
+                rows.push(...this.earlierRows(earlier, bodyWidth));
+            }
         }
 
         return ["", ...rows, ""].map((row) => bandRow(this.theme, token, row, inner, paddingX));
@@ -163,12 +172,27 @@ class RunNotificationBox implements Component {
                 name: run.name,
                 summary: run.question ?? run.reason ?? firstLine(this.body(run)),
                 status: activityStatus(run.state),
-                detail: [run.reportStatus ?? "unreported", run.copied ? "copied" : undefined]
+                detail: [
+                    run.reportStatus ?? "unreported",
+                    earlierCount(run),
+                    run.copied ? "copied" : undefined,
+                ]
                     .filter((part) => part !== undefined)
                     .join(" · "),
                 durationMs: run.durationMs,
                 error: run.error,
-                output: displayLines(this.body(run)).join("\n"),
+                output: displayLines(
+                    [
+                        this.body(run),
+                        ...(run.earlierReports ?? []).map((earlier) =>
+                            [
+                                earlierTitle(earlier),
+                                ...earlierFields(earlier),
+                                this.slice(earlier.summary),
+                            ].join("\n"),
+                        ),
+                    ].join("\n\n"),
+                ).join("\n"),
             })),
         };
     }
@@ -229,14 +253,39 @@ class RunNotificationBox implements Component {
         return rows;
     }
 
-    /** The body as the message content holds it; details carry only its offsets. */
-    private body(run: RunNotificationRun): string {
-        const slice = run.body;
+    /** A report that a later one replaced: one row, and its text once the box is expanded. */
+    private earlierRows(earlier: EarlierReportNote, width: number): string[] {
+        const rows = this.bodyRows(
+            this.expanded
+                ? earlierTitle(earlier)
+                : `${earlierTitle(earlier)} · ${EXPAND_KEY} to expand`,
+            width,
+            "muted",
+        );
 
-        if (!slice) {
-            return "";
+        if (!this.expanded) {
+            return rows;
         }
 
+        if (earlier.reason) {
+            rows.push(...this.bodyRows(`Reason: ${earlier.reason}`, width, "error"));
+        }
+
+        if (earlier.question) {
+            rows.push(...this.bodyRows(`Question: ${earlier.question}`, width, "accent"));
+        }
+
+        rows.push(...this.bodyRows(this.slice(earlier.summary), width, "toolOutput"));
+
+        return rows;
+    }
+
+    private body(run: RunNotificationRun): string {
+        return run.body ? this.slice(run.body) : "";
+    }
+
+    /** A text as the message content holds it; details carry only its offsets. */
+    private slice(slice: ContentSlice): string {
         const start = Math.max(0, Math.min(slice.start, this.content.length));
         const end = Math.max(start, Math.min(slice.end, this.content.length));
 
@@ -276,6 +325,27 @@ function notes(run: RunNotificationRun): string[] {
     }
 
     return lines;
+}
+
+function earlierCount(run: RunNotificationRun): string | undefined {
+    const count = run.earlierReports?.length ?? 0;
+
+    if (count === 0) {
+        return undefined;
+    }
+
+    return `${count} earlier ${count === 1 ? "report" : "reports"}`;
+}
+
+function earlierTitle(earlier: EarlierReportNote): string {
+    return `Earlier report: ${earlier.status}, replaced by a later one`;
+}
+
+function earlierFields(earlier: EarlierReportNote): string[] {
+    return [
+        earlier.reason ? `Reason: ${earlier.reason}` : undefined,
+        earlier.question ? `Question: ${earlier.question}` : undefined,
+    ].filter((field) => field !== undefined);
 }
 
 function firstLine(text: string): string | undefined {

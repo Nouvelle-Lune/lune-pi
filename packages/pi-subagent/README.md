@@ -188,6 +188,10 @@ A run ends each turn with the `report` tool:
 
 A turn without a report reaches the main agent as unreported, with the run's last message. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
 
+A message that reaches a run while it reports, for example a steer message from the main agent or from you, continues the same turn, and the run reports again. The last report is the turn's report. The main agent also gets the earlier reports of the turn in the same message, and `subagent_status` shows them.
+
+Each report message is confirmed in the main session. A message that is still missing after a run of the main agent ended is sent again. When you interrupt the main agent in Pi's interactive mode, Pi clears the queued messages, so a report message that waited in the queue goes with your next message instead, and a notification says so. After two retries without success, an error notification says that `subagent_status` still returns the results.
+
 The run state describes the session, not the task: `running`, `idle`, `failed` (the last turn ended with an error after Pi's retries) or `interrupted` (stopped, or the main session shut down). An `idle` run can be `blocked`.
 
 ## Dock and `/agents`
@@ -215,7 +219,7 @@ A message you write reaches the run marked as coming from you. A running run get
 
 The details view shows the start values and where each came from, the workspace, the token usage and the run's diagnostics. A run's tokens are not added to the main session's totals.
 
-The transcript is a compact log. Each tool call takes one row with its status and time, and an edit also shows the lines it added and removed, for example `● edit src/a.ts · +12 −3 · 0.2s`. A failed call adds the first lines of its error, and a running call the last lines of its output. A finished thought takes one row, for example `Thinking · 42 lines`. Assistant text, your messages, the main agent's messages and reports show in full.
+The transcript is a compact log. Each tool call takes one row with its status and time, and an edit also shows the lines it added and removed, for example `● edit src/a.ts · +12 −3 · 0.2s`. A failed call adds the first lines of its error, and a running call the last lines of its output. A finished thought takes one row, for example `Thinking · 42 lines`. Assistant text, your messages, the main agent's messages and reports show in full. A report call shows `writing` while its arguments stream and until the run records it, and `not sent` when it was stopped first. Until then its status and summary are dimmed. A recorded report still reaches the main agent only when the turn ends.
 
 With the Lune theme on, the report messages in the main transcript render as its activity cards. Without it, the package renders them itself.
 

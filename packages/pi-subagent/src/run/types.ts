@@ -91,7 +91,10 @@ export type StopSource = "main-agent" | "user" | "branch" | "shutdown";
 
 export interface TurnRecord {
     state: SettledState;
+    /** The turn's last report. */
     report?: RunReport;
+    /** Reports that a later report of the same turn replaced, oldest first. */
+    earlierReports?: RunReport[];
     error?: string;
     /** The run's last text, kept when the turn ended without `report`. */
     unreportedMessage?: string;
