@@ -356,7 +356,7 @@ describe("dock extension session events", () => {
         assert.ok(f.ui.tui.renderRequests > before, "a tree navigation must request a fresh frame");
     });
 
-    it("shows the measured token speed of the current assistant response", async (t) => {
+    it("shows the measured token speed only after the response ends", async (t) => {
         const f = await loadExtension(t);
         await f.start();
         const request = { timestamp: 1000 };
@@ -375,10 +375,11 @@ describe("dock extension session events", () => {
         });
         const ended = f.render(120)[1]!;
 
-        assert.match(generating, /claude-test • medium · {6}— tok\/s/);
+        assert.match(generating, /claude-test • medium$/);
+        assert.doesNotMatch(generating, /tok\/s|—/);
         assert.equal(streaming, generating, "partial usage stays unknown while streaming");
-        assert.match(ended, /claude-test • medium · {2}250\.0 tok\/s/);
-        assert.doesNotMatch(ended, /— tok\/s/);
+        assert.match(ended, /claude-test • medium · 250\.0 tok\/s$/);
+        assert.doesNotMatch(ended, /—/);
     });
 
     it("resets the token speed after a completed tree navigation", async (t) => {
@@ -391,8 +392,7 @@ describe("dock extension session events", () => {
 
         await f.emit("session_tree");
 
-        assert.match(f.render(120)[1]!, /— tok\/s/);
-        assert.doesNotMatch(f.render(120)[1]!, /250\.0/);
+        assert.doesNotMatch(f.render(120)[1]!, /tok\/s|250\.0/);
     });
 
     it("resets the token speed when the session starts again", async (t) => {
@@ -405,8 +405,7 @@ describe("dock extension session events", () => {
 
         await f.start();
 
-        assert.match(f.render(120)[1]!, /— tok\/s/);
-        assert.doesNotMatch(f.render(120)[1]!, /250\.0/);
+        assert.doesNotMatch(f.render(120)[1]!, /tok\/s|250\.0/);
     });
 
     it("detaches the dock and removes every subscription on shutdown", async (t) => {

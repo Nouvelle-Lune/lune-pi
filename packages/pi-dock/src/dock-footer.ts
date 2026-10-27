@@ -182,7 +182,7 @@ export class DockFooter {
         if (!hasCells && !right.text) return undefined;
 
         const segment =
-            right.text + " ".repeat(Math.max(0, right.width - visibleWidth(right.text)));
+            " ".repeat(Math.max(0, right.width - visibleWidth(right.text))) + right.text;
         const tail = (hasCells && right.text ? theme.fg("dim", CELL_SEPARATOR) : "") + segment;
         const left = hasCells
             ? (this.cells.render(
@@ -227,16 +227,16 @@ export class DockFooter {
             }
         }
         if (!layout.showModel) return flush("");
-        // Only an info row with statistics has bars for the model to line up with.
+        // Keep the divider on the statistics grid without moving the model off the right edge.
         return !minimal && layout.showUsage
             ? this.placeModel(width, theme, status, layout.showWorkspace, budget)
             : flush(renderModelSegment(status, theme, budget));
     }
 
     /**
-     * Starts the model on one of the info row's bars, so the bar before it continues a bar below
-     * instead of floating between two. The rightmost bar with room wins; optional model segments
-     * go before the alignment does, and a model too wide for any bar sits flush right instead.
+     * Keeps the divider on an info-row bar while the model stays flush right within that span.
+     * The rightmost bar with room wins; optional model segments go before divider alignment does,
+     * and a model too wide for any bar uses only its own width.
      */
     private placeModel(
         width: number,

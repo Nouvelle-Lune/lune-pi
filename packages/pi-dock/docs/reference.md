@@ -30,18 +30,23 @@ use and `(auto)`, and the others fill their own columns once Pi reports tokens, 
 Slots that often stay blank, such as cache writes for providers that do not report them, sit on
 the left, so their blank columns join the gap after the directory.
 
-The model starts on one of the info row's bars, so the bar before it continues a bar below. It takes
-the rightmost bar that leaves room for it within half the row, drops the provider and then the speed
-before it gives up that alignment, and sits flush right only when no bar fits even the bare model.
+The model and speed are flush right. The divider before them continues one of the info row's bars,
+with any spare padding between the divider and model, never after the speed. It takes the rightmost
+bar that leaves room within half the row, dropping the provider and then the speed before giving up
+divider alignment.
 
-The speed segment follows the thinking level (or model name for models without thinking) and reserves
-a fixed width, so changing values do not move the model or module cells. It is highlighted while an
-assistant response is generating and dimmed when finished, retaining that response's measured speed
-until the next response starts. Speed is the provider-reported output tokens divided by Pi's measured
-response duration, including the wait for the first token, not a pure decoding benchmark. Pi does not
-provide a reliable cross-provider live token count, so generation shows `— tok/s`; finalized responses
-without positive, finite output tokens and duration also show `—`, never an invented zero. Text length,
-stream chunks, tool usage and tool execution time are not used. The measurement resets on detachment,
+The speed segment follows the thinking level (or model name for models without thinking) with single
+spaces, as in `max · 48.2 tok/s`. Without a reliable measurement the entire segment stays hidden,
+including its separator and unit. Once measured,
+the latest speed stays visible through subsequent generation and after completion or cancellation,
+until a new valid measurement replaces it. It is highlighted while an assistant response is generating
+and dimmed when finished.
+
+Speed is the provider-reported output tokens divided by Pi's measured response duration, including
+the wait for the first token, not a pure decoding benchmark. Both output tokens and duration must be
+positive and finite. Pi does not provide a reliable cross-provider live token count; partial usage,
+text length, stream chunks, tool usage and tool execution time are not used. A response without valid
+measurements does not erase the previous value or invent a zero. The measurement resets on detachment,
 reload, session replacement or tree navigation, and is hidden for a different model. Narrow terminals
 drop the entire speed segment before truncating the model; no part of its number or unit is clipped.
 The model visibility switch also controls speed, and `classic` leaves Pi's footer unchanged.

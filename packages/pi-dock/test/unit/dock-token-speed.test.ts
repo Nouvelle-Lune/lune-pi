@@ -65,7 +65,7 @@ function asMessageEvent<T extends MessageStartEvent | MessageUpdateEvent | Messa
 }
 
 describe("dock token speed source", () => {
-    it("reports an unknown highlighted rate while the assistant response streams", () => {
+    it("reports no rate before the first measurement while the assistant response streams", () => {
         const { ctx, source, tokenSpeed } = createSource();
         assert.deepEqual(tokenSpeed(), { tokensPerSecond: undefined, generating: false });
 
@@ -153,30 +153,81 @@ describe("dock token speed source", () => {
         }
     });
 
-    it("resets the previous rate to an unknown highlighted one when the next response starts", () => {
+    it("retains the last measured rate through the next response and an unmeasured end", () => {
+        const endings: [string, AssistantMessage][] = [
+            ["blank", response(0, 1000, { timestamp: 2000 })],
+            ["non-finite", response(Number.NaN, 1000, { timestamp: 2000 })],
+            ["cancelled", response(0, undefined, { timestamp: 2000, stopReason: "aborted" })],
+        ];
+
+        for (const [name, ending] of endings) {
+            const { ctx, source, tokenSpeed } = createSource();
+            source.observeMessage(endOf(response(500, 2000, { timestamp: 1000 })), ctx);
+            source.observeMessage(
+                assistantStart(assistantMessage(createUsage({ output: 120 }), { timestamp: 2000 })),
+                ctx,
+            );
+            const whileStarting = tokenSpeed();
+            source.observeMessage(
+                assistantUpdate(
+                    assistantMessage(createUsage({ output: 480 }), { timestamp: 2000 }),
+                ),
+                ctx,
+            );
+            const whileStreaming = tokenSpeed();
+
+            source.observeMessage(endOf(ending), ctx);
+            const afterEnd = tokenSpeed();
+
+            assert.deepEqual(
+                { whileStarting, whileStreaming, afterEnd },
+                {
+                    whileStarting: { tokensPerSecond: 250, generating: true },
+                    whileStreaming: { tokensPerSecond: 250, generating: true },
+                    afterEnd: { tokensPerSecond: 250, generating: false },
+                },
+                name,
+            );
+        }
+    });
+
+    it("replaces the retained rate when the next response has a valid measurement", () => {
         const { ctx, source, tokenSpeed } = createSource();
         source.observeMessage(endOf(response(500, 2000, { timestamp: 1000 })), ctx);
-        assert.equal(tokenSpeed().tokensPerSecond, 250);
+        source.observeMessage(
+            assistantStart(assistantMessage(createUsage(), { timestamp: 2000 })),
+            ctx,
+        );
+
+        source.observeMessage(endOf(response(300, 1000, { timestamp: 2000 })), ctx);
+
+        const actual = tokenSpeed();
+        assert.deepEqual(actual, { tokensPerSecond: 300, generating: false });
+    });
+
+    it("does not carry the rate into a response for another selected model", () => {
+        const { ctx, session, source, tokenSpeed } = createSource();
+        source.observeMessage(endOf(response(500, 2000, { timestamp: 1000 })), ctx);
+        session.model = createModel({ provider: "anthropic", id: "claude-other" });
 
         source.observeMessage(
             assistantStart(assistantMessage(createUsage(), { timestamp: 2000 })),
             ctx,
         );
         const whileStarting = tokenSpeed();
-
         source.observeMessage(endOf(response(0, 1000, { timestamp: 2000 })), ctx);
-        const afterEmptyEnd = tokenSpeed();
+        const afterEnd = tokenSpeed();
 
         assert.deepEqual(
-            { whileStarting, afterEmptyEnd },
+            { whileStarting, afterEnd },
             {
                 whileStarting: { tokensPerSecond: undefined, generating: true },
-                afterEmptyEnd: { tokensPerSecond: undefined, generating: false },
+                afterEnd: { tokensPerSecond: undefined, generating: false },
             },
         );
     });
 
-    it("keeps the latest rate after the response ends until the next response starts", () => {
+    it("keeps the latest rate after the response ends across collected frames", () => {
         const { ctx, source, tokenSpeed } = createSource();
         source.observeMessage(endOf(response(500, 2000)), ctx);
 
