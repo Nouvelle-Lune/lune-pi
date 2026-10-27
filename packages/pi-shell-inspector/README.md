@@ -66,6 +66,8 @@ The dock updates while jobs are running and disappears when there are no shell j
 
 With the optional **Lune Dock** host active, this independent row is replaced by a shared one-line dock. Press Down in an empty main editor, select a module with Left/Right, and press Enter to open its panel directly. Closing the panel returns to dock focus. The plugin publishes its own single-line `base`, `detail`, and `full` Components through the Dock protocol in `@lune_99/pi-lune-extensions-core/dock`; `/dock` controls density, visibility and order. Idle state remains available in the shared Dock, and hiding the plugin keeps its snapshots current. Removing the host restores the independent row.
 
+The shared dock's marker shows the jobs' state: `◐` yellow while a job runs, `●` green when all jobs completed, `●` gray when some failed or were killed, and `○` without jobs. A new failure shows a red `✕` for 10 seconds, or until you open the inspector.
+
 ## `/shell` inspector
 
 Run:

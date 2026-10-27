@@ -5,6 +5,7 @@ import {
     type DockHandle,
     type LuneDockSnapshot,
 } from "@lune_99/pi-lune-extensions-core/dock";
+import { DockAlerts } from "./dock-alert.ts";
 import { fitRanked, type RankedPart } from "./dock-line.ts";
 import { ShellDock } from "./shell-dock.ts";
 import { collapseShellCommand } from "./shell-command.ts";
@@ -25,11 +26,12 @@ const ELAPSED_RANK = 1;
 
 /**
  * The Dock item of the background shells. Its lines count the jobs by status and never cut a
- * part: a narrow cell leaves out whole parts, then the title.
+ * part: a narrow cell leaves out whole parts, then the title. A failed or killed job turns the
+ * marker red for a short time, or until the user opens the inspector.
  */
 export class ShellDockContribution {
     private generation = 0;
-    private readonly acknowledged = new Set<string>();
+    private readonly alerts = new DockAlerts(() => this.render());
     private ctx: ExtensionContext | undefined;
     private timer: ReturnType<typeof setInterval> | undefined;
     private readonly manager: ShellManager;
@@ -58,12 +60,12 @@ export class ShellDockContribution {
         this.timer = undefined;
         this.ctx = undefined;
         this.dock.detach(options);
-        this.acknowledged.clear();
+        this.alerts.clear();
     }
 
     onManagerEvent(event: ShellManagerEvent): void {
-        if (event.type === "jobs-cleared") this.acknowledged.clear();
-        if (event.type === "job-cleared") this.acknowledged.delete(event.id);
+        if (event.type === "jobs-cleared") this.alerts.clear();
+        if (event.type === "job-cleared") this.alerts.forget(event.id);
         // Output chunks affect the independent command/runtime row, not the shared summary.
         this.dock.refresh({ summaryChanged: event.type !== "output-updated" });
         this.syncTimer();
@@ -91,18 +93,19 @@ export class ShellDockContribution {
         const completed = jobs.filter((job) => job.status === "completed");
         let color: ThemeColor;
         let marker: string;
-        if (failed.some((job) => !this.acknowledged.has(job.id))) {
+        if (failed.some((job) => this.alerts.shows(job.id, job.finishedAt))) {
             color = "error";
             marker = "✕";
         } else if (running.length > 0) {
             color = "warning";
             marker = "◐";
+        } else if (failed.length > 0) {
+            // Settled with failures: green would claim success, and red stays for new failures.
+            color = "muted";
+            marker = "●";
         } else if (completed.length > 0) {
             color = "success";
             marker = "●";
-        } else if (jobs.length > 0) {
-            color = "error";
-            marker = "✕";
         } else {
             color = "dim";
             marker = "○";
@@ -161,7 +164,7 @@ export class ShellDockContribution {
             .map((job) => job.id);
         await openShellInspector(ctx, this.manager);
         if (generation !== this.generation) return;
-        for (const id of seen) this.acknowledged.add(id);
+        for (const id of seen) this.alerts.acknowledge(id);
         this.render();
     }
 }

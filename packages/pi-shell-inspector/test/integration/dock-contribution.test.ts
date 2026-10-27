@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, type TestContext } from "node:test";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getDockRegistry, type DockHost } from "@lune_99/pi-lune-extensions-core/dock/host";
@@ -131,6 +131,19 @@ function holdOverlayOpen(ui: FakeExtensionUi): { close(): void } {
             finish();
         },
     };
+}
+
+function firstChar(contribution: ShellDockContribution): string {
+    return stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0);
+}
+
+/** The theme color requested for the marker of a fresh snapshot. */
+function markerColor(ui: FakeExtensionUi, contribution: ShellDockContribution): string {
+    const before = ui.fgCalls.length;
+    contribution.getSnapshot();
+    const call = ui.fgCalls.slice(before).find((entry) => "✕◐●○".includes(entry.text));
+    assert.ok(call, "the snapshot must color its marker");
+    return call.color;
 }
 
 describe("shell dock contribution", () => {
@@ -288,28 +301,181 @@ describe("shell dock contribution", () => {
         );
     });
 
-    it("keeps an only-failed item red after its failure has been opened", async () => {
-        // Contract: reading a failed job clears its unseen alert, but an item containing only failures still communicates failure.
+    it("settles an only-failed item to a muted marker once its failure has been opened", async () => {
+        // Contract: reading a failed job clears its alert; the item then shows the settled muted
+        // marker instead of staying red or claiming success.
         const ui = createFakeUi();
         const ctx = createFakeContext("/work", { ui });
         const contribution = new ShellDockContribution(manager);
         directContributions.push(contribution);
         contribution.attach(ctx);
         addJob(manager, "only-failure", "failed");
+        assert.equal(firstChar(contribution), "✕");
         const overlay = holdOverlayOpen(ui);
 
         const opening = contribution.open(ctx);
         overlay.close();
         await opening;
 
-        assert.equal(
-            stripTerminalSequences(contribution.getSnapshot().base.render(100)[0]!).charAt(0),
-            "✕",
-        );
+        assert.equal(firstChar(contribution), "●");
         assert.match(
             stripTerminalSequences(contribution.getSnapshot().detail!.render(100)[0]!),
             /1 failed\/killed/,
         );
+        assert.equal(markerColor(ui, contribution), "muted");
+    });
+
+    describe("error marker window", () => {
+        const ALERT_MS = 10_000;
+
+        /** A contribution under a shared Dock host with a controlled clock, counting redraws. */
+        function timedContribution(t: TestContext) {
+            t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 });
+            const ui = createFakeUi();
+            const ctx = createFakeContext("/work", { ui });
+            let invalidations = 0;
+            const release = attachHost(ui, () => {
+                invalidations++;
+            });
+            const contribution = new ShellDockContribution(manager);
+            contribution.attach(ctx);
+            t.after(() => {
+                contribution.detach();
+                release();
+            });
+            return {
+                ui,
+                ctx,
+                contribution,
+                invalidations: () => invalidations,
+                marker: () => firstChar(contribution),
+                color: () => markerColor(ui, contribution),
+            };
+        }
+
+        it("shows the red marker for 10 seconds, then redraws the cell without it", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            fx.contribution.onManagerEvent({ type: "job-failed", id: "f" });
+            const mounted = getDockRegistry().getContributions(fx.ctx.ui)[0]!;
+            assert.equal(
+                stripTerminalSequences(mounted.snapshot.base.render(100)[0]!).charAt(0),
+                "✕",
+            );
+            const before = fx.invalidations();
+
+            t.mock.timers.tick(ALERT_MS - 1);
+            assert.equal(fx.invalidations(), before, "no redraw before the window ends");
+            assert.equal(fx.marker(), "✕");
+
+            t.mock.timers.tick(1);
+
+            assert.equal(fx.invalidations(), before + 1, "the host is invalidated at 10 s");
+            assert.equal(
+                stripTerminalSequences(mounted.snapshot.base.render(100)[0]!).charAt(0),
+                "●",
+                "the republished snapshot no longer carries the marker",
+            );
+            assert.equal(fx.color(), "muted");
+        });
+
+        it("measures the window from when the job finished, not from when the cell is drawn", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            t.mock.timers.tick(ALERT_MS - 2_000);
+            assert.equal(fx.marker(), "✕");
+            const before = fx.invalidations();
+
+            t.mock.timers.tick(2_000);
+
+            assert.equal(fx.invalidations(), before + 1);
+            assert.equal(fx.marker(), "●");
+        });
+
+        it("clears the marker at once when the failure is opened inside the window", async (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            addJob(manager, "ok", "completed");
+            assert.equal(fx.marker(), "✕");
+            const overlay = holdOverlayOpen(fx.ui);
+
+            const opening = fx.contribution.open(fx.ctx);
+            overlay.close();
+            await opening;
+
+            assert.equal(fx.marker(), "●");
+            assert.equal(fx.color(), "muted", "an acknowledged failure is not green");
+        });
+
+        it("settles failed beside completed jobs to the muted marker and completed alone to success", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "ok", "completed");
+            assert.equal(fx.color(), "success");
+            addJob(manager, "f", "failed");
+            assert.equal(fx.color(), "error");
+
+            t.mock.timers.tick(ALERT_MS);
+
+            assert.equal(fx.marker(), "●");
+            assert.equal(fx.color(), "muted");
+        });
+
+        it("shows the running marker over a settled failure and the muted one after it ends", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            t.mock.timers.tick(ALERT_MS);
+            addJob(manager, "run", "running");
+            assert.equal(fx.marker(), "◐");
+            assert.equal(fx.color(), "warning");
+
+            manager.settleJob("run", { type: "killed", error: "killed by test" });
+            assert.equal(fx.marker(), "✕", "the kill is a new failure with its own window");
+
+            t.mock.timers.tick(ALERT_MS);
+
+            assert.equal(fx.marker(), "●");
+            assert.equal(fx.color(), "muted");
+        });
+
+        it("starts a new window for a later failure", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "first", "failed");
+            t.mock.timers.tick(ALERT_MS);
+            assert.equal(fx.marker(), "●");
+
+            addJob(manager, "second", "failed");
+
+            assert.equal(fx.marker(), "✕");
+            const before = fx.invalidations();
+            t.mock.timers.tick(ALERT_MS);
+            assert.equal(fx.invalidations(), before + 1);
+            assert.equal(fx.marker(), "●");
+        });
+
+        it("stops the pending redraw when the contribution detaches", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            assert.equal(fx.marker(), "✕");
+
+            fx.contribution.detach();
+            const redraw = t.mock.method(fx.contribution, "render");
+            t.mock.timers.tick(ALERT_MS * 2);
+
+            assert.equal(redraw.mock.callCount(), 0, "a detached item draws nothing late");
+        });
+
+        it("stops the pending redraw when the jobs are cleared", (t) => {
+            const fx = timedContribution(t);
+            addJob(manager, "f", "failed");
+            assert.equal(fx.marker(), "✕");
+            manager.clearAllJobs();
+            fx.contribution.onManagerEvent({ type: "jobs-cleared" });
+            const redraw = t.mock.method(fx.contribution, "render");
+
+            t.mock.timers.tick(ALERT_MS * 2);
+
+            assert.equal(redraw.mock.callCount(), 0, "nothing redraws for cleared jobs");
+        });
     });
 
     it("does not acknowledge failures when opening the inspector rejects", async () => {
