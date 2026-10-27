@@ -111,6 +111,10 @@ export default function (pi: ExtensionAPI): void {
         }
     });
 
+    pi.on("agent_settled", (event) => {
+        manager?.mainAgentSettled(event.aborted);
+    });
+
     pi.on("session_before_tree", async (event, ctx) => manager?.beforeTree(event, ctx));
 
     pi.on("session_tree", () => {

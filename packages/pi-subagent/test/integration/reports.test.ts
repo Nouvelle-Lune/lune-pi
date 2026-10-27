@@ -5,6 +5,7 @@ import {
     createFixture,
     errorResponse,
     reportResponse,
+    startGated,
     textResponse,
     waitForTurns,
 } from "../harness/fixture.ts";
@@ -102,4 +103,77 @@ test("a run records its token usage separately in its own session", async (t) =>
     const { run } = await runOnce(t, reportResponse("done", "ok"));
 
     assert.ok(run.usage.total > 0);
+});
+
+test("a steer during the report batch continues the turn; the first report is kept as earlier", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+    const { run, gate } = await startGated(
+        fx,
+        manager,
+        { task: "work" },
+        reportResponse("blocked", "First try.", { reason: "No key." }),
+    );
+
+    fx.faux.appendResponses([reportResponse("done", "Second try.")]);
+    await manager.send(run, "one more thing", "main-agent");
+
+    gate.open();
+    await waitForTurns(manager, run, 1);
+
+    const [sent] = await fx.pi.waitForMessages(1);
+    const content = String(sent!.message.content);
+
+    assert.equal(run.turns, 1);
+    assert.equal(run.lastTurn?.report?.summary, "Second try.");
+    assert.deepEqual(run.lastTurn?.earlierReports, [
+        { status: "blocked", summary: "First try.", reason: "No key." },
+    ]);
+    assert.match(content, /Earlier report in this turn: blocked\./);
+    assert.match(content, /Report: done/);
+});
+
+test("a turn with one report has no earlier reports", async (t) => {
+    const { run } = await runOnce(t, reportResponse("done", "Only one."));
+
+    assert.equal(run.lastTurn?.earlierReports, undefined);
+});
+
+test("the manager passes the main agent's settle on to confirm its notices", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.state.idle = false;
+    fx.faux.setResponses([reportResponse("done", "Finished.")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    // The session never received the notice, so the second settle sends it again.
+    manager.mainAgentSettled(false);
+    manager.mainAgentSettled(false);
+
+    const sent = await fx.pi.waitForMessages(2);
+
+    assert.deepEqual(sent[1]!.options, { triggerTurn: true, deliverAs: "steer" });
+});
+
+test("an aborted settle of the interactive main agent sends a queued notice for the next turn", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.state.idle = false;
+    fx.faux.setResponses([reportResponse("done", "Finished.")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+    manager.mainAgentSettled(true);
+
+    const sent = await fx.pi.waitForMessages(2);
+
+    assert.deepEqual(sent[1]!.options, { deliverAs: "nextTurn" });
 });

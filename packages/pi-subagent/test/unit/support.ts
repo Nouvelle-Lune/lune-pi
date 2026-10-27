@@ -230,6 +230,12 @@ export interface FakeUiState {
     }>;
 }
 
+/** The main agent's run as the context shows it; tests change it while a manager holds the context. */
+export interface FakeParentState {
+    idle: boolean;
+    aborted: boolean;
+}
+
 export function fakeCtx(
     options: {
         sessionManager?: SessionManager;
@@ -238,8 +244,9 @@ export function fakeCtx(
         cwd?: string;
         projectTrusted?: boolean;
     } = {},
-): { ctx: ExtensionContext; ui: FakeUiState } {
+): { ctx: ExtensionContext; ui: FakeUiState; parent: FakeParentState } {
     const state: FakeUiState = { notifications: [], widgets: [] };
+    const parent: FakeParentState = { idle: true, aborted: false };
     const ui = {
         theme: options.theme ?? fakeTheme(),
         notify: (message: string, type?: string) => state.notifications.push({ message, type }),
@@ -258,9 +265,13 @@ export function fakeCtx(
         scopedModels: [],
         modelRegistry: { getAvailable: () => [] },
         isProjectTrusted: () => options.projectTrusted ?? true,
+        isIdle: () => parent.idle,
+        get signal() {
+            return parent.aborted ? AbortSignal.abort() : undefined;
+        },
     } as unknown as ExtensionContext;
 
-    return { ctx, ui: state };
+    return { ctx, ui: state, parent };
 }
 
 export interface SentMessage {

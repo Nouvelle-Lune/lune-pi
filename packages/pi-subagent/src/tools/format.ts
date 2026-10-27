@@ -247,6 +247,24 @@ function turnLines(turn: TurnRecord, preview: boolean): string[] {
         lines.push(`Error: ${turn.error}`);
     }
 
+    for (const earlier of turn.earlierReports ?? []) {
+        lines.push(`Earlier report in that turn, replaced by a later one: ${earlier.status}`);
+
+        if (preview) {
+            continue;
+        }
+
+        if (earlier.reason) {
+            lines.push(`Reason: ${earlier.reason}`);
+        }
+
+        if (earlier.question) {
+            lines.push(`Question: ${earlier.question}`);
+        }
+
+        lines.push("Summary:", earlier.summary, "");
+    }
+
     if (turn.report) {
         lines.push(`Report: ${turn.report.status}`);
 

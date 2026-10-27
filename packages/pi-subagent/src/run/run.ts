@@ -64,7 +64,8 @@ export interface RunningTool {
 
 interface ActiveTurn {
     startedAt: string;
-    report?: RunReport;
+    /** Every report of the turn, oldest first; the last one is the turn's report. */
+    reports: RunReport[];
     userWrote: boolean;
     stoppedBy?: StopSource;
     error?: string;
@@ -404,10 +405,9 @@ export class Run implements RunEventTarget {
     }
 
     recordReport(report: RunReport): void {
-        // The tool only runs inside a turn; a later report in the same turn replaces this one.
-        if (this.turn) {
-            this.turn.report = report;
-        }
+        // The tool only runs inside a turn. A message that reaches the run after its report keeps
+        // the turn going, and the main agent must still get the report it replaces.
+        this.turn?.reports.push(report);
     }
 
     private assertWritable(): void {
@@ -562,6 +562,7 @@ export class Run implements RunEventTarget {
 
         this.turn = {
             startedAt: new Date().toISOString(),
+            reports: [],
             userWrote: userWrote || this.deferredUserWrote,
             ended,
             end,
@@ -574,6 +575,7 @@ export class Run implements RunEventTarget {
     private finishTurn(aborted: boolean, notify = true): void {
         const turn: Omit<ActiveTurn, "ended" | "end"> = this.turn ?? {
             startedAt: new Date().toISOString(),
+            reports: [],
             userWrote: false,
         };
         const session = this.live?.session;
@@ -599,8 +601,14 @@ export class Run implements RunEventTarget {
             endedAt: new Date().toISOString(),
         };
 
-        if (turn.report) {
-            record.report = turn.report;
+        const report = turn.reports.at(-1);
+
+        if (report) {
+            record.report = report;
+
+            if (turn.reports.length > 1) {
+                record.earlierReports = turn.reports.slice(0, -1);
+            }
         } else {
             record.unreportedMessage = limitText(session?.getLastAssistantText() ?? "");
         }

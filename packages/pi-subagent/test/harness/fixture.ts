@@ -82,6 +82,10 @@ export interface FakeCtxState {
     scopedModels: Array<{ model: Model<string> }>;
     thinkingLevel: string | undefined;
     projectTrusted: boolean;
+    /** Whether the main agent is idle; `ctx.isIdle()` answers it. */
+    idle: boolean;
+    /** Whether the main agent's run is being aborted; `ctx.signal` is then an aborted signal. */
+    aborted: boolean;
     /** What `ui.select` answers; undefined is a cancelled dialog. */
     selectAnswer: string | undefined;
     readonly selectCalls: Array<{ title: string; options: string[] }>;
@@ -167,6 +171,8 @@ export async function createFixture(
         scopedModels: [],
         thinkingLevel: "medium",
         projectTrusted: true,
+        idle: true,
+        aborted: false,
         selectAnswer: undefined,
         selectCalls: [],
         notifications: [],
@@ -223,6 +229,11 @@ function createFakeContext(options: {
             return state.thinkingLevel;
         },
         isProjectTrusted: () => state.projectTrusted,
+        mode: "tui",
+        isIdle: () => state.idle,
+        get signal() {
+            return state.aborted ? AbortSignal.abort() : undefined;
+        },
         cwd: options.cwd,
         sessionManager: options.parent,
         modelRegistry: {

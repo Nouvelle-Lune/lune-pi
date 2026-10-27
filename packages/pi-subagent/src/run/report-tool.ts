@@ -26,7 +26,8 @@ const reportParameters = Type.Object({
 
 /**
  * The run's only own tool, given to the SDK as a plain custom tool. `terminate` ends the turn when
- * `report` is the only call in its batch; a later report in the same turn replaces an earlier one.
+ * `report` is the only call in its batch. A later report in the same turn becomes the turn's report;
+ * the earlier ones still reach the main agent.
  */
 export function createReportTool(onReport: (report: RunReport) => void) {
     return defineTool({
