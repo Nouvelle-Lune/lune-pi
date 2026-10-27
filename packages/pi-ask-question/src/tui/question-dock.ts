@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import { singleLine } from "../core/question-format.ts";
-import { questionManager } from "../core/questionManager.ts";
+import type { QuestionManager } from "../core/questionManager.ts";
 import { fitRanked, type RankedPart } from "./dock-line.ts";
 
 const WIDGET_ID = "pi-ask-question";
@@ -24,6 +24,11 @@ const QUESTION_RANK = 0;
  */
 export class QuestionDock {
     private ctx: ExtensionContext | undefined;
+    private readonly manager: QuestionManager;
+
+    constructor(manager: QuestionManager) {
+        this.manager = manager;
+    }
 
     setCtx(ctx: ExtensionContext | undefined): void {
         this.ctx = ctx;
@@ -34,14 +39,14 @@ export class QuestionDock {
             return;
         }
 
-        const pending = questionManager.getPendingRequests();
+        const pending = this.manager.getPendingRequests();
 
         if (pending.length === 0) {
             this.ctx.ui.setWidget(WIDGET_ID, undefined);
             return;
         }
 
-        const next = questionManager.nextPendingRequest();
+        const next = this.manager.nextPendingRequest();
         const theme = this.ctx.ui.theme;
         // The row names questions, so it counts them: one request can hold several. The Lune
         // Dock item counts requests instead, and the two are never shown together.
@@ -55,7 +60,7 @@ export class QuestionDock {
             singleLine(first?.header ?? ""),
         ].filter((text) => text.length > 0);
         // A waited-on request is always the next one, and the agent is paused until it settles.
-        const waiting = next !== undefined && questionManager.isWaiting(next.id);
+        const waiting = next !== undefined && this.manager.isWaiting(next.id);
         const lead = theme.fg("accent", count);
         const separator = theme.fg("dim", " · ");
         const compose = (texts: readonly string[]): string => [lead, ...texts].join(separator);
@@ -98,5 +103,3 @@ export class QuestionDock {
         this.ctx.ui.setWidget(WIDGET_ID, undefined);
     }
 }
-
-export const questionDock = new QuestionDock();

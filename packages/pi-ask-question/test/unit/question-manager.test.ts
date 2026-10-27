@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 
 import {
     QUESTION_STATE_ENTRY,
     QuestionManager,
-    questionManager,
     type AskQuestion,
     type QuestionManagerEvent,
 } from "../../src/core/questionManager.ts";
@@ -30,11 +29,6 @@ function branchWith(snapshot: unknown, customType = QUESTION_STATE_ENTRY): FakeB
 }
 
 describe("question manager", () => {
-    beforeEach(() => {
-        // Module state is shared inside this test process; the extension tests use the singleton.
-        questionManager.clearAll();
-    });
-
     describe("create", () => {
         it("creates a pending request with an empty draft per question", () => {
             const manager = newManager();

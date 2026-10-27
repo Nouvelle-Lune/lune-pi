@@ -3,9 +3,12 @@ import { setImmediate } from "node:timers/promises";
 import { beforeEach, describe, it, type TestContext } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import { ShellManager } from "../../src/shell/shell-manager.ts";
 import { registerBackgroundShellNotifications } from "../../src/shell/shell-notification.ts";
 import { createFakeContext, createFakeUi, type SendMessageCall } from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+let manager: ShellManager = new ShellManager();
 
 function setup(t: TestContext, send: (call: SendMessageCall) => void | Promise<void>) {
     t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -20,24 +23,25 @@ function setup(t: TestContext, send: (call: SendMessageCall) => void | Promise<v
     } as unknown as ExtensionAPI;
     const unsubscribe = registerBackgroundShellNotifications(
         pi,
+        manager,
         createFakeContext("/work", { ui }),
     );
     t.after(() => {
         unsubscribe();
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
     });
     return { calls, ui, unsubscribe };
 }
 
 function complete(id: string): void {
-    shellManager.startJob({
+    manager.startJob({
         id,
         command: `echo ${id}`,
         cwd: "/work",
         controller: new AbortController(),
     });
-    shellManager.appendOutput(id, `${id}-output\n`);
-    assert.equal(shellManager.settleJob(id, { type: "completed", exitCode: 0 }), true);
+    manager.appendOutput(id, `${id}-output\n`);
+    assert.equal(manager.settleJob(id, { type: "completed", exitCode: 0 }), true);
 }
 
 function ids(call: SendMessageCall): string[] {
@@ -53,7 +57,9 @@ async function tick(t: TestContext, ms: number): Promise<void> {
 }
 
 describe("background notification batching and finite retry", () => {
-    beforeEach(() => shellManager.clearAllJobs());
+    beforeEach(() => {
+        manager = new ShellManager();
+    });
 
     for (const asynchronous of [false, true]) {
         it(`contains ${asynchronous ? "rejected promises" : "synchronous throws"}, retries twice, and resumes after permanent failure`, async (t) => {
@@ -72,7 +78,7 @@ describe("background notification batching and finite retry", () => {
                     "one attempt per scheduling window, not recursive retry",
                 );
                 assert.deepEqual(ids(calls.at(-1)!), ["failed"]);
-                assert.equal(shellManager.getJob("failed")?.status, "completed");
+                assert.equal(manager.getJob("failed")?.status, "completed");
             }
             assert.equal(ui.notifyCalls.length, 3);
             assert.ok(
@@ -255,10 +261,10 @@ describe("background notification batching and finite retry", () => {
                 return Promise.reject(new Error("headless failure"));
             },
         } as unknown as ExtensionAPI;
-        const unsubscribe = registerBackgroundShellNotifications(pi);
+        const unsubscribe = registerBackgroundShellNotifications(pi, manager);
         t.after(() => {
             unsubscribe();
-            shellManager.clearAllJobs();
+            manager.clearAllJobs();
         });
         complete("headless");
         await tick(t, 300);

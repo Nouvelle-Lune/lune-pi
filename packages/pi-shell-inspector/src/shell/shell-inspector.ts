@@ -27,15 +27,19 @@ import { OutputViewport } from "./inspector/output-viewport.ts";
 import { renderDetails, renderEmptyList, renderJobList } from "./inspector/panes.ts";
 import { ScrollbarVisibility } from "./inspector/scrollbar.ts";
 import { formatShellCommand } from "./shell-command.ts";
-import { shellManager } from "./shell-manager.ts";
+import type { ShellManager } from "./shell-manager.ts";
 
 const REFRESH_INTERVAL_MS = 1000;
 
-export async function openShellInspector(ctx: ExtensionContext): Promise<void> {
+export async function openShellInspector(
+    ctx: ExtensionContext,
+    manager: ShellManager,
+): Promise<void> {
     await ctx.ui.custom<void>(
         (tui, _theme, _keybindings, done) => {
             const inspector = new ShellInspector(
                 ctx,
+                manager,
                 () => tui.requestRender(),
                 () => done(),
                 () => tui.terminal.rows,
@@ -73,6 +77,7 @@ interface FrameLayout {
 
 export class ShellInspector implements Component {
     private readonly ctx: ExtensionContext;
+    private readonly manager: ShellManager;
     private readonly requestRender: () => void;
     private readonly close: () => void;
     private readonly terminalRows: () => number;
@@ -92,12 +97,14 @@ export class ShellInspector implements Component {
 
     constructor(
         ctx: ExtensionContext,
+        manager: ShellManager,
         requestRender: () => void,
         close: () => void,
         terminalRows: () => number = () => 40,
         theme: Theme = ctx.ui.theme,
     ) {
         this.ctx = ctx;
+        this.manager = manager;
         this.requestRender = requestRender;
         this.close = close;
         this.terminalRows = terminalRows;
@@ -108,9 +115,9 @@ export class ShellInspector implements Component {
 
         // The index is memory-only state on the manager: reopening the overlay resumes the last
         // selection, while a fresh session starts on the first shell.
-        this.selectedIndex = shellManager.getInspectorIndex();
+        this.selectedIndex = this.manager.getInspectorIndex();
 
-        this.unsubscribeJobs = shellManager.subscribe(() => {
+        this.unsubscribeJobs = this.manager.subscribe(() => {
             this.syncRefreshTimer();
             this.requestRender();
         });
@@ -125,7 +132,7 @@ export class ShellInspector implements Component {
             return;
         }
 
-        const jobs = shellManager.getAllJobsList();
+        const jobs = this.manager.getAllJobsList();
 
         if (jobs.length === 0) {
             return;
@@ -135,7 +142,7 @@ export class ShellInspector implements Component {
             const chosenJob = jobs[this.selectedIndex];
 
             if (chosenJob) {
-                shellManager.settleJob(chosenJob.id, {
+                this.manager.settleJob(chosenJob.id, {
                     type: "killed",
                     error: "Shell killed by user",
                 });
@@ -222,7 +229,7 @@ export class ShellInspector implements Component {
 
         const row = event.y - BODY_TOP;
         const index = layout.listStart + row;
-        const jobCount = shellManager.getAllJobsList().length;
+        const jobCount = this.manager.getAllJobsList().length;
 
         if (
             event.x < 1 ||
@@ -240,7 +247,7 @@ export class ShellInspector implements Component {
     }
 
     render(width: number): string[] {
-        const jobs = shellManager.getAllJobsList();
+        const jobs = this.manager.getAllJobsList();
         const hasJobs = jobs.length > 0;
 
         this.syncRefreshTimer();
@@ -253,7 +260,7 @@ export class ShellInspector implements Component {
         }
 
         // The clamped index is what the user sees, so it is also what a later reopen should restore.
-        shellManager.setInspectorIndex(this.selectedIndex);
+        this.manager.setInspectorIndex(this.selectedIndex);
 
         const geometry = paneGeometry(width, this.terminalRows());
         const { bodyHeight, leftWidth, rightWidth } = geometry;
@@ -289,7 +296,7 @@ export class ShellInspector implements Component {
                 this.previews,
                 {
                     job,
-                    output: this.outputs.get(shellManager, job.id, this.outputWidth),
+                    output: this.outputs.get(this.manager, job.id, this.outputWidth),
                     viewport: this.viewport,
                     showScrollbar: this.scrollbars.isVisible("output"),
                 },
@@ -303,7 +310,7 @@ export class ShellInspector implements Component {
             this.theme,
             geometry.innerWidth,
             jobs.length,
-            shellManager.jobsStatusStat.runningCount,
+            this.manager.jobsStatusStat.runningCount,
         );
         const separator = renderBottomSeparator(
             this.theme,
@@ -349,7 +356,7 @@ export class ShellInspector implements Component {
             return;
         }
 
-        if (shellManager.clearJob(job.id)) {
+        if (this.manager.clearJob(job.id)) {
             this.viewport.follow();
             this.showNotice(
                 `Cleared ${formatShellCommand(job.label ?? job.command, 28)}`,
@@ -366,7 +373,7 @@ export class ShellInspector implements Component {
     }
 
     private moveSelection(step: number): void {
-        const jobCount = shellManager.getAllJobsList().length;
+        const jobCount = this.manager.getAllJobsList().length;
 
         if (jobCount === 0 || step === 0) {
             return;
@@ -381,7 +388,7 @@ export class ShellInspector implements Component {
         }
 
         this.selectedIndex = index;
-        shellManager.setInspectorIndex(index);
+        this.manager.setInspectorIndex(index);
 
         // A different job has a different output; reading it from the middle would be confusing.
         this.viewport.follow();
@@ -395,14 +402,14 @@ export class ShellInspector implements Component {
     }
 
     private scrollOutput(step: number): void {
-        const job = shellManager.getAllJobsList()[this.selectedIndex];
+        const job = this.manager.getAllJobsList()[this.selectedIndex];
 
         if (!job) {
             return;
         }
 
         const result = this.viewport.scrollBy(step, () =>
-            this.outputs.get(shellManager, job.id, this.outputWidth),
+            this.outputs.get(this.manager, job.id, this.outputWidth),
         );
 
         if (result === "ignored") {
@@ -433,7 +440,7 @@ export class ShellInspector implements Component {
     }
 
     private syncRefreshTimer(): void {
-        const hasRunningJobs = shellManager.jobsStatusStat.runningCount > 0;
+        const hasRunningJobs = this.manager.jobsStatusStat.runningCount > 0;
 
         if (hasRunningJobs && !this.refreshTimer) {
             this.refreshTimer = setInterval(() => {

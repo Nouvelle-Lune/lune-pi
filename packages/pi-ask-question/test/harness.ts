@@ -22,6 +22,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, KeybindingsManager, TUI } from "@earendil-works/pi-tui";
 
+import type { QuestionManager } from "../src/core/questionManager.ts";
+import { installAskQuestion } from "../src/index.ts";
+
 /** What `setWidget` accepts here: text lines or a component factory (the docks pass the latter). */
 export type WidgetContent = string[] | ((tui: TUI, theme: Theme) => Component);
 
@@ -422,6 +425,24 @@ export function createFakePiHost(
             }
         },
     };
+}
+
+/** A fake host with one load of the extension on it, and the question manager that load owns. */
+export type AskQuestionHost = FakePiHost & { readonly manager: QuestionManager };
+
+/**
+ * Load the extension once onto a fresh fake host.
+ *
+ * Every call is an independent load with its own manager and panel ownership, as pi gives each
+ * session; two calls in one test stand for two sessions that share a module.
+ */
+export function loadAskQuestion(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    let manager: QuestionManager | undefined;
+    const host = createFakePiHost((api) => {
+        manager = installAskQuestion(api);
+    }, options);
+
+    return Object.assign(host, { manager: manager! });
 }
 
 /**

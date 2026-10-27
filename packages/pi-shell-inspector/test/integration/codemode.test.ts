@@ -16,10 +16,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createTempWorkDir,
-    loadRegisteredTool,
+    sessionTool,
     openSession,
     removeTempWorkDir,
     requireResult,
@@ -62,10 +61,9 @@ describe("pi-shell-inspector under codemode", () => {
     let outputSchema: TSchema;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("codemode");
         session = await openSession(workDir);
-        const bash = loadRegisteredTool(workDir, "bash");
+        const bash = sessionTool(session, "bash");
         assert.ok(bash.outputSchema, "expected the bash wrapper to declare an output schema");
         outputSchema = bash.outputSchema;
     });
@@ -123,7 +121,7 @@ describe("pi-shell-inspector under codemode", () => {
         // structuredContent, so a script reads the job id as a field instead of parsing it out of the
         // text - which keeps reporting the same id and command for readers that only see text.
         const command = "printf 'bg\\n'";
-        const { run } = await runBackgroundBashCommand(session.tool, {
+        const { run } = await runBackgroundBashCommand(session.manager, session.tool, {
             command,
             ctx: session.ctx,
             toolCallId: "call-codemode-bg",
@@ -199,7 +197,7 @@ describe("pi-shell-inspector under codemode", () => {
     it("leaves the text-only tools without an output schema", async () => {
         // Contract: `background_shell` and `kill_background_shell` answer with text only and declare
         // no schema, so a script gets that text and is never promised a structure they do not send.
-        const inspector = loadRegisteredTool(workDir, "background_shell");
+        const inspector = sessionTool(session, "background_shell");
 
         assert.equal(
             inspector.outputSchema,
@@ -207,7 +205,7 @@ describe("pi-shell-inspector under codemode", () => {
             "the inspector must declare no output schema",
         );
         assert.equal(
-            loadRegisteredTool(workDir, "kill_background_shell").outputSchema,
+            sessionTool(session, "kill_background_shell").outputSchema,
             undefined,
             "the kill tool must declare no output schema",
         );

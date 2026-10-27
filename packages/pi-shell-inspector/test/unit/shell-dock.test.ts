@@ -7,8 +7,8 @@
  * runtime) or the per-status count list of a mixed job list. Every segment is requested in its own
  * status colour - accent while running, success when completed, error for failed and killed - and
  * the ` · ` separators plus the `/shell to open` hint stay dim, so the dock never reads as one
- * uniformly coloured block. The tests drive the real `shellManager`
- * singleton through a fake UI that records every `setWidget` and `theme.fg` call, so they assert
+ * uniformly coloured block. The tests drive a real `ShellManager`
+ * through a fake UI that records every `setWidget` and `theme.fg` call, so they assert
  * exactly what the extension asks pi to mount. How pi composes that widget with another extension's
  * widget is covered by `test/integration/subagent-widget.test.ts`; the real TUI is observed through
  * `test/tui`, where the `shelldocksum` scenario shows the same states by hand.
@@ -20,13 +20,16 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 import { ShellDock } from "../../src/shell/shell-dock.ts";
-import { shellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
+import { ShellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
 import {
     createFakeContext,
     createFakeUi,
     withoutMargin,
     type FakeExtensionUi,
 } from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+let manager = new ShellManager();
 
 /**
  * Widget key the extension registers.
@@ -38,7 +41,7 @@ const WIDGET_KEY = "pi-shell-inspector";
 
 /** Start one job and settle it into `status`. */
 function addJob(id: string, command: string, status: ShellJobStatus = "running"): void {
-    shellManager.startJob({
+    manager.startJob({
         id,
         command,
         cwd: "/work",
@@ -49,17 +52,17 @@ function addJob(id: string, command: string, status: ShellJobStatus = "running")
         case "running":
             return;
         case "completed":
-            shellManager.settleJob(id, { type: "completed", exitCode: 0 });
+            manager.settleJob(id, { type: "completed", exitCode: 0 });
             return;
         case "failed":
-            shellManager.settleJob(id, {
+            manager.settleJob(id, {
                 type: "failed",
                 error: "Command exited with code 1",
                 exitCode: 1,
             });
             return;
         case "killed":
-            shellManager.settleJob(id, { type: "killed", error: "timeout:1" });
+            manager.settleJob(id, { type: "killed", error: "timeout:1" });
     }
 }
 
@@ -70,7 +73,7 @@ function addJob(id: string, command: string, status: ShellJobStatus = "running")
  * `Date.now()` is what makes the rendered "Ns" deterministic without mocking the clock.
  */
 function setJobTimes(id: string, startedAgoMs: number, finishedAgoMs?: number): void {
-    const job = shellManager.getJob(id);
+    const job = manager.getJob(id);
     assert.ok(job, `expected job ${id} to exist`);
 
     const mutable = job as { startedAt: number; finishedAt?: number };
@@ -93,14 +96,14 @@ describe("shell dock", () => {
     let ctx: ExtensionContext;
 
     beforeEach(() => {
-        shellManager.clearAllJobs();
-        dock = new ShellDock();
+        manager = new ShellManager();
+        dock = new ShellDock(manager);
         ui = createFakeUi();
         ctx = createFakeContext("/work", { ui });
     });
 
     afterEach(() => {
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
         // clear() also stops the refresh interval a running job started, so tests cannot leak a
         // timer into the next one.
         dock.clear();
@@ -403,7 +406,7 @@ describe("shell dock", () => {
                 "two running shells must use the count summary",
             );
 
-            shellManager.settleJob("job-2", { type: "completed", exitCode: 0 });
+            manager.settleJob("job-2", { type: "completed", exitCode: 0 });
             render();
 
             assert.equal(
@@ -470,7 +473,7 @@ describe("shell dock", () => {
                     "the elapsed segment must follow every tick",
                 );
 
-                shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+                manager.settleJob("job-1", { type: "completed", exitCode: 0 });
                 render();
                 const callsAfterSettle = ui.widgetCalls.length;
                 mock.timers.tick(5_000);
@@ -480,7 +483,7 @@ describe("shell dock", () => {
                     "the timer must stop when no shell runs",
                 );
             } finally {
-                shellManager.clearAllJobs();
+                manager.clearAllJobs();
                 render();
                 mock.timers.reset();
             }
@@ -599,7 +602,7 @@ describe("shell dock", () => {
             ];
 
             for (const [name, setup] of scenarios) {
-                shellManager.clearAllJobs();
+                manager.clearAllJobs();
                 setup();
                 setJobTimes("a", 5_000, 1_000);
                 render();

@@ -17,9 +17,8 @@
  */
 import assert from "node:assert/strict";
 import { rmSync, statSync } from "node:fs";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createFakeContext,
     createFakeUi,
@@ -77,14 +76,10 @@ async function openSession(workDir: string) {
         | BashToolDefinition
         | undefined;
     assert.ok(tool, "the extension must register the bash tool");
-    return { host, ctx, tool };
+    return { host, manager: host.manager, ctx, tool };
 }
 
 describe("pi-shell-inspector teardown races", () => {
-    afterEach(() => {
-        shellManager.clearAllJobs();
-    });
-
     it("a completion racing session_shutdown settles the job exactly once", async () => {
         await withTempDir("race-settle", async (workDir) => {
             const session = await openSession(workDir);
@@ -97,7 +92,7 @@ describe("pi-shell-inspector teardown races", () => {
             });
 
             const settleEvents: string[] = [];
-            const unsubscribe = shellManager.subscribe((event) => {
+            const unsubscribe = session.manager.subscribe((event) => {
                 if (
                     (event.type === "job-completed" ||
                         event.type === "job-failed" ||
@@ -111,7 +106,7 @@ describe("pi-shell-inspector teardown races", () => {
             await session.host.emit("session_shutdown", session.ctx);
             await waitFor(
                 "the racing completion to be observed",
-                () => shellManager.getJob(jobId) === undefined,
+                () => session.manager.getJob(jobId) === undefined,
                 1000,
             ).catch(() => {
                 // The manager is empty after shutdown; a late settle is refused before this check runs.
@@ -125,11 +120,11 @@ describe("pi-shell-inspector teardown races", () => {
                 `the job must settle once, saw ${settleEvents.join(", ")}`,
             );
             assert.deepEqual(
-                shellManager.getAllJobsList(),
+                session.manager.getAllJobsList(),
                 [],
                 "shutdown must leave no job behind",
             );
-            const stats = shellManager.getAllJobsStatusStat();
+            const stats = session.manager.getAllJobsStatusStat();
             const settled =
                 stats.completedCount + stats.failedCount + stats.killedCount + stats.runningCount;
             assert.equal(settled, 0, "a cleared manager must count nothing");
@@ -145,7 +140,7 @@ describe("pi-shell-inspector teardown races", () => {
                 toolCallId: "race-reject",
             });
             assert.equal(
-                shellManager.getJob(jobId)!.status,
+                session.manager.getJob(jobId)!.status,
                 "running",
                 "the shell must be running before teardown",
             );
@@ -155,17 +150,17 @@ describe("pi-shell-inspector teardown races", () => {
             // The runner's abort rejection lands after the shutdown already killed and dropped the job.
             await new Promise((resolve) => setTimeout(resolve, 100));
             assert.equal(
-                shellManager.settleJob(jobId, { type: "killed", error: "aborted" }),
+                session.manager.settleJob(jobId, { type: "killed", error: "aborted" }),
                 false,
                 "a settle after teardown must be refused",
             );
             assert.equal(
-                shellManager.settleJob(jobId, { type: "completed", exitCode: 0 }),
+                session.manager.settleJob(jobId, { type: "completed", exitCode: 0 }),
                 false,
                 "a later settle must be refused too",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -193,15 +188,15 @@ describe("pi-shell-inspector teardown races", () => {
 
                 await waitFor(
                     "the flood to produce output",
-                    () => (shellManager.getJob(jobId)?.output.content.length ?? 0) > 0,
+                    () => (session.manager.getJob(jobId)?.output.content.length ?? 0) > 0,
                 );
                 await waitFor(
                     "the flood to keep producing output",
-                    () => (shellManager.getJob(jobId)?.output.totalBytes ?? 0) > 4096,
+                    () => (session.manager.getJob(jobId)?.output.totalBytes ?? 0) > 4096,
                 );
 
                 await session.host.emit("session_shutdown", session.ctx);
-                const bytesAtShutdown = shellManager.getJob(jobId)?.output.totalBytes;
+                const bytesAtShutdown = session.manager.getJob(jobId)?.output.totalBytes;
                 assert.equal(bytesAtShutdown, undefined, "shutdown drops the job");
 
                 // Any chunk that was still buffered must be refused, not crash the process.
@@ -210,7 +205,7 @@ describe("pi-shell-inspector teardown races", () => {
                     "a chunk arriving after teardown must not escape as a process error",
                 );
                 assert.deepEqual(
-                    shellManager.getAllJobsList(),
+                    session.manager.getAllJobsList(),
                     [],
                     "the cleared flood job must stay gone",
                 );
@@ -229,7 +224,7 @@ describe("pi-shell-inspector teardown races", () => {
                 toolCallId: "race-abort-path",
             });
             await waitFor("the command's first chunk", () =>
-                (shellManager.getJob(jobId)?.output.content ?? "").includes("start"),
+                (session.manager.getJob(jobId)?.output.content ?? "").includes("start"),
             );
 
             await session.host.emit("session_shutdown", session.ctx);
@@ -237,7 +232,7 @@ describe("pi-shell-inspector teardown races", () => {
             await new Promise((resolve) => setTimeout(resolve, 150));
 
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -270,7 +265,7 @@ describe("pi-shell-inspector teardown races", () => {
                 toolCallId: "race-teardown-notify",
             });
             const terminalEvents: string[] = [];
-            const unsubscribe = shellManager.subscribe((event) => {
+            const unsubscribe = session.manager.subscribe((event) => {
                 if (
                     (event.type === "job-completed" ||
                         event.type === "job-failed" ||
@@ -309,12 +304,12 @@ describe("pi-shell-inspector teardown races", () => {
                     "a late rejection must not notify either",
                 );
                 assert.equal(
-                    shellManager.getJob(jobId),
+                    session.manager.getJob(jobId),
                     undefined,
                     "a late rejection must not resurrect the job",
                 );
                 assert.deepEqual(
-                    shellManager.getAllJobsStatusStat(),
+                    session.manager.getAllJobsStatusStat(),
                     {
                         runningCount: 0,
                         completedCount: 0,
@@ -345,15 +340,15 @@ describe("pi-shell-inspector teardown races", () => {
 
                 await waitFor(
                     "the flood to spill its output",
-                    () => shellManager.getJob(jobId)?.output.fullOutputPath !== undefined,
+                    () => session.manager.getJob(jobId)?.output.fullOutputPath !== undefined,
                     15_000,
                 );
-                const path = shellManager.getJob(jobId)!.output.fullOutputPath!;
+                const path = session.manager.getJob(jobId)!.output.fullOutputPath!;
                 spillPath = path;
 
                 let teardownStarted = false;
                 const lateOutputEvents: string[] = [];
-                const unsubscribe = shellManager.subscribe((event) => {
+                const unsubscribe = session.manager.subscribe((event) => {
                     if (event.type === "output-updated" && event.id === jobId && teardownStarted) {
                         lateOutputEvents.push(event.type);
                     }
@@ -365,12 +360,12 @@ describe("pi-shell-inspector teardown races", () => {
                     const sizeAtTeardown = statSync(path).size;
 
                     assert.equal(
-                        shellManager.getJob(jobId),
+                        session.manager.getJob(jobId),
                         undefined,
                         "teardown must drop the job",
                     );
                     assert.deepEqual(
-                        shellManager.getAllJobsStatusStat(),
+                        session.manager.getAllJobsStatusStat(),
                         {
                             runningCount: 0,
                             completedCount: 0,
@@ -391,7 +386,7 @@ describe("pi-shell-inspector teardown races", () => {
                         "no output-updated event may follow teardown",
                     );
                     assert.equal(
-                        shellManager.getJob(jobId),
+                        session.manager.getJob(jobId),
                         undefined,
                         "no late chunk may resurrect the job",
                     );
@@ -401,7 +396,7 @@ describe("pi-shell-inspector teardown races", () => {
                         "a late chunk must not grow the spill file",
                     );
                     assert.deepEqual(
-                        shellManager.getAllJobsStatusStat(),
+                        session.manager.getAllJobsStatusStat(),
                         {
                             runningCount: 0,
                             completedCount: 0,

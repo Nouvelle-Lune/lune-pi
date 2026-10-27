@@ -706,7 +706,3 @@ function isStoredRequest(value: unknown): value is AskQuestionRequest {
 
     return typeof request.id === "string" && Array.isArray(request.questions);
 }
-
-// Shared singleton: its state outlives extension reloads, which is why the extension
-// clears it on session start before restoring from the branch.
-export const questionManager = new QuestionManager();

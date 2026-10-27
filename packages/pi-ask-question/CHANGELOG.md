@@ -46,6 +46,8 @@
 
 - **Tab and the arrow keys leave a free-form question.** A question without options opens its editor by itself, and the editor took `Tab`, `⇧Tab`, `←` and `→`, so the other questions could only be reached after `Esc`. While the editor is open, `Tab` and `⇧Tab` now switch questions and keep the draft; `←` and `→` switch while the editor is empty and move the cursor once it holds text.
 
+- **Each session owns its questions.** A Lune Subagents run that selected `ask_user_questions` cleared the main session's pending questions, interrupted a blocking call and released the open panel, because Pi reuses the loaded module for sessions in the same working directory and that state lived in the module. Each extension load now has its own question manager and panel ownership.
+
 ### Refactored
 
 - **Panel and delivery cleanup.** The renderer reads question state through the controller, answer notifications live in `question-delivery.ts`, and the row, label and text helpers are shared instead of repeated.

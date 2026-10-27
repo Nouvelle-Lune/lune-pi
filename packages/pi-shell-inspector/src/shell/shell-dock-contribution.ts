@@ -2,13 +2,14 @@ import type { ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-age
 import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import {
     createDockContribution,
+    type DockHandle,
     type LuneDockSnapshot,
 } from "@lune_99/pi-lune-extensions-core/dock";
 import { fitRanked, type RankedPart } from "./dock-line.ts";
-import { shellDock } from "./shell-dock.ts";
+import { ShellDock } from "./shell-dock.ts";
 import { collapseShellCommand } from "./shell-command.ts";
 import { openShellInspector } from "./shell-inspector.ts";
-import { shellManager, type ShellManagerEvent } from "./shell-manager.ts";
+import type { ShellManager, ShellManagerEvent } from "./shell-manager.ts";
 
 export const SHELL_CONTRIBUTION_ID = "shell-inspector";
 
@@ -31,12 +32,18 @@ export class ShellDockContribution {
     private readonly acknowledged = new Set<string>();
     private ctx: ExtensionContext | undefined;
     private timer: ReturnType<typeof setInterval> | undefined;
-    private readonly dock = createDockContribution({
-        id: SHELL_CONTRIBUTION_ID,
-        getSnapshot: (ctx) => this.getSnapshot(ctx),
-        activate: (ctx) => this.open(ctx),
-        standalone: shellDock,
-    });
+    private readonly manager: ShellManager;
+    private readonly dock: DockHandle;
+
+    constructor(manager: ShellManager) {
+        this.manager = manager;
+        this.dock = createDockContribution({
+            id: SHELL_CONTRIBUTION_ID,
+            getSnapshot: (ctx) => this.getSnapshot(ctx),
+            activate: (ctx) => this.open(ctx),
+            standalone: new ShellDock(manager),
+        });
+    }
 
     attach(ctx: ExtensionContext): void {
         this.detach({ retired: true });
@@ -67,7 +74,7 @@ export class ShellDockContribution {
     }
 
     private syncTimer(): void {
-        if (this.ctx?.mode === "tui" && shellManager.getRunningJobsList().length > 0) {
+        if (this.ctx?.mode === "tui" && this.manager.getRunningJobsList().length > 0) {
             this.timer ??= setInterval(() => this.render(), 1000);
         } else if (this.timer) {
             clearInterval(this.timer);
@@ -78,7 +85,7 @@ export class ShellDockContribution {
     /** Base names the item; detail adds the counts; full adds the latest job and its runtime. */
     getSnapshot(ctx = this.ctx!): LuneDockSnapshot {
         const theme = ctx.ui.theme;
-        const jobs = shellManager.getAllJobsList();
+        const jobs = this.manager.getAllJobsList();
         const failed = jobs.filter((job) => job.status === "failed" || job.status === "killed");
         const running = jobs.filter((job) => job.status === "running");
         const completed = jobs.filter((job) => job.status === "completed");
@@ -148,11 +155,11 @@ export class ShellDockContribution {
         const generation = this.generation;
         // A failure arriving after the panel opened has not necessarily been seen. Only
         // the opening snapshot is acknowledged, and only after a successful interaction.
-        const seen = shellManager
+        const seen = this.manager
             .getAllJobsList()
             .filter((job) => job.status === "failed" || job.status === "killed")
             .map((job) => job.id);
-        await openShellInspector(ctx);
+        await openShellInspector(ctx, this.manager);
         if (generation !== this.generation) return;
         for (const id of seen) this.acknowledged.add(id);
         this.render();

@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 import { ShellInspector } from "../../src/shell/shell-inspector.ts";
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createTempWorkDir,
     openSession,
@@ -58,13 +57,13 @@ describe("pi-shell-inspector clear key", () => {
     let closeRequests: number;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("inspector-clear");
         session = await openSession(workDir);
         closeRequests = 0;
 
         inspector = new ShellInspector(
             session.ctx,
+            session.manager,
             () => {},
             () => {
                 closeRequests += 1;
@@ -110,12 +109,12 @@ describe("pi-shell-inspector clear key", () => {
             toolCallId: "call-clear-completed",
         });
         assert.equal(
-            (await waitForJobSettled(jobId)).status,
+            (await waitForJobSettled(session.manager, jobId)).status,
             "completed",
             "the shell must settle before it can be cleared",
         );
 
-        const controller = shellManager.getJob(jobId)!.controller;
+        const controller = session.manager.getJob(jobId)!.controller;
         await waitFor(
             "the batched shell notification",
             () => session.host.sendMessageCalls.length === 1,
@@ -134,12 +133,12 @@ describe("pi-shell-inspector clear key", () => {
         press("c");
 
         assert.equal(
-            shellManager.getJob(jobId)?.id,
+            session.manager.getJob(jobId)?.id,
             undefined,
             "the cleared shell must be gone from the manager",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             ZERO_STATS,
             "clearing the last shell must empty the counters",
         );
@@ -162,16 +161,16 @@ describe("pi-shell-inspector clear key", () => {
             ctx: session.ctx,
             toolCallId: "call-clear-running",
         });
-        const controller = shellManager.getJob(jobId)!.controller;
+        const controller = session.manager.getJob(jobId)!.controller;
 
         press("c");
 
-        const job = shellManager.getJob(jobId);
+        const job = session.manager.getJob(jobId);
         assert.ok(job, "the running shell must stay in the manager");
         assert.equal(job.status, "running", "a running shell must keep its status");
         assert.equal(controller.signal.aborted, false, "the refusal must not abort the process");
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             {
                 runningCount: 1,
                 completedCount: 0,
@@ -199,7 +198,7 @@ describe("pi-shell-inspector clear key", () => {
 
         press("x");
         assert.equal(
-            shellManager.getJob(jobId)?.status,
+            session.manager.getJob(jobId)?.status,
             "killed",
             "the kill key must settle the shell as killed",
         );
@@ -216,12 +215,12 @@ describe("pi-shell-inspector clear key", () => {
         press("c");
 
         assert.equal(
-            shellManager.getJob(jobId)?.id,
+            session.manager.getJob(jobId)?.id,
             undefined,
             "the killed shell must be clearable",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             ZERO_STATS,
             "clearing the killed shell must empty the counters",
         );
@@ -244,12 +243,12 @@ describe("pi-shell-inspector clear key", () => {
             toolCallId: "call-clear-mixed-failed",
         });
         assert.equal(
-            (await waitForJobSettled(completed.jobId)).status,
+            (await waitForJobSettled(session.manager, completed.jobId)).status,
             "completed",
             "the first shell must settle as completed",
         );
         assert.equal(
-            (await waitForJobSettled(failed.jobId)).status,
+            (await waitForJobSettled(session.manager, failed.jobId)).status,
             "failed",
             "the second shell must settle as failed",
         );
@@ -262,17 +261,17 @@ describe("pi-shell-inspector clear key", () => {
         press("c"); // the selection starts on the completed shell
 
         assert.equal(
-            shellManager.getJob(completed.jobId)?.id,
+            session.manager.getJob(completed.jobId)?.id,
             undefined,
             "the selected completed shell must be cleared",
         );
         assert.equal(
-            shellManager.getJob(failed.jobId)?.status,
+            session.manager.getJob(failed.jobId)?.status,
             "failed",
             "the other settled shell must survive",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             {
                 runningCount: 0,
                 completedCount: 0,
@@ -290,12 +289,12 @@ describe("pi-shell-inspector clear key", () => {
         press("c"); // the selection clamps to the shell that is left
 
         assert.equal(
-            shellManager.getJob(failed.jobId)?.id,
+            session.manager.getJob(failed.jobId)?.id,
             undefined,
             "the remaining shell must be cleared next",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             ZERO_STATS,
             "clearing every shell must empty the counters",
         );

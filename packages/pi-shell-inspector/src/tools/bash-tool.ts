@@ -14,8 +14,8 @@
  * pull side (the immediate `bash` result cannot report a detached job, so the model needs a way to
  * ask for a job's current status or intermediate output before the completion notification
  * arrives), and `kill_background_shell`, which stops one managed job through its job id instead of
- * a pid. All definitions read the same module-level `ShellManager`, so a job started through one is
- * visible to the others.
+ * a pid. All definitions of one extension load share its `ShellManager`, so a job started through
+ * one is visible to the others.
  */
 import {
     createBashTool,
@@ -29,7 +29,7 @@ import Type from "typebox";
 
 import { startBackgroundShell, backgroundStartOutputSchema } from "./background-bash.ts";
 
-import { shellManager, type ShellJob } from "../shell/shell-manager.ts";
+import type { ShellJob, ShellManager } from "../shell/shell-manager.ts";
 /**
  * Build the wrapper definition for one extension load.
  *
@@ -37,7 +37,7 @@ import { shellManager, type ShellJob } from "../shell/shell-manager.ts";
  * directory at construction time, so the definition must be built where the load-time cwd is known
  * and can later take extension-level configuration.
  */
-export function BashTool() {
+export function BashTool(manager: ShellManager) {
     // Reuse the built-in definition and extend its schema with `mode`, so the rest of the tool
     // contract the model sees cannot drift from the built-in one.
     const baseBash = createBashToolDefinition(process.cwd());
@@ -123,6 +123,7 @@ export function BashTool() {
 
             // Background returns at once; the detached execution settles the job later.
             return startBackgroundShell({
+                manager,
                 toolCallId,
                 command: params.command,
                 label: params.label,
@@ -177,9 +178,9 @@ function formatJobLine(job: Readonly<ShellJob>): string {
  * later tick, which is why a read issued right after `appendOutput` would still see the previous
  * screen: writing an empty chunk first flushes through that same queue.
  */
-async function readJobScreen(job: Readonly<ShellJob>): Promise<string[]> {
+async function readJobScreen(manager: ShellManager, job: Readonly<ShellJob>): Promise<string[]> {
     await new Promise<void>((resolve) => job.terminal.write("", () => resolve()));
-    return shellManager.getScreenLines(job.id);
+    return manager.getScreenLines(job.id);
 }
 
 /**
@@ -187,14 +188,13 @@ async function readJobScreen(job: Readonly<ShellJob>): Promise<string[]> {
  *
  * This is the only pull path to a detached job: a background `bash` call returns before its command
  * printed anything and its transcript row is suppressed, so until the job settles this tool is how
- * the model learns whether it still runs and what it printed so far. State comes from the shared
- * `shellManager` singleton - the same jobs the dock and `/shell` read - and never from a chat
- * transcript.
+ * the model learns whether it still runs and what it printed so far. State comes from the load's
+ * `ShellManager` - the same jobs the dock and `/shell` read - and never from a chat transcript.
  *
  * Output is opt-in per job because a screen can hold up to pi's output tail limit; listing statuses
  * is cheap, while every requested screen is charged to the model's context.
  */
-export function BackgroundShellTool() {
+export function BackgroundShellTool(manager: ShellManager) {
     return defineTool({
         name: "background_shell",
         label: "Background Shell",
@@ -213,7 +213,7 @@ export function BackgroundShellTool() {
             // Omitted and empty `jobs` mean the same thing: list every shell.
             const jobs = params.jobs ?? [];
             if (jobs.length === 0) {
-                const allJobs = shellManager.getAllJobsList();
+                const allJobs = manager.getAllJobsList();
                 if (allJobs.length === 0) {
                     return backgroundShellText("No background shells.");
                 }
@@ -224,7 +224,7 @@ export function BackgroundShellTool() {
             // inline instead of thrown, so one stale id cannot fail the whole query.
             const blocks = await Promise.all(
                 jobs.map(async (job) => {
-                    const jobInfo = shellManager.getJob(job.jobID);
+                    const jobInfo = manager.getJob(job.jobID);
                     if (!jobInfo) {
                         return `Unknown background shell: ${job.jobID}`;
                     }
@@ -234,7 +234,7 @@ export function BackgroundShellTool() {
                         return line;
                     }
 
-                    const screen = await readJobScreen(jobInfo);
+                    const screen = await readJobScreen(manager, jobInfo);
                     return screen.length === 0
                         ? `${line}\n(no output yet)`
                         : `${line}\n${screen.join("\n")}`;
@@ -260,7 +260,7 @@ const killBackgroundShellSchema = Type.Object({
  * process-kill command. A kill is not a clear: the job keeps its output and terminal, stays
  * readable through `background_shell` and `/shell`, and is only removed by an explicit clear.
  */
-export function KillBackgroundShellTool() {
+export function KillBackgroundShellTool(manager: ShellManager) {
     return defineTool({
         name: "kill_background_shell",
         label: "Kill Background Shell",
@@ -274,7 +274,7 @@ export function KillBackgroundShellTool() {
         ],
 
         async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-            const job = shellManager.getJob(params.jobID);
+            const job = manager.getJob(params.jobID);
 
             // Unknown ids and jobs that already settled are caller mistakes, not tool failures, so
             // they are answered inline instead of thrown.
@@ -285,7 +285,7 @@ export function KillBackgroundShellTool() {
             // settleJob is the manager's single terminal-state entry point, so an agent kill goes
             // through the same killed outcome path as `/shell`'s kill key; a refusal means the job
             // is no longer running and the kill must leave it untouched.
-            const settled = shellManager.settleJob(params.jobID, {
+            const settled = manager.settleJob(params.jobID, {
                 type: "killed",
                 error: "Shell killed by agent",
             });

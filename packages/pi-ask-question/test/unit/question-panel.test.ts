@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import {
-    questionManager,
+    QuestionManager,
     type AskQuestion,
     type AskQuestionRequest,
 } from "../../src/core/questionManager.ts";
@@ -48,6 +48,9 @@ const OPTION_QUESTIONS: AskQuestion[] = [
     },
 ];
 
+/** Fresh for every test; the panel reads and writes the request through its own manager. */
+let questionManager = new QuestionManager();
+
 interface Fixture {
     readonly request: AskQuestionRequest;
     readonly panel: QuestionPanel;
@@ -59,6 +62,7 @@ function createFixture(questions: AskQuestion[], options: { rows?: number } = {}
     const counts: Fixture["counts"] = { closed: 0, deferred: 0, reason: undefined };
 
     const panel = new QuestionPanel({
+        manager: questionManager,
         request,
         tui: createFakeTui(options.rows),
         theme: createFakeTheme(),
@@ -155,7 +159,7 @@ function click(
 
 describe("question panel", () => {
     beforeEach(() => {
-        questionManager.clearAll();
+        questionManager = new QuestionManager();
     });
 
     describe("render", () => {
@@ -967,6 +971,7 @@ describe("question panel", () => {
             assert.equal(request.draft.customDrafts[0], pasted);
 
             const reopened = new QuestionPanel({
+                manager: questionManager,
                 request,
                 tui: createFakeTui(),
                 theme: createFakeTheme(),
@@ -1255,6 +1260,7 @@ describe("question panel", () => {
             assert.equal(counts.closed, 1);
 
             const reopened = new QuestionPanel({
+                manager: questionManager,
                 request,
                 tui: createFakeTui(),
                 theme: createFakeTheme(),
@@ -1388,6 +1394,7 @@ describe("question panel", () => {
             };
 
             const panel = new QuestionPanel({
+                manager: questionManager,
                 request,
                 tui: createFakeTui(),
                 theme: createFakeTheme(),

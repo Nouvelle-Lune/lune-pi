@@ -6,14 +6,13 @@ import { getDockRegistry } from "@lune_99/pi-lune-extensions-core/dock/host";
 import type { LuneDockProvider } from "@lune_99/pi-lune-extensions-core/dock";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import luneAskQuestion from "../../src/index.ts";
 import {
     QUESTION_STATE_ENTRY,
-    questionManager,
     type AskQuestion,
     type AskQuestionRequest,
 } from "../../src/core/questionManager.ts";
-import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
+import { QuestionManager } from "../../src/core/questionManager.ts";
+import { QuestionPanels } from "../../src/tui/panel/question-panel.ts";
 import {
     QUESTION_CONTRIBUTION_ID,
     createQuestionDockContribution,
@@ -21,12 +20,26 @@ import {
 } from "../../src/tui/question-dock-contribution.ts";
 import {
     createFakeContext,
-    createFakePiHost,
+    loadAskQuestion,
+    type AskQuestionHost,
     createFakeUi,
     type FakeBranchEntry,
     type FakePiHost,
     type FakeUi,
 } from "../harness.ts";
+
+/**
+ * The question manager of the extension load made last. A test has one session unless it says
+ * otherwise, so this is the manager of the session under test.
+ */
+let questionManager: QuestionManager;
+
+/** Load the extension afresh; each load owns its manager, so nothing carries over between tests. */
+function load(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    const host = loadAskQuestion(options);
+    questionManager = host.manager;
+    return host;
+}
 
 const WIDGET_KEY = "pi-ask-question";
 const liveSessions: QuestionSession[] = [];
@@ -48,7 +61,7 @@ async function startSession(
     branch: FakeBranchEntry[] = [],
     ui = createFakeUi(),
 ): Promise<QuestionSession> {
-    const host = createFakePiHost(luneAskQuestion, { branch });
+    const host = load({ branch });
     const ctx = createFakeContext({ ui, branch });
     await host.fire("session_start", ctx);
     const session = { host, ui, ctx, branch, closed: false };
@@ -103,8 +116,8 @@ async function closeQuestionPanel(ui: FakeUi): Promise<void> {
 
 describe("question dock contribution", () => {
     beforeEach(() => {
-        resetQuestionPanelState();
-        questionManager.clearAll();
+        // Tests that build a contribution directly use this manager; `load` replaces it.
+        questionManager = new QuestionManager();
     });
 
     afterEach(async () => {
@@ -118,19 +131,21 @@ describe("question dock contribution", () => {
             }
         }
         for (const contribution of directContributions.splice(0)) contribution.detach();
-        resetQuestionPanelState();
-        questionManager.clearAll();
     });
 
     it("counts pending requests rather than the number of questions inside each request", () => {
         // Contract: one contribution count represents pending requests, even when a request contains several individual questions.
-        const contribution = createQuestionDockContribution(() => undefined);
+        const contribution = createQuestionDockContribution(
+            questionManager,
+            new QuestionPanels(questionManager),
+            () => undefined,
+        );
         directContributions.push(contribution);
         contribution.attach(createFakeContext());
 
         assert.equal(
             stripTerminalSequences(
-                getQuestionDockSnapshot(createFakeContext()).base.render(100)[0]!,
+                getQuestionDockSnapshot(createFakeContext(), questionManager).base.render(100)[0]!,
             ),
             "○ Ask",
         );
@@ -144,7 +159,9 @@ describe("question dock contribution", () => {
 
         assert.equal(
             stripTerminalSequences(
-                getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!,
+                getQuestionDockSnapshot(createFakeContext(), questionManager).detail!.render(
+                    100,
+                )[0]!,
             ),
             "● Ask · 1 pending request",
         );
@@ -152,7 +169,9 @@ describe("question dock contribution", () => {
         questionManager.create([{ question: "Another request?" }]);
         assert.equal(
             stripTerminalSequences(
-                getQuestionDockSnapshot(createFakeContext()).detail!.render(100)[0]!,
+                getQuestionDockSnapshot(createFakeContext(), questionManager).detail!.render(
+                    100,
+                )[0]!,
             ),
             "● Ask · 2 pending requests",
         );
@@ -167,7 +186,9 @@ describe("question dock contribution", () => {
         void questionManager.waitForSettle(request.id, controller.signal);
         const text = (level: "base" | "detail" | "full"): string =>
             stripTerminalSequences(
-                getQuestionDockSnapshot(createFakeContext())[level]!.render(120)[0]!,
+                getQuestionDockSnapshot(createFakeContext(), questionManager)[level]!.render(
+                    120,
+                )[0]!,
             );
 
         assert.equal(text("base"), "● Ask · agent waiting");
@@ -188,7 +209,7 @@ describe("question dock contribution", () => {
             { header: "Storage", question: "Which database?" },
         ]);
         void questionManager.waitForSettle(request.id, new AbortController().signal);
-        const full = getQuestionDockSnapshot(createFakeContext()).full!;
+        const full = getQuestionDockSnapshot(createFakeContext(), questionManager).full!;
         const levels = [
             "● Ask · 1 pending request · agent waiting · Storage",
             "● Ask · 1 pending request · agent waiting",

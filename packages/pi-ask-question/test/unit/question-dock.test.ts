@@ -3,7 +3,7 @@ import { beforeEach, describe, it } from "node:test";
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import { questionManager } from "../../src/core/questionManager.ts";
+import { QuestionManager } from "../../src/core/questionManager.ts";
 import { QuestionDock } from "../../src/tui/question-dock.ts";
 import { createFakeContext, createFakeUi, withoutMargin, type FakeUi } from "../harness.ts";
 
@@ -17,12 +17,13 @@ const WIDE = 200;
 const MARGIN_COLUMNS = 2;
 
 describe("question dock", () => {
+    let questionManager: QuestionManager;
     let dock: QuestionDock;
     let ui: FakeUi;
 
     beforeEach(() => {
-        questionManager.clearAll();
-        dock = new QuestionDock();
+        questionManager = new QuestionManager();
+        dock = new QuestionDock(questionManager);
         ui = createFakeUi();
     });
 

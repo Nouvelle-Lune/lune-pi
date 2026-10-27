@@ -10,8 +10,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { ScreenFeed, type ScreenSink } from "../../src/shell/screen-feed.ts";
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import { ShellManager } from "../../src/shell/shell-manager.ts";
 import { readJobScreen } from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+const manager = new ShellManager();
 
 /** The emulator's queue as xterm models it: it throws past the limit and parses only on demand. */
 class FakeEmulator implements ScreenSink {
@@ -178,7 +181,7 @@ describe("screen feed", () => {
 
 describe("shell manager under an output flood", () => {
     it("survives output that arrives faster than the emulator parses it", async () => {
-        shellManager.startJob({
+        manager.startJob({
             id: "flood",
             command: "yes",
             cwd: "/work",
@@ -191,23 +194,23 @@ describe("shell manager under an output flood", () => {
 
             assert.doesNotThrow(() => {
                 for (let sent = 0; sent < 120 * MB; sent += chunk.length) {
-                    shellManager.appendOutput("flood", chunk);
+                    manager.appendOutput("flood", chunk);
                 }
 
-                shellManager.appendOutput("flood", "the end\n");
+                manager.appendOutput("flood", "the end\n");
             });
 
             const deadline = Date.now() + 30_000;
-            let screen = await readJobScreen("flood");
+            let screen = await readJobScreen(manager, "flood");
 
             while (screen.at(-1) !== "the end" && Date.now() < deadline) {
                 await new Promise((resolve) => setTimeout(resolve, 50));
-                screen = await readJobScreen("flood");
+                screen = await readJobScreen(manager, "flood");
             }
 
             assert.equal(screen.at(-1), "the end", "the screen must end with the newest output");
         } finally {
-            shellManager.clearAllJobs();
+            manager.clearAllJobs();
         }
     });
 });
