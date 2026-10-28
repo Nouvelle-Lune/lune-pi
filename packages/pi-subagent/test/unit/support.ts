@@ -319,6 +319,13 @@ export function fakePi(): FakePi {
         events: pi.events,
         on(event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
             pi.handlers.set(event, [...(pi.handlers.get(event) ?? []), handler]);
+
+            return () => {
+                pi.handlers.set(
+                    event,
+                    (pi.handlers.get(event) ?? []).filter((candidate) => candidate !== handler),
+                );
+            };
         },
         registerTool(tool: { name: string }) {
             pi.tools.set(tool.name, tool);

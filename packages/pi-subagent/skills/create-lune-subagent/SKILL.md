@@ -48,10 +48,12 @@ repeat the same information.
   choose one without approval.
 - **`description`:** Ask what it should do and when the main agent should select it. You may draft
   or refine a concise routing description, but the user must approve the wording.
-- **Model:** Ask the user to choose an exact `provider/id`, or explicitly choose **Follow the main
-  agent's model**. Use the current `subagent_start` tool schema's model choices rather than a
-  hardcoded list. A fixed model must be available within the current model scope. Following the main
-  agent means omitting `model`; explain that behavior instead of silently omitting the field.
+- **Model:** Ask the user to choose an exact `provider/id`, **Auto**, or explicitly choose **Follow
+  the main agent's model**. Use the current `subagent_start` tool schema's model choices rather than
+  a hardcoded list. A fixed model must be available within the current model scope. Auto writes
+  `model: auto`: the classifier in the Subagents settings chooses a model per task, and without a
+  selected classifier the run uses the main agent's model. Following the main agent means omitting
+  `model`; explain that behavior instead of silently omitting the field.
 
 Runs load no extensions for models. A model supplied only by an extension, including the
 llama.cpp built-in, is unavailable to a run even if the parent lists it. If the requested model is
@@ -79,8 +81,9 @@ necessarily support all of them. Do not infer support from the model name or rel
 unsupported recommendation.
 
 Recommend a supported level based on the reasoning required and the latency or cost tradeoff. Do
-not always recommend the highest level. If the user chose to follow the main model, analyze the
-current model and explain that changing models can change which levels are suitable. If capability
+not always recommend the highest level. If the user chose to follow the main model or Auto, analyze
+the current model or the auto candidates, and explain that changing models can change which levels
+are suitable. If capability
 information cannot be verified, say so and resolve that uncertainty with the user before finalizing
 the recommendation. Do not change the parent's model or thinking level merely to inspect it.
 
@@ -154,7 +157,7 @@ Check the draft against the definition format:
 - `name` and `description` are non-empty strings. A name starts with a letter or digit, contains
   only letters, digits, `.`, `_` or `-`, and is at most 64 characters. `run-<digits>` is reserved.
   Use the approved name exactly; do not silently normalize or rename it.
-- A fixed `model` is the approved `provider/id`. Quote YAML strings when necessary.
+- A fixed `model` is the approved `provider/id`, or `auto`. Quote YAML strings when necessary.
 - Any `thinking` value is supported by the chosen model, tool names are exact, and `isolation` is
   `shared` or `worktree`.
 

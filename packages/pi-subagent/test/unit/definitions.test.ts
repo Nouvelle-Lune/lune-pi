@@ -250,3 +250,33 @@ test("parseDefinition and loadDefinitions set the given scope on each definition
         ["project"],
     );
 });
+
+test("model: auto is a valid model and loads as the literal auto", (t) => {
+    const agentDir = tempAgentDir(t);
+
+    writeDefinition(
+        agentDir,
+        "auto.md",
+        "---\nname: auto-agent\ndescription: D.\nmodel: auto\n---\n",
+    );
+
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
+
+    assert.deepEqual(problems, []);
+    assert.equal(definitions[0]!.model, "auto");
+});
+
+test("a model that only starts with auto is still not a provider/id", (t) => {
+    const agentDir = tempAgentDir(t);
+    const file = writeDefinition(
+        agentDir,
+        "bad.md",
+        "---\nname: a\ndescription: D.\nmodel: automatic\n---\n",
+    );
+
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
+
+    assert.deepEqual(definitions, []);
+    assert.equal(problems[0]!.file, file);
+    assert.match(problems[0]!.message, /Invalid model "automatic": use provider\/id or auto/);
+});

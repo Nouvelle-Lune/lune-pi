@@ -13,8 +13,10 @@ import type { SettingsPath, SettingsPathValue } from "../settings/types.ts";
 import {
     assertSettingsGroups,
     resolveSettingsFieldOptions,
+    type SettingsChoiceContext,
     type SettingsChoiceSource,
     type SettingsFieldOptions,
+    type SettingsMenu,
 } from "./section.ts";
 
 /** Path/value-correlated metadata; paths reference only required object properties. */
@@ -31,6 +33,25 @@ export type SettingsFieldBuilder<T extends TObject> = <const P extends SettingsP
     options?: SettingsFieldOptions<SettingsPathValue<Static<T>, NoInfer<P>>, Static<T>>,
 ) => SettingsPanelFieldDefinition<T>;
 
+/**
+ * A row that opens a secondary menu of fields the consumer builds, such as entries kept
+ * outside this panel's Settings. Callbacks receive the panel's values at the viewed scope.
+ */
+export interface SettingsMenuDefinition<TValues> {
+    /** Unique among the panel's menus and field IDs (a path, or a nested path as JSON). */
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
+    /** See SettingsFieldOptions.group; menus follow the fields in the group order rules. */
+    readonly group?: string;
+    visible?(context: SettingsChoiceContext<TValues>): boolean;
+    disabled?(context: SettingsChoiceContext<TValues>): string | undefined;
+    /** Text beside the label, such as a count of the menu's entries. */
+    summary?(context: SettingsChoiceContext<TValues>): string;
+    /** Build the page; called again on every refresh while the menu is open. */
+    open(context: SettingsChoiceContext<TValues>): SettingsMenu;
+}
+
 /** Presentation only; omission of fields exposes all top-level schema keys in order. */
 export interface SettingsPanelOptions<T extends TObject> {
     /** Registry identity; defaults to the Settings ID and must be unique in one UI scope. */
@@ -40,6 +61,8 @@ export interface SettingsPanelOptions<T extends TObject> {
     fields?:
         | readonly SettingsPanelFieldDefinition<T>[]
         | ((field: SettingsFieldBuilder<T>) => readonly SettingsPanelFieldDefinition<T>[]);
+    /** Secondary menu rows, listed after the fields in this order. */
+    menus?: readonly SettingsMenuDefinition<Static<T>>[];
 }
 
 /**
@@ -51,6 +74,7 @@ export interface SettingsPanelDefinition<T extends TObject> {
     readonly id: string;
     readonly label: string;
     readonly fields: readonly SettingsPanelFieldDefinition<T>[];
+    readonly menus: readonly SettingsMenuDefinition<Static<T>>[];
 }
 
 /**
@@ -130,6 +154,28 @@ export function defineSettingsPanel<T extends TObject>(
         )
             throw new TypeError(`Overlapping settings panel path ${JSON.stringify(path)}`);
     }
-    assertSettingsGroups(fields);
-    return Object.freeze({ settings, id, label: options.label, fields: Object.freeze(fields) });
+    const menus = (options.menus ?? []).map((menu) => Object.freeze({ ...menu }));
+    // The same IDs createDefinedSettingsSection gives the fields.
+    const ids = new Set<string>(
+        fields.map(({ path }) => (typeof path === "string" ? path : JSON.stringify(path))),
+    );
+    for (const menu of menus) {
+        if (!menu.id.trim() || !menu.label.trim())
+            throw new TypeError("Settings menu id and label must not be empty");
+        if (ids.has(menu.id)) throw new TypeError(`Duplicate settings panel id "${menu.id}"`);
+        ids.add(menu.id);
+        if (typeof menu.open !== "function")
+            throw new TypeError(`Settings menu "${menu.id}" requires an open function`);
+        for (const name of ["visible", "disabled", "summary"] as const)
+            if (menu[name] !== undefined && typeof menu[name] !== "function")
+                throw new TypeError(`Settings ${name} for menu "${menu.id}" must be a function`);
+    }
+    assertSettingsGroups([...fields, ...menus]);
+    return Object.freeze({
+        settings,
+        id,
+        label: options.label,
+        fields: Object.freeze(fields),
+        menus: Object.freeze(menus),
+    });
 }

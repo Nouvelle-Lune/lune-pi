@@ -155,6 +155,6 @@ test("the subagent_start schema offers agent only when definitions are loaded, a
 
     assert.deepEqual(withProps["agent"]?.enum, ["a", "b"]);
     assert.equal(withoutProps["agent"], undefined);
-    assert.deepEqual(withProps["model"]?.enum, ["faux/faux-1", "faux/faux-2"]);
+    assert.deepEqual(withProps["model"]?.enum, ["auto", "faux/faux-1", "faux/faux-2"]);
     assert.deepEqual(withoutProps["isolation"]?.enum, ["shared", "worktree"]);
 });

@@ -1,5 +1,5 @@
 import type { Run } from "../run/run.ts";
-import type { RunUsage, TurnRecord } from "../run/types.ts";
+import type { RunSnapshot, RunUsage, TurnRecord } from "../run/types.ts";
 
 /** How much of a summary or task a run list shows; one run shows all of it. */
 const PREVIEW_CHARS = 200;
@@ -35,10 +35,32 @@ export function startValueLines(run: Run): string[] {
 
     return [
         `Agent: ${snapshot.definition ? snapshot.definition.name : "inline"}`,
-        `Model: ${snapshot.model} (from ${snapshot.sources.model})`,
+        `Model: ${snapshot.model} (${modelOrigin(snapshot)})`,
         `Thinking: ${snapshot.thinking} (from ${snapshot.sources.thinking})`,
         `Tools: ${snapshot.tools.join(", ")} (from ${snapshot.sources.tools})`,
     ];
+}
+
+function modelOrigin(snapshot: RunSnapshot): string {
+    const auto = snapshot.autoModel;
+
+    if (!auto) {
+        return `from ${snapshot.sources.model}`;
+    }
+
+    const origin = `auto from ${snapshot.sources.model}`;
+
+    switch (auto.by) {
+        case "classifier":
+            return (
+                `${origin}: the classifier ${auto.classifier} chose it from ` +
+                `${auto.candidates.length} candidates with ${Math.round(auto.confidence * 100)}% confidence`
+            );
+        case "only-candidate":
+            return `${origin}: the only allowed candidate`;
+        case "no-classifier":
+            return `${origin}: no classifier is selected, so the main agent's model`;
+    }
 }
 
 /** One entry of a `tasks` call: the run it started, or why it did not start. */

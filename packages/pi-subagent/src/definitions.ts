@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
-import { parseModelRef } from "./models.ts";
+import { AUTO_MODEL, parseModelRef } from "./models.ts";
 import { definitionsDir, projectDefinitionsDir } from "./paths.ts";
 import { ISOLATION_MODES, THINKING_LEVELS, type Isolation } from "./run/types.ts";
 
@@ -15,7 +15,7 @@ export interface AgentDefinition {
     name: string;
     description: string;
     tools?: string[];
-    /** `provider/id`. */
+    /** `provider/id`, or `auto` to let the classifier choose per task. */
     model?: string;
     thinking?: ThinkingLevel;
     isolation?: Isolation;
@@ -37,8 +37,8 @@ export interface LoadedDefinitions {
 }
 
 const FIELDS = new Set(["name", "description", "tools", "model", "thinking", "isolation"]);
-const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const INLINE_NAME_PATTERN = /^run-\d+$/;
+export const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const INLINE_NAME_PATTERN = /^run-\d+$/;
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 /**
@@ -206,8 +206,8 @@ export function parseDefinition(
     if (fields.model !== undefined) {
         const model = requiredString(fields, "model");
 
-        if (!parseModelRef(model)) {
-            throw new Error(`Invalid model "${model}": use provider/id.`);
+        if (model !== AUTO_MODEL && !parseModelRef(model)) {
+            throw new Error(`Invalid model "${model}": use provider/id or ${AUTO_MODEL}.`);
         }
 
         definition.model = model;

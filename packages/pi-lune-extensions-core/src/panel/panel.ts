@@ -32,6 +32,7 @@ import {
     settingsEditor,
     valueAtScope,
     type SettingsEditorComponent,
+    type SettingsMenu,
     type SettingsPanelField,
     type SettingsSection,
 } from "./section.ts";
@@ -66,7 +67,9 @@ function message(error: unknown): string {
 /**
  * Frame-level state machine: navigation -> text/number/JSON/secret input, choice editor
  * or custom editor -> navigation. The edited field is captured on entry because
- * conditional visibility may rebuild the list while an editor is open.
+ * conditional visibility may rebuild the list while an editor is open. Navigation can
+ * descend into secondary menus; the open path is kept as field IDs and resolved again
+ * on every refresh, so a menu whose row disappears closes instead of showing stale fields.
  * busy serializes accepted persistence operations; disposed prevents their completion
  * from refreshing a retired interaction. Dynamic membership follows stable ctx.ui,
  * not Settings IDs across runners. Child editors must not draw a second shared frame.
@@ -80,6 +83,10 @@ class SettingsPanel implements Component, Focusable {
     private choiceEditor?: SettingsChoiceEditor;
     private customEditor: SettingsEditorComponent | undefined;
     private editing: SettingsPanelField | undefined;
+    // IDs of the open menu rows, outermost first, and the pages they resolved to.
+    private menuPath: string[] = [];
+    private menus: { field: SettingsPanelField; menu: SettingsMenu }[] = [];
+    private menuError = "";
     // List rows that are group headings; navigation steps over them.
     private headings = new Set<string>();
     private visibleFields = 0;
@@ -140,8 +147,11 @@ class SettingsPanel implements Component, Focusable {
         return this.sections[this.activeSection];
     }
     // An unavailable section has no trustworthy fields to list or edit.
-    private get fields(): readonly SettingsPanelField[] {
+    private get sectionFields(): readonly SettingsPanelField[] {
         return this.section?.unavailable === undefined ? (this.section?.fields ?? []) : [];
+    }
+    private get fields(): readonly SettingsPanelField[] {
+        return this.menus.at(-1)?.menu.fields ?? this.sectionFields;
     }
     private get field(): SettingsPanelField | undefined {
         const id = this.list?.getSelectedItem()?.value;
@@ -209,6 +219,7 @@ class SettingsPanel implements Component, Focusable {
         );
         if (previous && previous !== this.section) {
             this.list = undefined;
+            this.menuPath = [];
             this.input = undefined;
             this.editing = undefined;
             this.choiceEditor?.dispose();
@@ -218,10 +229,47 @@ class SettingsPanel implements Component, Focusable {
         this.refresh();
     }
 
+    // A menu is built again from its row, so the page follows values and files changed meanwhile.
+    private resolveMenus(): void {
+        this.menus = [];
+        this.menuError = "";
+        let fields = this.sectionFields;
+        for (const id of this.menuPath) {
+            const field = fields.find((candidate) => candidate.id === id && candidate.menu);
+            if (!field) break;
+            let menu: SettingsMenu;
+            try {
+                menu = field.menu!(this.ctx, this.scope);
+            } catch (error) {
+                this.menuError = `Could not open ${field.label}: ${message(error)}`;
+                break;
+            }
+            this.menus.push({ field, menu });
+            fields = menu.fields;
+        }
+        this.menuPath = this.menus.map(({ field }) => field.id);
+    }
+
+    private openMenu(field: SettingsPanelField): void {
+        this.menuPath = [...this.menuPath, field.id];
+        this.list = undefined;
+        this.refresh();
+    }
+
+    // Back to the parent list with the menu's own row selected.
+    private closeMenu(): void {
+        const id = this.menuPath.at(-1);
+        this.menuPath = this.menuPath.slice(0, -1);
+        this.list = undefined;
+        this.error = "";
+        this.refresh(id);
+    }
+
     // The list is rebuilt because values, visibility and registered sections change while it is open.
-    private refresh(): void {
+    private refresh(select?: string): void {
         if (this.disposed) return;
-        const selected = this.list?.getSelectedItem()?.value;
+        const selected = select ?? this.list?.getSelectedItem()?.value;
+        this.resolveMenus();
         this.visibilityErrors = [];
         const fields = this.fields.filter((field) => {
             try {
@@ -252,19 +300,11 @@ class SettingsPanel implements Component, Focusable {
                 });
             }
             group = field.group;
-            const value = valueAtScope(field.inspect(), this.scope);
-            // The mask length is fixed so it cannot leak the secret's length.
-            const label = field.secret
-                ? typeof value === "string" && value
-                    ? SECRET_MASK
-                    : "(not set)"
-                : (field.choices?.find((choice) => isDeepStrictEqual(choice.value, value))?.label ??
-                  field.formatValue?.(value, this.ctx, this.scope) ??
-                  formatValue(value));
+            const label = this.rowValue(field);
             const globalOnly = !this.projectDisabled && !field.scopes.includes(this.scope);
             items.push({
                 value: field.id,
-                label: field.label,
+                label: field.menu ? `${field.label} →` : field.label,
                 description: [label, globalOnly && "global only", this.disabledReason(field)]
                     .filter(Boolean)
                     .join(" · "),
@@ -291,9 +331,29 @@ class SettingsPanel implements Component, Focusable {
             this.updatePreview();
         };
         this.list.onSelect = () => this.edit();
-        this.list.onCancel = () => this.close();
+        this.list.onCancel = () => this.back();
         this.updatePreview();
         this.tui.requestRender();
+    }
+
+    // A menu row has no value; its summary stands in, and a failing summary is shown, not thrown.
+    private rowValue(field: SettingsPanelField): string {
+        if (field.menu) {
+            try {
+                return field.formatValue?.(undefined, this.ctx, this.scope) ?? "";
+            } catch (error) {
+                return this.theme.fg("error", message(error));
+            }
+        }
+        const value = valueAtScope(field.inspect(), this.scope);
+        // The mask length is fixed so it cannot leak the secret's length.
+        return field.secret
+            ? typeof value === "string" && value
+                ? SECRET_MASK
+                : "(not set)"
+            : (field.choices?.find((choice) => isDeepStrictEqual(choice.value, value))?.label ??
+                  field.formatValue?.(value, this.ctx, this.scope) ??
+                  formatValue(value));
     }
 
     // A failing preview must not close the panel; the error line replaces it.
@@ -356,6 +416,10 @@ class SettingsPanel implements Component, Focusable {
         }
         if (editor === "custom") {
             this.openCustomEditor(field);
+            return;
+        }
+        if (editor === "menu") {
+            this.openMenu(field);
             return;
         }
         if (editor === "cycle" && field.choices?.length) {
@@ -586,6 +650,7 @@ class SettingsPanel implements Component, Focusable {
                 this.activeSection =
                     (this.activeSection + delta + this.sections.length) % this.sections.length;
                 this.list = undefined;
+                this.menuPath = [];
                 this.error = "";
                 this.refresh();
             }
@@ -599,9 +664,10 @@ class SettingsPanel implements Component, Focusable {
             const field = this.field;
             const blocked = field && this.scopeError(field);
             if (blocked) this.error = blocked;
+            else if (field?.menu) this.error = `Open ${field.label} to reset the settings in it`;
             else if (field) void this.apply(() => this.commit(() => field.reset(this.scope)));
         } else if (matchesKey(data, "escape")) {
-            this.close();
+            this.back();
         } else if (data === " ") {
             this.edit();
         } else {
@@ -615,6 +681,11 @@ class SettingsPanel implements Component, Focusable {
                 this.list?.handleInput(data);
         }
         this.tui.requestRender();
+    }
+
+    private back(): void {
+        if (this.menuPath.length) this.closeMenu();
+        else this.close();
     }
 
     private isHeading(value: string | undefined): boolean {
@@ -641,7 +712,7 @@ class SettingsPanel implements Component, Focusable {
             )
             .join(this.theme.fg("dim", " / "));
         const field = this.editing ?? this.field;
-        const inspection = field?.inspect();
+        const inspection = field && !field.menu ? field.inspect() : undefined;
         // Side-by-side preview needs room; below this width it is stacked under the list.
         const split = width >= 88 && !this.input && !!field?.preview;
         const bodyWidth = split ? Math.floor((width - 3) / 2) : width;
@@ -658,6 +729,13 @@ class SettingsPanel implements Component, Focusable {
                 ...wrapTextWithAnsi(this.theme.fg("error", this.section.unavailable), bodyWidth),
                 "",
                 this.theme.fg("muted", "Fix the problem, then press Ctrl+S to retry."),
+            ];
+        else if (this.menus.length && !this.fields.length)
+            body = [
+                this.theme.fg(
+                    "muted",
+                    this.menus.at(-1)!.menu.emptyMessage ?? "This menu is empty.",
+                ),
             ];
         else if (!this.section?.fields.length)
             body = [this.theme.fg("muted", "No settings are available in this section yet.")];
@@ -712,14 +790,14 @@ class SettingsPanel implements Component, Focusable {
                 });
             } else body.push("", rule, ...preview);
         }
-        const errors = [this.error, ...this.visibilityErrors].filter(Boolean);
+        const errors = [this.error, this.menuError, ...this.visibilityErrors].filter(Boolean);
         if (errors.length) body.push("", ...errors.map((text) => this.theme.fg("error", text)));
         return [
             rule,
             this.theme.fg(
                 "accent",
                 this.choiceEditor?.title ??
-                    `${this.editing ? this.editing.label : "Lune settings"} · ${this.scope}${this.busy ? " · Saving / loading…" : ""}`,
+                    `${this.editing ? this.editing.label : ["Lune settings", ...this.menus.map(({ field }) => field.label)].join(" › ")} · ${this.scope}${this.busy ? " · Saving / loading…" : ""}`,
             ),
             tabs,
             rule,
@@ -736,7 +814,7 @@ class SettingsPanel implements Component, Focusable {
                             ? "Enter save · Ctrl+S save/reload · Esc back"
                             : this.section?.unavailable !== undefined
                               ? "Tab/←→ section · Ctrl+S retry · Esc close"
-                              : "↑↓ select · Enter change · Tab/←→ section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · Esc close"),
+                              : `↑↓ select · Enter change · Tab/←→ section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · ${this.menus.length ? "Esc back" : "Esc close"}`),
             ),
             rule,
         ].map((line) => truncateToWidth(line, width));

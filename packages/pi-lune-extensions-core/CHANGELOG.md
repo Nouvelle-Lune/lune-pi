@@ -35,6 +35,11 @@ All notable changes are documented here using
   component in the panel and saves through `submit`, validated at the scope fixed when it
   opened. Custom section hosts gain the matching optional `SettingsPanelField` members;
   see the [Panel guide](docs/panel.md) and [recipes](docs/recipes.md).
+- **Secondary menus in the Panel.** `defineSettingsPanel({ menus })` adds rows that open a
+  nested page of fields, listed after the declared fields; custom hosts build such rows with
+  `createSettingsMenuField`. Menus nest, Esc goes back one level and the title shows the path.
+  A menu is built again on every refresh, so its fields can read and write data outside
+  Settings, such as files; see the [Panel guide](docs/panel.md#secondary-menus).
 - **Independent Settings and Panel definitions.** Immutable declarations separate
   persistence from presentation. Typed nested paths, dynamic/multiple choices and
   previews remain available without forcing Settings consumers to load a Panel.

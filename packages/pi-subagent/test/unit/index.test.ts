@@ -41,14 +41,13 @@ test("loading registers the agents command, the notification renderer and the li
 
     assert.equal(pi.commands.get("agents")?.description, "Open the subagent inspector");
     assert.equal(typeof pi.renderers.get(RUN_NOTIFICATION_TYPE), "function");
-    for (const event of [
-        "session_start",
-        "before_agent_start",
-        "session_before_tree",
-        "session_tree",
-        "session_shutdown",
-    ]) {
+    for (const event of ["before_agent_start", "session_before_tree", "session_tree"]) {
         assert.equal(pi.handlers.get(event)?.length, 1, event);
+    }
+
+    // Core's settings binding adds its own session_start and session_shutdown handler.
+    for (const event of ["session_start", "session_shutdown"]) {
+        assert.equal(pi.handlers.get(event)?.length, 2, event);
     }
 
     // Tools depend on the session's definitions and models, so they wait for session_start.
