@@ -1,5 +1,7 @@
 # Pi Lune Core
 
+[![npm version](https://img.shields.io/npm/v/@lune_99/pi-lune-extensions-core.svg)](https://www.npmjs.com/package/@lune_99/pi-lune-extensions-core) [![npm downloads](https://img.shields.io/npm/dw/@lune_99/pi-lune-extensions-core.svg)](https://www.npmjs.com/package/@lune_99/pi-lune-extensions-core) [![license](https://img.shields.io/npm/l/@lune_99/pi-lune-extensions-core.svg)](LICENSE)
+
 Shared building blocks for [Pi](https://github.com/earendil-works/pi) extensions:
 
 - **Settings** — typed options stored as JSON files, with defaults, a global and a

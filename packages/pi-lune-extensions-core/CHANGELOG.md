@@ -97,6 +97,7 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Release metadata and README badges.** Prepare version 0.2.0 for consumers of the new Panel menu API, including Lune Subagent. Add npm version, weekly download and license badges to match the other package READMEs.
 - **Session mention copies use the system temporary directory.** Store filtered transcripts
   under `<os.tmpdir()>/pi-lune-session-refs/` so the operating system can reclaim them according
   to its temporary-file policy. Existing copies under `<agentDir>/tmp/session-refs/` can be
