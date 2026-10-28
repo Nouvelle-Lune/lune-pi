@@ -100,7 +100,7 @@ test("subagent_start takes an optional task and an optional tasks array of run e
         "tools",
     ]);
     assert.deepEqual(entry.properties["agent"]!.enum, ["reviewer"]);
-    assert.deepEqual(entry.properties["model"]!.enum, ["a/one"]);
+    assert.deepEqual(entry.properties["model"]!.enum, ["auto", "a/one"]);
     assert.deepEqual(entry.properties["isolation"]!.enum, ["shared", "worktree"]);
     assert.ok(entry.properties["thinking"]!.enum!.includes("high"));
 });

@@ -11,9 +11,14 @@ import type {
     Theme,
 } from "@earendil-works/pi-coding-agent";
 
+import {
+    chooseAutoModel,
+    DEFAULT_AUTO_MODEL_SETTINGS,
+    type AutoModelSettings,
+} from "../auto-model.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import type { ExtensionTool } from "../extension-tools.ts";
-import { allowedModelRefs, formatModelRef, parseModelRef } from "../models.ts";
+import { AUTO_MODEL, allowedModelRefs, formatModelRef, parseModelRef } from "../models.ts";
 import {
     RUN_NOTIFICATION_TYPE,
     RunNotifier,
@@ -30,6 +35,7 @@ import type { LiveSession } from "./run-session.ts";
 import { SessionSink, startRunSession } from "./session-start.ts";
 import {
     RUN_ENTRY_TYPE,
+    type AutoModelChoice,
     type Isolation,
     type RunSnapshot,
     type SpawnEntryData,
@@ -68,8 +74,10 @@ export class RunManager implements RunHost {
 
     private readonly pi: ExtensionAPI;
     private readonly ctx: ExtensionContext;
-    private readonly definitions: readonly AgentDefinition[];
+    /** Start values follow edits from the settings panel; names stay as the roster lists them. */
+    private readonly definitions: AgentDefinition[];
     private readonly listExtensionTools: () => readonly ExtensionTool[];
+    private readonly autoModelSettings: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
     private readonly runs = new Map<string, Run>();
     /** Ended turns of runs on another branch; sent when their branch is active again. */
     private readonly deferred = new Map<string, RunNotice[]>();
@@ -86,6 +94,8 @@ export class RunManager implements RunHost {
         definitions: readonly AgentDefinition[];
         /** The parent's extension tools at the time of a start or resume; none when left out. */
         extensionTools?: () => readonly ExtensionTool[];
+        /** Read at each `model: auto` start; the defaults when left out. */
+        autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
         /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
         modelRuntime?: ModelRuntime;
     }) {
@@ -93,8 +103,10 @@ export class RunManager implements RunHost {
         this.ctx = options.ctx;
         this.agentDir = options.agentDir;
         this.modelRuntime = options.modelRuntime;
-        this.definitions = options.definitions;
+        this.definitions = [...options.definitions];
         this.listExtensionTools = options.extensionTools ?? (() => []);
+        this.autoModelSettings =
+            options.autoModelSettings ?? (async () => DEFAULT_AUTO_MODEL_SETTINGS);
         this.sessionId = options.ctx.sessionManager.getSessionId();
         this.notifier = new RunNotifier(
             options.pi,
@@ -259,7 +271,6 @@ export class RunManager implements RunHost {
         this.assertActive();
 
         const definition = this.resolveDefinition(params.agent);
-        const model = this.resolveModel(params, definition, ctx);
         const thinking = params.thinking ?? definition?.thinking ?? ctx.thinkingLevel;
         const thinkingSource: ValueSource =
             params.thinking !== undefined
@@ -283,6 +294,13 @@ export class RunManager implements RunHost {
                 : definition?.isolation !== undefined
                   ? "definition"
                   : "default";
+        const model = await this.resolveModel(params, definition, ctx, {
+            tools: taskTools,
+            isolation,
+            options,
+        });
+
+        this.assertActive();
 
         const runId = this.reserveRunId();
         const name = definition?.name ?? `run-${++this.inlineCount}`;
@@ -398,6 +416,7 @@ export class RunManager implements RunHost {
                 : {}),
             task: params.task,
             model: formatModelRef(session.model ?? model.ref),
+            ...(model.auto ? { autoModel: model.auto } : {}),
             thinking: session.thinkingLevel,
             // An MCP name in an allowlist would hide the run's other MCP tools when it reopens,
             // and the default selection never names one.
@@ -674,14 +693,40 @@ export class RunManager implements RunHost {
     }
 
     /**
+     * Replace the start values of the loaded definition that `previousFile` held, after the
+     * settings panel edited it. Its name and description stay as loaded: the roster in the main
+     * agent's prompt and the `agent` enum list them, and both stay fixed for the session.
+     */
+    applyDefinitionEdit(previousFile: string, edited: AgentDefinition): void {
+        const index = this.definitions.findIndex((definition) => definition.file === previousFile);
+
+        if (index === -1) {
+            return;
+        }
+
+        const loaded = this.definitions[index]!;
+
+        this.definitions[index] = {
+            ...edited,
+            name: loaded.name,
+            description: loaded.description,
+        };
+    }
+
+    /**
      * Requested models must be in the parent's allowed set. The parent's own current model is used
      * as it is, since Pi lets a session's default model sit outside its scope.
      */
-    private resolveModel(
+    private async resolveModel(
         params: StartParams,
         definition: AgentDefinition | undefined,
         ctx: ExtensionContext,
-    ): { ref: { provider: string; id: string }; source: ValueSource } {
+        run: { tools?: readonly string[]; isolation: Isolation; options: ProgressOptions },
+    ): Promise<{
+        ref: { provider: string; id: string };
+        source: ValueSource;
+        auto?: AutoModelChoice;
+    }> {
         const requested = params.model ?? definition?.model;
 
         if (requested === undefined) {
@@ -690,6 +735,24 @@ export class RunManager implements RunHost {
             }
 
             return { ref: { provider: ctx.model.provider, id: ctx.model.id }, source: "parent" };
+        }
+
+        const source: ValueSource = params.model !== undefined ? "call" : "definition";
+
+        if (requested === AUTO_MODEL) {
+            run.options.onProgress?.("Choosing a model");
+
+            const { ref, choice } = await chooseAutoModel({
+                ctx,
+                settings: await this.autoModelSettings(ctx),
+                task: params.task,
+                definition,
+                tools: run.tools,
+                isolation: run.isolation,
+                signal: run.options.signal,
+            });
+
+            return { ref, source, auto: choice };
         }
 
         const ref = parseModelRef(requested);
@@ -709,7 +772,7 @@ export class RunManager implements RunHost {
             );
         }
 
-        return { ref, source: params.model !== undefined ? "call" : "definition" };
+        return { ref, source };
     }
 
     private reserveRunId(): string {

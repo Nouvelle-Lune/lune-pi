@@ -28,6 +28,7 @@ The main agent starts the run with `subagent_start` and continues its own work. 
 - **Optional definitions.** Reusable roles are Markdown files, yours or the project's. A one-off task needs no file: the main agent sets up the run in the call.
 - **Several runs from one call.** The main agent can start one run per entry of `tasks`, all at the same time.
 - **Optional worktrees.** A run can work in its own Git worktree, so parallel changes do not touch your files.
+- **Automatic model choice.** With `model: auto`, a Pi classifier chooses the run's model for its task, from the candidates you select; see [Auto model](#auto-model).
 - **Extensions only for their tools.** A run loads none of your user or project extensions by itself. It gets Pi's native tools and the codemode, tool-search and MCP built-ins, and it cannot start runs of its own. A run that selects a tool of one of your extensions loads that extension, with only the selected tools; see [Extension tools](#extension-tools). Runs load no extensions for models, so a run cannot use a model that an extension provides, such as a model of the llama.cpp built-in: the start fails and says so.
 - **Visible.** Runs show in the Dock and in the `/agents` inspector, where you can read their live transcripts and write to them.
 
@@ -47,11 +48,11 @@ Pi asks whether to trust a project only when the project has resources that Pi i
 | `name`        | Yes      | Unique name. The main agent uses it to pick the agent.                                                |
 | `description` | Yes      | When to use the agent. Shown in the system prompt's agent list.                                       |
 | `tools`       | No       | Tool names, extension tools included, as a comma-separated string or a list. Default: `defaultTools`. |
-| `model`       | No       | `provider/id`. Default: the main agent's current model.                                               |
+| `model`       | No       | `provider/id`, or `auto` for the classifier's choice per task. Default: the main agent's model.       |
 | `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the main agent's level.         |
 | `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                             |
 
-The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
+The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. Edits in the [settings panel](#settings) are the exception: their model, thinking, tools and isolation apply to the next run at once. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
 
 The main agent sees the loaded agents as a `subagents` section of its system prompt, one `- name: description` line each, in name order. A project definition shows as `- name (project): description`.
 
@@ -136,10 +137,20 @@ the tests and report the commands, the results and the files you changed.
 | Tools     | The call, the definition, the `defaultTools` setting     |
 | Isolation | The call, the definition, `shared`                       |
 
-- The `model` parameter accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set.
+- The `model` parameter accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set, and `auto`.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
 - The task is the run's first message, unchanged. The run's system prompt is Pi's own, then the definition body, then a short fixed guide for subagents.
+
+### Auto model
+
+`model: auto`, in the call or in a definition, lets a Pi classifier choose the run's model. The classifier reads the task, the agent's name, description and instructions, the selected tools and the isolation. It chooses one of the auto candidates, preferring the cheapest model that can do the task reliably; it sees each candidate's price, reasoning support and context window. Set it up in the [Subagents settings](#settings):
+
+- **No classifier selected:** the run uses the main agent's model. This is the default.
+- **One candidate left:** the run uses it without a classifier request.
+- **Candidates:** the selected models that your scope still allows, or every allowed model when none is selected. A selection that the scope no longer allows at all fails the start.
+
+An unavailable classifier, a failed request or an answer that names no candidate fails the start, so the main agent can name a model instead. The start values show the choice, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge chose it from 3 candidates with 82% confidence)`.
 
 ### Extension tools
 
@@ -223,6 +234,18 @@ The transcript is a compact log. Each tool call takes one row with its status an
 
 With the Lune theme on, the report messages in the main transcript render as its activity cards. Without it, the package renders them itself.
 
+## Settings
+
+Run `/lune-core-settings subagents` to open the Subagents section of Lune settings. It needs Lune Core's extension; settings are saved per scope, global or project, like other Lune settings.
+
+| Setting         | Meaning                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model.               |
+| Auto candidates | The models the classifier may choose, from your scope. None selected: every allowed model.     |
+| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope. |
+
+In **Custom agents**, Enter opens an agent, and its page edits the name, description, model, thinking level, tools and isolation. Each change is written to the definition file at once; comments and the body stay. Ctrl+R removes an optional field, so the run's default applies again. Renaming an agent renames a file named after it. Model, thinking, tools and isolation apply to the next run; the name and description reach the main agent after `/reload`, because its agent list stays fixed for the session. MCP tools are not listed in the tools menu, but selected MCP tools stay in the file. A file that does not load is listed with its problem and must be fixed by hand.
+
 ## Sessions and branches
 
 - **Shutdown.** When the main session ends, for any reason, running runs stop and become `interrupted`. `subagent_send` continues them later from their session file, in the same working directory. A missing worktree fails the continuation.
@@ -238,7 +261,7 @@ npm test --workspace=@lune_99/pi-subagent
 npm run typecheck --workspace=@lune_99/pi-subagent
 ```
 
-`@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` and `typebox` come from the Pi host at runtime, so the package declares them as peer dependencies. The Dock contribution uses `@lune_99/pi-lune-extensions-core/dock`.
+`@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui` and `typebox` come from the Pi host at runtime, so the package declares them as peer dependencies. The Dock contribution and the settings use `@lune_99/pi-lune-extensions-core`; the agent editor writes frontmatter with `yaml`.
 
 ## License
 

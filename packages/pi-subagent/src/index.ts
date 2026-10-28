@@ -3,8 +3,11 @@ import {
     type ExtensionAPI,
     type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { registerSettingsPanel } from "@lune_99/pi-lune-extensions-core/panel";
+import { ResourceScope } from "@lune_99/pi-lune-extensions-core/resources";
+import { bindSettings } from "@lune_99/pi-lune-extensions-core/settings";
 
-import { addExtensionTools, loadToolCatalog } from "./catalog.ts";
+import { addExtensionTools, loadToolCatalog, type ToolCatalog } from "./catalog.ts";
 import { formatDefinitionProblems, loadAllDefinitions, renderRoster } from "./definitions.ts";
 import { SubagentDockContribution } from "./dock/dock-contribution.ts";
 import { listExtensionTools } from "./extension-tools.ts";
@@ -13,12 +16,29 @@ import { allowedModelRefs } from "./models.ts";
 import { renderRunNotificationBox } from "./notify/notification-box.ts";
 import { RUN_NOTIFICATION_TYPE, type RunNotificationDetails } from "./notify/notifier.ts";
 import { RunManager } from "./run/run-manager.ts";
+import { createSubagentPanel } from "./settings/panel.ts";
+import { autoModelSettings, subagentSettings } from "./settings/schema.ts";
 import { createSubagentTools } from "./tools/subagent-tools.ts";
 
 export default function (pi: ExtensionAPI): void {
     let manager: RunManager | undefined;
     let roster: string | undefined;
+    let toolCatalog: ToolCatalog | undefined;
     let unsubscribe: (() => void) | undefined;
+
+    const resources = new ResourceScope();
+    const settings = resources.use(bindSettings(pi, subagentSettings));
+
+    resources.use(
+        registerSettingsPanel(
+            createSubagentPanel({
+                catalog: () => toolCatalog,
+                onEdit: (previousFile, edited) =>
+                    manager?.applyDefinitionEdit(previousFile, edited),
+            }),
+            settings,
+        ),
+    );
 
     const open = async (ctx: ExtensionContext): Promise<void> => {
         if (ctx.mode !== "tui") {
@@ -74,8 +94,17 @@ export default function (pi: ExtensionAPI): void {
                 projectTrusted: ctx.isProjectTrusted(),
             });
 
-        manager = new RunManager({ pi, ctx, agentDir, definitions, extensionTools });
+        manager = new RunManager({
+            pi,
+            ctx,
+            agentDir,
+            definitions,
+            extensionTools,
+            autoModelSettings: async (startCtx) =>
+                autoModelSettings((await settings.view(startCtx)).snapshot()),
+        });
         manager.restore();
+        toolCatalog = addExtensionTools(catalog, extensionTools());
 
         // Built once per session: the declarations stay the same for every turn of it. Tools that
         // other extensions register later are missing from the list, but runs can still select them.
@@ -83,7 +112,7 @@ export default function (pi: ExtensionAPI): void {
             manager,
             definitions,
             models: allowedModelRefs(ctx),
-            catalog: addExtensionTools(catalog, extensionTools()),
+            catalog: toolCatalog,
         })) {
             pi.registerTool(tool);
         }
@@ -127,10 +156,13 @@ export default function (pi: ExtensionAPI): void {
 
         manager = undefined;
         roster = undefined;
+        toolCatalog = undefined;
         unsubscribe?.();
         unsubscribe = undefined;
         pi.events.emit("lune-subagent:agents-loaded", []);
         dock.detach({ retired: true });
         await current?.shutdown();
+        // Pi replaces the extension runtime after a shutdown, so the settings end with it.
+        await resources.dispose();
     });
 }

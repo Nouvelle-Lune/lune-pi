@@ -14,7 +14,9 @@ export type {
     SettingsPanelOptions,
     SettingsPanelFieldDefinition,
     SettingsFieldBuilder,
+    SettingsMenuDefinition,
 } from "./definition.ts";
+export { createSettingsMenuField } from "./section.ts";
 export { registerSettingsPanel } from "./registration.ts";
 export type { SettingsPanelRegistration } from "./registration.ts";
 export { modelChoices } from "./tools/model-choices.ts";
@@ -34,6 +36,8 @@ export type {
     SettingsCustomEditorContext,
     SettingsEditorComponent,
     SettingsFieldOptions,
+    SettingsMenu,
+    SettingsMenuFieldOptions,
     SettingsPanelField,
     SettingsSection,
 } from "./section.ts";

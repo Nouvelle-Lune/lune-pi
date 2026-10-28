@@ -99,7 +99,7 @@ test("the model enum lists the allowed models and is absent when the list is emp
     );
     const without = properties(toolsFor(t).byName("subagent_start"));
 
-    assert.deepEqual(withModels["model"]!.enum, ["a/one", "b/two"]);
+    assert.deepEqual(withModels["model"]!.enum, ["auto", "a/one", "b/two"]);
     assert.equal("model" in without, false);
 });
 
@@ -241,6 +241,78 @@ test("start values name each value with where it came from, and the workspace li
         "Worktree: /wt",
         "Base commit: abc123",
     ]);
+});
+
+test("the model line of an auto run says who chose it and what that was based on", (t) => {
+    const agentDir = tempAgentDir(t);
+    const cases: Array<[string, Partial<ReturnType<typeof snapshot>>, string]> = [
+        [
+            "classifier",
+            {
+                model: "p/x",
+                sources: {
+                    model: "call",
+                    thinking: "parent",
+                    tools: "settings",
+                    isolation: "default",
+                },
+                autoModel: {
+                    by: "classifier",
+                    classifier: "c/j",
+                    confidence: 0.82,
+                    candidates: ["p/x", "p/y", "p/z"],
+                },
+            },
+            "Model: p/x (auto from call: the classifier c/j chose it from 3 candidates with 82% confidence)",
+        ],
+        [
+            "only",
+            {
+                model: "p/x",
+                sources: {
+                    model: "definition",
+                    thinking: "parent",
+                    tools: "settings",
+                    isolation: "default",
+                },
+                autoModel: { by: "only-candidate", candidates: ["p/x"] },
+            },
+            "Model: p/x (auto from definition: the only allowed candidate)",
+        ],
+        [
+            "none",
+            {
+                model: "p/x",
+                sources: {
+                    model: "call",
+                    thinking: "parent",
+                    tools: "settings",
+                    isolation: "default",
+                },
+                autoModel: { by: "no-classifier" },
+            },
+            "Model: p/x (auto from call: no classifier is selected, so the main agent's model)",
+        ],
+        [
+            "explicit",
+            {
+                model: "p/x",
+                sources: {
+                    model: "call",
+                    thinking: "parent",
+                    tools: "settings",
+                    isolation: "default",
+                },
+            },
+            "Model: p/x (from call)",
+        ],
+    ];
+
+    for (const [id, overrides, expected] of cases) {
+        const actual = startValueLines(restoredRun(agentDir, id, { snapshot: overrides }))[1];
+
+        assert.equal(actual, expected);
+    }
 });
 
 test("formatStarted reports the run ID, start values and that a message arrives later", (t) => {

@@ -136,7 +136,8 @@ text for strings, a number editor for `number`/`integer`, JSON otherwise. String
 masked with `secret: true`; `globalOnly` rows are marked "global only" in the project view;
 untrusted projects show a banner and refuse project edits. Fields can be listed under
 group headings, shown or disabled conditionally, and edited with your own pi-tui component
-via `customEditor`; see the [recipes](docs/recipes.md) and [Panel guide](docs/panel.md).
+via `customEditor`. Secondary menus open a nested page of fields from one row, for entries
+kept outside Settings; see the [recipes](docs/recipes.md) and [Panel guide](docs/panel.md).
 
 Core registers no appearance changes. The Lune header, palettes and tool cards live in the
 independent `@lune_99/pi-core-theme` extension, which adds its own `Theme` section.

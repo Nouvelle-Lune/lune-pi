@@ -5,6 +5,7 @@ import Type, { type TSchema } from "typebox";
 
 import type { ToolCatalog } from "../catalog.ts";
 import type { AgentDefinition } from "../definitions.ts";
+import { AUTO_MODEL } from "../models.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import type { RunManager, StartParams } from "../run/run-manager.ts";
 import type { SendOutcome } from "../run/run.ts";
@@ -308,8 +309,10 @@ function runOptions(options: SubagentToolsOptions, toolsText: string): Record<st
 
     if (options.models.length > 0) {
         properties.model = Type.Optional(
-            stringEnum(options.models, {
-                description: "provider/id. Default: the agent's model, then your current model.",
+            stringEnum([AUTO_MODEL, ...options.models], {
+                description:
+                    `provider/id, or "${AUTO_MODEL}" to let a classifier choose a model for the ` +
+                    "task. Default: the agent's model, then your current model.",
             }),
         );
     }

@@ -20,6 +20,7 @@ import {
     type SessionBeforeTreeEvent,
 } from "@earendil-works/pi-coding-agent";
 
+import type { AutoModelSettings } from "../../src/auto-model.ts";
 import type { AgentDefinition } from "../../src/definitions.ts";
 import type { ExtensionTool } from "../../src/extension-tools.ts";
 import { RunManager } from "../../src/run/run-manager.ts";
@@ -108,6 +109,7 @@ export interface Fixture {
         definitions?: readonly AgentDefinition[],
         ctx?: ExtensionContext,
         extensionTools?: () => readonly ExtensionTool[],
+        autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>,
     ): RunManager;
 }
 
@@ -190,13 +192,14 @@ export async function createFixture(
         models: { first: first as Model<string>, second: second as Model<string> },
         state,
         ctx,
-        createManager(definitions = [], managerCtx = ctx, extensionTools) {
+        createManager(definitions = [], managerCtx = ctx, extensionTools, autoModelSettings) {
             const manager = new RunManager({
                 pi: pi.asApi(),
                 ctx: managerCtx,
                 agentDir,
                 definitions,
                 extensionTools,
+                autoModelSettings,
                 modelRuntime: runtime,
             });
 

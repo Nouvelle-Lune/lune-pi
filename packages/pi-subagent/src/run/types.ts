@@ -50,6 +50,20 @@ export interface RunWorktree {
     baseCommit: string;
 }
 
+/** How `model: auto` was resolved. */
+export type AutoModelChoice =
+    | {
+          by: "classifier";
+          /** `provider/id` of the classifier. */
+          classifier: string;
+          /** The classifier's confidence in its choice, from 0 to 1. */
+          confidence: number;
+          candidates: string[];
+      }
+    | { by: "only-candidate"; candidates: string[] }
+    /** No classifier is selected, so the run got the main agent's model. */
+    | { by: "no-classifier" };
+
 /** The values a run started with. Later edits to its definition never change an existing run. */
 export interface RunSnapshot {
     runId: string;
@@ -60,6 +74,8 @@ export interface RunSnapshot {
     task: string;
     /** `provider/id`. */
     model: string;
+    /** Set when the call or definition asked for `auto`; `sources.model` says which. */
+    autoModel?: AutoModelChoice;
     thinking: ThinkingLevel;
     /** The effective SDK allowlist, `report` included. */
     tools: string[];
