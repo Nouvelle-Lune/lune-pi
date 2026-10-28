@@ -21,3 +21,4 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 - **Package presentation.** Introduce the package with native Pi screenshots, installation steps and a shorter feature guide. Keep detailed contracts in a bundled reference, and declare the package image and public npm access for its first release.
 - **Core dependency.** Require `@lune_99/pi-lune-extensions-core@^0.2.0` for the Auto tiers and Custom agents menus. Publish Core 0.2.0 before Subagent so registry installations receive the required Panel API.
+- **Delegation guidance.** Clarify delegation boundaries, task context, editing ownership and minimal tool selection. Prompt agents to return concise evidence-backed reports and validate results before integration.
