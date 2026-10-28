@@ -43,6 +43,13 @@ export function fileHref(path: string, cwd: string): string | undefined {
     return existsSync(absolute) ? pathToFileURL(absolute).href : undefined;
 }
 
+const wholeUrl = new RegExp(`^${urlPattern.source}$`);
+
+/** The target for text that is exactly one complete HTTP(S) URL, with no trailing punctuation. */
+export function webHref(value: string): string | undefined {
+    return wholeUrl.test(value) && trimUrl(value) === value ? value : undefined;
+}
+
 /** Replace HTTP(S) URLs in plain text, leaving trailing punctuation outside the replacement. */
 export function replaceLinks(
     value: string,

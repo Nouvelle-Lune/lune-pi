@@ -86,8 +86,9 @@ The following are enabled automatically with Core theme and have no separate set
   or `#anchor` suffix stays in the text, but the link opens the file itself.
   Bare paths in prose and tool output stay plain text, including logs, search results,
   directory listings, source code and diff bodies. They are not scanned for existing
-  files. URLs in messages and tool output remain clickable, and existing full-output
-  browser actions are unchanged. Missing paths do not gain `file://` links; existing
+  files. URLs in messages and tool output remain clickable, as does an inline code span
+  that holds exactly one complete `http(s)` URL; commands that contain a URL and domains
+  without `http(s)://` stay plain. Existing full-output browser actions are unchanged. Missing paths do not gain `file://` links; existing
   Markdown link syntax is left for Pi to render, including unresolved targets. Remote
   URI and UNC-style network paths are not reinterpreted as local references. In fullscreen
   mode, Pi opens a link on a plain click.
