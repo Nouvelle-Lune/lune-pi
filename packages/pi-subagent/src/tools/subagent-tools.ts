@@ -47,8 +47,9 @@ interface StartInput extends Partial<RunInput> {
 const RUN_FIELDS = ["agent", "model", "thinking", "tools", "isolation"] as const;
 
 const TASK_DESCRIPTION =
-    "The run's first message and only context: the goal, the expected output and the limits of " +
-    "the work.";
+    "The run's first message; it does not inherit your conversation. Give the goal, relevant " +
+    "context and paths, expected output, acceptance checks and action limits. For edits, assign " +
+    "the files or scope it owns.";
 
 export interface SubagentToolsOptions {
     manager: RunManager;
@@ -69,23 +70,21 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
         name: "subagent_start",
         label: "Subagent Start",
         description:
-            "Start a subagent run: a separate Pi session with a fresh context that works on one task " +
-            "in the background and reports back. Delegate work that can proceed apart from yours, " +
-            "such as a review, an investigation or an independent change, or exploration that would " +
-            "fill your context. The task is the run's only context: state the goal, the expected " +
-            "output and the limits of the work. agent is optional: name an agent from the subagents " +
-            "list to reuse its role, or leave it out and set the run up in this call. Use isolation " +
-            '"shared" when the run must see or change your working directory, uncommitted changes ' +
-            'included. Use "worktree" for parallel changes that must not touch your files: the run ' +
-            "gets its own Git worktree at the current HEAD commit, without uncommitted changes. To " +
-            "start several runs at once, give tasks instead of task, with one entry per run. The " +
-            "call returns the run IDs at once; a message arrives when a run's turn ends.",
-        promptSnippet:
-            "Delegate a task to a subagent run that works in the background and reports back.",
+            "Start a separate Pi session for a bounded task in the background. Delegate when " +
+            "independent execution, isolated context or a fresh verification pass improves speed " +
+            "or quality. Handle quick tasks and tightly coupled steps directly. Use agent to " +
+            'reuse a listed role, or omit it for an inline task. Use isolation "shared" to work ' +
+            'in your current directory, including uncommitted changes; use "worktree" for a ' +
+            "separate Git checkout at HEAD, without uncommitted or untracked files. Tool selection " +
+            "and worktrees are not a security sandbox. Give task for one run or tasks for " +
+            "independent runs started together. The call returns run IDs immediately; each turn's " +
+            "report arrives as a message.",
+        promptSnippet: "Delegate bounded work to a background session and receive its report.",
         promptGuidelines: [
-            "A subagent run reports with a message when its turn ends. Continue your own work meanwhile and do not poll subagent_status.",
+            "Keep your work distinct from delegated work unless overlap is intentional verification. Coordinate shared-file edits so writers do not overlap.",
+            "Reports arrive when turns end; do not poll subagent_status. Continue other useful work, or end your turn if none remains.",
             "When a run reports needs_input, answer with subagent_send if you can. Ask the user only when only the user can answer.",
-            "A worktree run's changes stay in its worktree. Review them before you use them; nothing merges them automatically.",
+            "Validate findings and changes you rely on. Worktree changes stay there until explicitly reviewed and integrated; nothing merges automatically.",
         ],
         parameters: Type.Object(startProperties(options)),
 
@@ -283,10 +282,9 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
                 }),
                 {
                     description:
-                        "Several runs from one call, one entry per run, instead of task. Each " +
-                        "entry takes its own task and start values; leave agent, model, " +
-                        "thinking, tools and isolation out at the top level. The runs start at " +
-                        "the same time, and an entry that fails to start does not stop the others.",
+                        "Independent runs started together instead of task. Set agent, model, " +
+                        "thinking, tools and isolation per entry, not at the top level. A failed " +
+                        "start does not stop the other runs.",
                 },
             ),
         ),
@@ -341,7 +339,8 @@ function toolsDescription(catalog: ToolCatalog): string {
         .map((tool) => `${tool.name}: ${firstSentence(tool.description)}`);
 
     return [
-        "Exact names of the task tools the run gets. Default: the agent's tools, then the " +
+        "Exact names of the task tools the run gets. Choose only tools needed for this task; " +
+            "prefer read-only tools for investigation. Default: the agent's tools, then the " +
             "defaultTools setting. The run always gets report as well.",
         "Available:",
         ...tools.map((line) => `- ${line}`),

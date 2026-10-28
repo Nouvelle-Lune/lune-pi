@@ -1,0 +1,30 @@
+{
+    "method": "Native Ghostty window captured with macOS screencapture",
+    "model": "Scripted loopback HTTP endpoint; real Pi sessions, tools, reports and panels",
+    "terminal": {
+        "ok": true,
+        "columns": 131,
+        "rows": 45,
+        "font": "Menlo",
+        "fontSize": 12
+    },
+    "sources": {
+        "pi-lune-extensions-core": {
+            "version": "0.2.0",
+            "entrySha256": "3a4c791b6958cb5f32ad0b9409944d239045d4a3439c106d6da10ff22cef9435"
+        },
+        "pi-core-theme": {
+            "version": "0.1.0",
+            "entrySha256": "30c3353cdf56cc0950b35fcf4eb6eb3d553b5912d203e0bae76c2cb5216aad98"
+        },
+        "pi-dock": {
+            "version": "0.1.0",
+            "entrySha256": "30ef1080a2bac3b4133cd237787ab973523d108bd5c7fc55e58a78e865833783"
+        },
+        "pi-subagent": {
+            "version": "0.1.0",
+            "entrySha256": "a1ea0cc74181f6e7c102b4848158f66423d051b09225ad34a2201eae81d9d03f"
+        }
+    },
+    "artifacts": ["subagent-overview.png", "subagent-inspector.png", "subagent-auto-tiers.png"]
+}

@@ -1,6 +1,6 @@
 {
     "name": "@lune_99/pi-lune-extensions-core",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Shared infrastructure for the Lune series of Pi extensions",
     "type": "module",
     "exports": {
