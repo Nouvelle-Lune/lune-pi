@@ -35,7 +35,12 @@ const theme = {
 class PanelUi {
     panel: (Component & { dispose?: () => void; focused?: boolean }) | undefined;
     closed = false;
-    readonly tui = { requestRender: () => {} } as unknown as TUI;
+    private readonly renderWaiters = new Set<() => void>();
+    readonly tui = {
+        requestRender: () => {
+            for (const check of [...this.renderWaiters]) check();
+        },
+    } as unknown as TUI;
 
     async custom(
         factory: (tui: TUI, theme: Theme, keybindings: unknown, done: () => void) => Component,
@@ -59,6 +64,17 @@ class PanelUi {
     }
     title(): string {
         return this.lines()[1]!;
+    }
+    waitFor(condition: () => boolean): Promise<void> {
+        if (condition()) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+            const check = () => {
+                if (!condition()) return;
+                this.renderWaiters.delete(check);
+                resolve();
+            };
+            this.renderWaiters.add(check);
+        });
     }
     selected(): string | undefined {
         return this.lines()
@@ -749,8 +765,7 @@ describe("fields listed in a menu with inMenu", () => {
         assert.equal(ui.row("mode"), undefined);
 
         ui.press(keys.enter, ..."xyz", keys.enter);
-        for (let i = 0; i < 50 && settings.get("alpha") !== "a0xyz"; i++)
-            await new Promise((resolve) => setImmediate(resolve));
+        await ui.waitFor(() => !ui.text().includes("Saving / loading"));
         const actual = settings.get("alpha");
         assert.ok(typeof actual === "string" && actual.includes("xyz"), `alpha was ${actual}`);
         assert.equal(settings.get("beta"), "b0");
