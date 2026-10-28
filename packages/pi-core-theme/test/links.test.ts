@@ -192,14 +192,90 @@ test("transformMarkdown links a path created after an earlier miss", (t) => {
 
 test("transformMarkdown leaves remote and network references in code and links unlinked", (t) => {
     hyperlinks(t, true);
-    const { dir, scheme, scp, unc, network } = remoteCollisions(t);
+    const { dir, scp, unc, network } = remoteCollisions(t);
+    inDirectory(t, dir);
+    const unchanged = [`See \`${scp}\`.`, `[share](${unc})`, `[path](${network})`];
+    for (const text of unchanged) assert.equal(markdown(text), text, text);
+});
+
+test("transformMarkdown links a URL in inline code as the web URL, not the colliding local file", (t) => {
+    hyperlinks(t, true);
+    const { dir, scheme } = remoteCollisions(t);
+    inDirectory(t, dir);
+    const actual = markdown(`See \`${scheme}\`.`);
+    const expected = `See [\`${scheme}\`](<${scheme}>).`;
+    assert.equal(actual, expected);
+    assert.equal(actual.includes("file://"), false, actual);
+});
+
+test("transformMarkdown links inline code that is one complete URL and keeps the prose", (t) => {
+    hyperlinks(t, true);
+    const { dir } = workspace(t);
+    inDirectory(t, dir);
+    const urls = [
+        "https://example.com/path",
+        "http://example.com",
+        "https://example.com/a/b?x=1&y=2#frag",
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
+    ];
+    for (const href of urls) {
+        const actual = markdown(`Open \`${href}\` now, or \` ${href} \` too.`);
+        const expected = `Open [\`${href}\`](<${href}>) now, or [\` ${href} \`](<${href}>) too.`;
+        assert.equal(actual, expected, href);
+    }
+});
+
+test("transformMarkdown links a URL in a multi-backtick span and in a table cell", (t) => {
+    hyperlinks(t, true);
+    const { dir } = workspace(t);
+    inDirectory(t, dir);
+    const href = "https://example.com/a";
+    assert.equal(markdown(`See \`\`${href}\`\``), `See [\`\`${href}\`\`](<${href}>)`);
+    const actual = markdown(`| name | link |\n| --- | --- |\n| docs | \`${href}\` |`);
+    const expected = `| name | link |\n| --- | --- |\n| docs | [\`${href}\`](<${href}>) |`;
+    assert.equal(actual, expected);
+});
+
+test("transformMarkdown leaves inline code that is not exactly one complete URL unchanged", (t) => {
+    hyperlinks(t, true);
+    const { dir } = workspace(t);
     inDirectory(t, dir);
     const unchanged = [
-        `See \`${scheme}\` and \`${scp}\`.`,
-        `[share](${unc})`,
-        `[path](${network})`,
+        "`https://example.com/a.`",
+        "`https://example.com/a,`",
+        "`https://example.com/a;`",
+        "`https://example.com/a)`",
+        "`https://example.com/a b`",
+        "`curl https://example.com`",
+        "`curl -s https://example.com/api | jq .`",
+        "`career.huawei.com`",
+        "`example.com/path`",
+        "`ftp://example.com/a`",
     ];
     for (const text of unchanged) assert.equal(markdown(text), text, text);
+});
+
+test("transformMarkdown leaves a URL in inline code unchanged when hyperlinks are off", (t) => {
+    hyperlinks(t, false);
+    const text = "See `https://example.com/a`";
+    assert.equal(markdown(text), text);
+});
+
+test("transformMarkdown does not link inline-code URLs while streaming or in thinking", (t) => {
+    hyperlinks(t, true);
+    const { dir } = workspace(t);
+    inDirectory(t, dir);
+    const text = "See `https://example.com/a`";
+    assert.equal(markdown(text, "assistant", true), text);
+    assert.equal(markdown(text, "assistant-thinking"), text);
+});
+
+test("transformMarkdown does not rewrite a URL inside a fenced code block", (t) => {
+    hyperlinks(t, true);
+    const { dir } = workspace(t);
+    inDirectory(t, dir);
+    const text = "```\nhttps://example.com/a\n```\n\n```text\n`https://example.com/a`\n```";
+    assert.equal(markdown(text), text);
 });
 
 test("transformMarkdown links complete inline code paths with spaces and parentheses", (t) => {

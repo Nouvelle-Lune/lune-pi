@@ -135,3 +135,7 @@ All notable changes are documented here using
   every frame, and removing link underlines re-parsed every row each time, so frames in long
   sessions took about four times as long, including 30 times a second while thinking. Rows
   without a hovered link now reuse the previous frame's result.
+- **URLs in inline code were not clickable.** A URL written as inline code, such as
+  `https://example.com/path`, stayed plain code text. A span that holds exactly one complete
+  `http(s)` URL is now a link and keeps its code style. Commands that contain a URL, code
+  blocks and domains without `http(s)://` stay unchanged.
