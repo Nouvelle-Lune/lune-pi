@@ -395,9 +395,9 @@ describe("dock model speed segment", () => {
 
     it("appends the latest measured rate with one decimal", () => {
         const cases: [number, string][] = [
-            [55.84, " · 55.8 tok/s"],
-            [12.34, " · 12.3 tok/s"],
-            [999.9, " · 999.9 tok/s"],
+            [55.84, " • 55.8 tok/s"],
+            [12.34, " • 12.3 tok/s"],
+            [999.9, " • 999.9 tok/s"],
         ];
 
         for (const [tokensPerSecond, expected] of cases) {
@@ -431,13 +431,13 @@ describe("dock model speed segment", () => {
     it("reports a positive rate below a tenth as <0.1", () => {
         const actual = segment({ tokensPerSecond: 0.06, generating: false });
 
-        assert.equal(actual, bare + " · <0.1 tok/s");
+        assert.equal(actual, bare + " • <0.1 tok/s");
     });
 
     it("bounds only a large rate to six numeric columns", () => {
         for (const tokensPerSecond of [12_345.6, 999_999_999, 1_500_000_000]) {
             const actual = segment({ tokensPerSecond, generating: false });
-            const match = actual.match(/^claude-test • high · (\S+) tok\/s$/);
+            const match = actual.match(/^claude-test • high • (\S+) tok\/s$/);
 
             assert.ok(match, `${tokensPerSecond} tokens per second: ${JSON.stringify(actual)}`);
             assert.ok(
@@ -448,7 +448,7 @@ describe("dock model speed segment", () => {
     });
 
     it("hides the whole speed segment before shortening the model and thinking", () => {
-        const withSpeed = bare + " · 55.8 tok/s";
+        const withSpeed = bare + " • 55.8 tok/s";
         const cases: [number, string][] = [
             [visibleWidth(withSpeed), withSpeed],
             [visibleWidth(withSpeed) - 1, bare],
@@ -472,7 +472,7 @@ describe("dock model speed segment", () => {
             tokenSpeed: { tokensPerSecond: 55.8, generating: false },
         });
         const named = `(anthropic) ${bare}`;
-        const speed = " · 55.8 tok/s";
+        const speed = " • 55.8 tok/s";
         const cases: [number, string][] = [
             [visibleWidth(named + speed), named + speed],
             [visibleWidth(bare + speed), bare + speed],

@@ -86,7 +86,7 @@ describe("dock footer", () => {
             tokenSpeed: { tokensPerSecond: 55.8, generating: false },
             usage: { input: 1500, output: 20, cost: 0.12 },
         });
-        const suffix = "claude-test • high · 55.8 tok/s";
+        const suffix = "claude-test • high • 55.8 tok/s";
 
         const [, ruledRow, , infoRow] = render(120, { status });
         const [, boxedRow] = render(120, {

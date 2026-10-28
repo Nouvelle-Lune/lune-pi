@@ -316,7 +316,7 @@ export function modelSegmentVariants(status: DockStatus, theme: Theme): string[]
     if (!model) return [bare];
     const value = formatTokenSpeed(status.tokenSpeed.tokensPerSecond);
     if (value === undefined) return [...new Set([withProvider, bare])];
-    const speed = theme.fg(status.tokenSpeed.generating ? "accent" : "dim", ` · ${value} tok/s`);
+    const speed = theme.fg(status.tokenSpeed.generating ? "accent" : "dim", ` • ${value} tok/s`);
     return [...new Set([withProvider + speed, bare + speed, withProvider, bare])];
 }
 

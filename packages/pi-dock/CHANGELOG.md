@@ -91,3 +91,6 @@
   `CH`, so a shrinking row keeps the hit rate beside context use and `(auto)` once cost is gone.
   The drop order is cache writes, cache reads, tokens, cost, hit rate and `(auto)`; the hit-rate
   slot survives down to 80 columns instead of 104, and cost down to 90 instead of 79.
+
+- **The speed segment uses the thinking level's bullet.** `model • max • 48.2 tok/s` replaces the
+  mixed `·` and `•` separators in the model segment.

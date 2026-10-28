@@ -18,7 +18,7 @@ The dock **replaces Pi's built-in footer**, so every statistic it showed stays v
 
 | Row  | Left                                         | Right                                                                                                               |
 | ---- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Dock | Module cells, one per contributing extension | `(provider) model • thinking level · 48.2 tok/s`                                                                    |
+| Dock | Module cells, one per contributing extension | `(provider) model • thinking level • 48.2 tok/s`                                                                    |
 | Info | Working directory, git branch, session name  | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
 
 Statuses set by other extensions through `ctx.ui.setStatus()` follow on a row of their own.
@@ -36,11 +36,11 @@ bar that leaves room within half the row, dropping the provider and then the spe
 divider alignment.
 
 The speed segment follows the thinking level (or model name for models without thinking) with single
-spaces, as in `max · 48.2 tok/s`. Without a reliable measurement the entire segment stays hidden,
-including its separator and unit. Once measured,
-the latest speed stays visible through subsequent generation and after completion or cancellation,
-until a new valid measurement replaces it. It is highlighted while an assistant response is generating
-and dimmed when finished.
+spaces and the same `•` bullet, as in `model • max • 48.2 tok/s`. Without a reliable measurement the
+entire segment stays hidden, including its separator and unit. Once measured, the latest speed stays
+visible through subsequent generation and after completion or cancellation, until a new valid
+measurement replaces it. It is highlighted while an assistant response is generating and dimmed when
+finished.
 
 Speed is the provider-reported output tokens divided by Pi's measured response duration, including
 the wait for the first token, not a pure decoding benchmark. Both output tokens and duration must be

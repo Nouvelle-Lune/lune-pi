@@ -378,7 +378,7 @@ describe("dock extension session events", () => {
         assert.match(generating, /claude-test • medium$/);
         assert.doesNotMatch(generating, /tok\/s|—/);
         assert.equal(streaming, generating, "partial usage stays unknown while streaming");
-        assert.match(ended, /claude-test • medium · 250\.0 tok\/s$/);
+        assert.match(ended, /claude-test • medium • 250\.0 tok\/s$/);
         assert.doesNotMatch(ended, /—/);
     });
 
