@@ -14,7 +14,10 @@ const reportParameters = Type.Object({
             "you can continue.",
     }),
     summary: Type.String({
-        description: "The result for the main agent. For blocked, also what you did.",
+        description:
+            "Concise result with relevant evidence (file references, sources or artifacts), " +
+            "checks actually run and their outcomes, and important limitations or unverified " +
+            "work. For blocked, include what you completed.",
     }),
     reason: Type.Optional(
         Type.String({ description: "Required for blocked: why you cannot finish." }),
