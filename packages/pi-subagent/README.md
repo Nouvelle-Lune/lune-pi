@@ -40,8 +40,9 @@ directly.
   Git worktree. Worktrees stay available for review and later turns; integration remains explicit.
 - **Reuse a role.** Save Markdown definitions with instructions, tools, a model and isolation, or
   use the included `create-lune-subagent` skill to write one with you.
-- **Match models to tasks.** Choose a model explicitly or use `auto` with a Pi classifier and four
-  model tiers. A configurable floor raises the model tier for tasks rated high risk.
+- **Route models automatically.** Use Jev or another Pi classifier as a task router with `model: auto`.
+  It selects the subagent's model from four configured tiers and chooses a supported thinking level.
+  A configurable floor raises the model tier for tasks rated high risk.
 - **Stay with the session.** Runs survive resume in their own session files. Reports belong to
   the Pi conversation branch that started the run; inherited runs in a fork or clone are read-only.
 
@@ -119,7 +120,8 @@ Then restart Pi and open `/lune-core-settings subagents`. **Custom agents** edit
 | Complex  | Analysis or implementation across components       |
 | Deep     | Design decisions, unclear failures and subtle bugs |
 
-The classifier rates the task; you choose the models for the tiers. It also selects a thinking
+Automatic routing supports Pi's classifier models, including TypeSafe's **Jev**. The classifier
+rates the task; you choose the models for the tiers. It also selects a thinking
 level supported by the chosen model unless the call or definition sets one. Empty tiers use the
 next configured tier, then the main agent's model. With no classifier selected, `auto` uses the
 main agent's model and thinking.
