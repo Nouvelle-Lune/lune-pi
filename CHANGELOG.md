@@ -23,4 +23,6 @@
 - **Single agent guide.** Consolidate the per-package `AGENTS.md` rules into the root guide, delete the duplicated package copies, and keep the Core agent notes local-only in `.gitignore` and `.npmignore`. The copies had drifted apart while repeating the same rules, so agent instructions now change in one place.
 - **Local design drafts.** Ignore `.docs/` so working design notes stay out of commits and need no branch.
 
+- **Preview capture from a local skill.** Move the README screenshot and recording pipeline out of `tools/` into the repository-level `capture-readme-previews` skill, drop the root `docs:previews` script, and point the preview guides at the skill. The capture code regenerates maintainer assets rather than shipping with any package, so it no longer belongs in the workspace.
+
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev

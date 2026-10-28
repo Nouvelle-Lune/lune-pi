@@ -25,8 +25,7 @@
         "typecheck": "npm run build && npm run typecheck --workspaces",
         "test": "npm run build && npm test --workspaces",
         "pack:check": "npm pack --workspaces --dry-run --ignore-scripts",
-        "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run pack:check",
-        "docs:previews": "node tools/make-readme-previews.mjs"
+        "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run pack:check"
     },
     "repository": {
         "type": "git",

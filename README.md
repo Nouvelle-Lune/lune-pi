@@ -201,17 +201,16 @@ npm run check
 <summary><b>All workspace commands</b></summary>
 <br>
 
-| Command                 | What it does                                                     |
-| ----------------------- | ---------------------------------------------------------------- |
-| `npm run build`         | Build Core, then Recap                                           |
-| `npm run format`        | Format source, configuration and documentation with Prettier     |
-| `npm run format:check`  | Check formatting without changing files                          |
-| `npm run lint`          | Lint TypeScript and JavaScript with ESLint                       |
-| `npm run typecheck`     | Build dependencies and typecheck every package                   |
-| `npm test`              | Build dependencies and run every package's tests                 |
-| `npm run pack:check`    | Inspect all eight npm tarballs without publishing                |
-| `npm run check`         | Run formatting, lint, typechecks, tests and package checks       |
-| `npm run docs:previews` | Capture the README screenshots and recording in Ghostty on macOS |
+| Command                | What it does                                                 |
+| ---------------------- | ------------------------------------------------------------ |
+| `npm run build`        | Build Core, then Recap                                       |
+| `npm run format`       | Format source, configuration and documentation with Prettier |
+| `npm run format:check` | Check formatting without changing files                      |
+| `npm run lint`         | Lint TypeScript and JavaScript with ESLint                   |
+| `npm run typecheck`    | Build dependencies and typecheck every package               |
+| `npm test`             | Build dependencies and run every package's tests             |
+| `npm run pack:check`   | Inspect all eight npm tarballs without publishing            |
+| `npm run check`        | Run formatting, lint, typechecks, tests and package checks   |
 
 To run a command for one package, give its workspace name or path:
 
