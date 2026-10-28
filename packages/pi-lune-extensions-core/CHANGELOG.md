@@ -21,12 +21,26 @@ All notable changes are documented here using
 
 ### Added
 
+- **Codex and Claude Code session mentions.** Both tools' local main sessions now appear
+  alongside Pi sessions in the same `@` and `@@` lists, with `[pi]`, `[codex]` and `[claude]`
+  source labels padded to one width, and source-specific reference tokens. References preserve
+  an exact JSONL copy and filter the active conversation into Markdown; Codex archives and
+  both tools' subagents are excluded. Existing catalog, search and reference caches are
+  reused, with unchanged external files parsed only once.
+  External parser errors are skipped silently so valid sessions and prompt submission remain
+  usable; Core Log integration is marked for follow-up.
 - **Grouped, conditional and custom-edited Panel fields.** `group` lists fields under a
   heading, `visible` hides a field (keeping its stored value), and `disabled` returns the
   reason a field cannot be changed right now. `customEditor` renders your own pi-tui
   component in the panel and saves through `submit`, validated at the scope fixed when it
   opened. Custom section hosts gain the matching optional `SettingsPanelField` members;
   see the [Panel guide](docs/panel.md) and [recipes](docs/recipes.md).
+- **Secondary menus in the Panel.** `defineSettingsPanel({ menus })` adds rows that open a
+  nested page of fields, listed after the declared fields; custom hosts build such rows with
+  `createSettingsMenuField`. Menus nest, Esc goes back one level and the title shows the path.
+  A menu is built again on every refresh, so its fields can read and write data outside
+  Settings, such as files. A declared field with `inMenu` moves onto a menu page instead; see
+  the [Panel guide](docs/panel.md#secondary-menus).
 - **Independent Settings and Panel definitions.** Immutable declarations separate
   persistence from presentation. Typed nested paths, dynamic/multiple choices and
   previews remain available without forcing Settings consumers to load a Panel.
@@ -70,12 +84,12 @@ All notable changes are documented here using
   and previous section, like Tab and Shift+Tab. Text inputs, choice lists and custom
   editors still receive the arrows while they are open.
 - **`@` session mentions.** The `@` list in the editor starts with up to three local
-  sessions from every project (`[session]` rows with age, project and title); files whose
+  sessions from every project (`[pi]` rows with age, project and title); files whose
   name contains the query stay above them, and file matches are Pi's own. `@@` lists only
   sessions, searching every local session by title, project, id and message text. When you
   send, each `@session:<id>` becomes an `@` reference to a filtered copy under
-  `<agentDir>/tmp/session-refs/`, so the agent reads it only when it needs it. The copy
-  comes from Pi's `SessionManager.open()` and `buildSessionProjection()` (active branch,
+  `<os.tmpdir()>/pi-lune-session-refs/`, so the agent reads it only when it needs it. The copy
+  comes from Pi's `SessionManager.inMemory()` and `buildSessionProjection()` (active branch,
   compaction summary, context edits) and keeps only user prompts, assistant text and the
   compaction summary. The list comes from `SessionManager.listAll()`, reloads in the
   background at most once a minute, and typing never waits for it. An unknown or ambiguous id
@@ -83,6 +97,10 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Session mention copies use the system temporary directory.** Store filtered transcripts
+  under `<os.tmpdir()>/pi-lune-session-refs/` so the operating system can reclaim them according
+  to its temporary-file policy. Existing copies under `<agentDir>/tmp/session-refs/` can be
+  removed manually once their old references are no longer needed.
 - **Deterministic settings tabs.** The renderer pins Core first and orders the other
   sections by label using JavaScript string comparison, with section ID breaking ties,
   so tab order no longer follows registration timing. Registration and removal reapply
@@ -145,6 +163,10 @@ All notable changes are documented here using
 
 ### Fixed
 
+- **Session mentions expose copies only.** The Markdown reference now points to a complete
+  JSONL copy beside it in the system temporary directory, so editing that file cannot modify
+  the original session. Projection runs in memory, preserving both files even when Pi upgrades
+  an older session format; missing copies are recreated on the next mention.
 - **Native source entry.** Pi now loads a TypeScript source entry and implementation,
   so `/reload` replaces Core's handlers; SDK consumers keep compiled exports.
 - **Optional runtime peer boundaries.** Root and `/panel` imports no longer load
@@ -170,3 +192,6 @@ All notable changes are documented here using
   its Panel section shows the error and Ctrl+S retries, instead of the section vanishing.
 - **Incompatible Dock no longer breaks contributors.** `attach` keeps the standalone view
   and warns through `ctx.ui.notify` instead of throwing when the shared Dock is incompatible.
+- **Session scans cannot notify a retired context.** Late scan failures after reload, session
+  replacement or shutdown no longer crash Pi by accessing the previous session's UI.
+  Errors from the active session remain visible.

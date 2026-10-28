@@ -68,17 +68,37 @@ describe("dock footer", () => {
         assert.equal(lines[4], rule(80));
     });
 
-    it("starts the model on a bar of the info row, so the two rows share it", () => {
-        // The model lands on the cost slot, whose bar is drawn once there is a cost.
+    it("puts the model's divider on a bar of the info row, so the two rows share it", () => {
+        // The divider lands on the cache-hit slot, whose bar is drawn once the provider reports cache traffic.
         const [, dockRow, , infoRow] = render(80, {
-            status: createStatus({ usage: { cost: 0.12 } }),
+            status: createStatus({ usage: { cost: 0.12, cacheRead: 3000, cacheHitRate: 50 } }),
         });
 
         const modelBar = barColumns(dockRow!).at(-1)!;
 
         assert.equal(visibleWidth(dockRow!), 80);
-        assert.match(dockRow!, / │ claude-test • high +$/);
+        assert.match(dockRow!, / │ +claude-test • high$/);
         assert.ok(barColumns(infoRow!).includes(modelBar), `no info row bar at column ${modelBar}`);
+    });
+
+    it("ends the model and its speed at the dock edge while keeping its divider on a statistics bar", () => {
+        const status = createStatus({
+            tokenSpeed: { tokensPerSecond: 55.8, generating: false },
+            usage: { input: 1500, output: 20, cost: 0.12 },
+        });
+        const suffix = "claude-test • high • 55.8 tok/s";
+
+        const [, ruledRow, , infoRow] = render(120, { status });
+        const [, boxedRow] = render(120, {
+            status,
+            layout: createLayout({ style: "boxed" }),
+        });
+
+        assert.equal(visibleWidth(ruledRow!), 120);
+        assert.ok(ruledRow!.endsWith(suffix), JSON.stringify(ruledRow));
+        assert.ok(barColumns(infoRow!).includes(barColumns(ruledRow!).at(-1)!));
+        assert.equal(visibleWidth(boxedRow!), 120);
+        assert.ok(boxedRow!.endsWith(`${suffix} │`), JSON.stringify(boxedRow));
     });
 
     it("takes the rightmost bar that leaves room for the whole model", () => {
@@ -88,8 +108,8 @@ describe("dock footer", () => {
         const bare = barColumns(render(120, { status })[1]!).at(-1);
         const named = barColumns(render(120, { status: withProvider })[1]!).at(-1);
 
-        // Context and (auto) span 29 columns, the cost 10 more; "claude-test • high" fits the first,
-        // and the provider moves it one bar left instead of being dropped.
+        // Context and (auto) take 29 columns from the divider prefix, the cost 10 more. The bare
+        // model spans 18 and fits the context slot; the provider moves it to the cost slot.
         assert.deepEqual([bare, named], [120 - 29 + 1, 120 - 39 + 1]);
     });
 
@@ -116,15 +136,15 @@ describe("dock footer", () => {
         // At 80 columns the widest bar within half the row spans 27 columns: the bare model fits, the named one does not.
         const [, dockRow] = render(80, { status: createStatus({ showProvider: true }) });
 
-        assert.match(dockRow!, / │ claude-test • high +$/);
+        assert.match(dockRow!, / │ +claude-test • high$/);
         assert.doesNotMatch(dockRow!, /anthropic/);
     });
 
     it("names the provider only when Pi names it", () => {
-        const withProvider = render(100, { status: createStatus({ showProvider: true }) })[1]!;
-        const without = render(100, { status: createStatus({ showProvider: false }) })[1]!;
+        const withProvider = render(120, { status: createStatus({ showProvider: true }) })[1]!;
+        const without = render(120, { status: createStatus({ showProvider: false }) })[1]!;
 
-        assert.match(withProvider, /\(anthropic\) claude-test • high *$/);
+        assert.match(withProvider, /\(anthropic\) claude-test • high$/);
         assert.doesNotMatch(without, /anthropic/);
     });
 
@@ -433,12 +453,15 @@ describe("dock footer styles", () => {
     describe("boxed", () => {
         it("frames every row in a rounded box exactly as wide as the terminal", () => {
             const lines = renderStyle("boxed", 80, {
-                status: createStatus({ extensionStatuses: ["alpha"], usage: { cost: 0.12 } }),
+                status: createStatus({
+                    extensionStatuses: ["alpha"],
+                    usage: { cost: 0.12, cacheRead: 3000, cacheHitRate: 50 },
+                }),
             });
 
             assert.equal(lines.length, 6);
             assert.match(lines[0]!, /^╭─+╮$/);
-            assert.match(lines[1]!, /^│ shells │ questions .* │ claude-test • high +│$/);
+            assert.match(lines[1]!, /^│ shells │ questions .* │ +claude-test • high │$/);
             assert.ok(
                 barColumns(lines[3]!).includes(barColumns(lines[1]!).at(-2)!),
                 "the model bar continues an info row bar",
@@ -523,13 +546,10 @@ describe("dock footer styles", () => {
 
     describe("compact", () => {
         it("draws the cells and the info row without any frame", () => {
-            const lines = renderStyle("compact", 100);
+            const lines = renderStyle("compact", 120);
 
             assert.equal(lines.length, 2);
-            assert.match(
-                lines[0]!,
-                /^ shells │ questions .* │ \(anthropic\) claude-test • high *$/,
-            );
+            assert.match(lines[0]!, /^ shells │ questions .* │ +\(anthropic\) claude-test • high$/);
             assert.match(lines[1]!, /\/work\/project/);
             assert.doesNotMatch(lines.join("\n"), /[─╭╰├]/);
         });
@@ -615,7 +635,7 @@ describe("dock footer styles", () => {
         });
 
         it("names the provider when there is room", () => {
-            const [row] = renderStyle("minimal", 100);
+            const [row] = renderStyle("minimal", 120);
 
             assert.match(row!, / │ \(anthropic\) claude-test • high │ {2}25k\/200k · 12\.3%$/);
         });
@@ -625,6 +645,18 @@ describe("dock footer styles", () => {
 
             assert.match(row!, / │ claude-test • high │ {2}25k\/200k · 12\.3%$/);
             assert.doesNotMatch(row!, /anthropic/);
+        });
+
+        it("drops the speed before the context use", () => {
+            const [row] = renderStyle("minimal", 70, {
+                status: createStatus({
+                    showProvider: false,
+                    tokenSpeed: { tokensPerSecond: 55.8, generating: false },
+                }),
+            });
+
+            assert.match(row!, / │ claude-test • high │ {2}25k\/200k · 12\.3%$/);
+            assert.doesNotMatch(row!, /tok\/s/);
         });
 
         it("shows only the model when usage is hidden", () => {

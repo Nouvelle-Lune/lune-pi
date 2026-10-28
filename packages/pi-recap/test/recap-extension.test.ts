@@ -245,3 +245,55 @@ test("native shutdown cancels a pending request before removing configuration an
     assert.equal(f.widgets.length, widgetCount);
     assert.deepEqual(f.notices, []);
 });
+
+test("session_start after a reload shows the saved recap without another provider call", async (t) => {
+    const f = await fixture(t);
+    let requests = 0;
+    Object.assign(f.ctx.modelRegistry, {
+        streamSimple: () => {
+            requests++;
+            const stream = createAssistantMessageEventStream();
+            const message = {
+                role: "assistant",
+                content: [{ type: "text", text: "saved summary" }],
+                api: f.selected.api,
+                provider: f.selected.provider,
+                model: f.selected.id,
+                stopReason: "stop",
+                timestamp: Date.now(),
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+            };
+            stream.push({ type: "done", reason: "stop", message } as never);
+            stream.end(message as never);
+            return stream;
+        },
+    });
+    f.manager.appendMessage({
+        role: "user",
+        content: "Explain the current task",
+        timestamp: Date.now(),
+    });
+    const handle = registerRecap(f.pi);
+    t.after(() => handle.dispose());
+    await f.emit("session_start");
+    await f.commands.get("recap")!("", f.ctx);
+    assert.equal(requests, 1);
+
+    // Pi shuts the old extension down, loads a fresh one and starts the session again.
+    await f.emit("session_shutdown");
+    const reloaded = registerRecap(f.pi);
+    t.after(() => reloaded.dispose());
+    const before = f.widgets.length;
+    await f.emit("session_start");
+
+    assert.equal(requests, 1);
+    assert.equal(f.widgets.length, before + 1);
+    assert.equal(typeof f.widgets.at(-1), "function");
+});

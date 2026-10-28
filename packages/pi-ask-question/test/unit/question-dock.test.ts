@@ -3,20 +3,27 @@ import { beforeEach, describe, it } from "node:test";
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import { questionManager } from "../../src/core/questionManager.ts";
+import { QuestionManager } from "../../src/core/questionManager.ts";
 import { QuestionDock } from "../../src/tui/question-dock.ts";
-import { createFakeContext, createFakeUi, type FakeUi } from "../harness.ts";
+import { createFakeContext, createFakeUi, withoutMargin, type FakeUi } from "../harness.ts";
 
 /** Widget key the extension registers; changing it changes where the dock appears. */
 const WIDGET_KEY = "pi-ask-question";
 
+/** Width wide enough that no part of any row below is left out. */
+const WIDE = 200;
+
+/** Columns the standalone row reserves around its content: one margin column per side. */
+const MARGIN_COLUMNS = 2;
+
 describe("question dock", () => {
+    let questionManager: QuestionManager;
     let dock: QuestionDock;
     let ui: FakeUi;
 
     beforeEach(() => {
-        questionManager.clearAll();
-        dock = new QuestionDock();
+        questionManager = new QuestionManager();
+        dock = new QuestionDock(questionManager);
         ui = createFakeUi();
     });
 
@@ -25,12 +32,40 @@ describe("question dock", () => {
         dock.render();
     }
 
-    function line(): string {
-        const content = ui.mountedWidget("belowEditor", WIDGET_KEY);
-        assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
+    /** The row mounted below the editor, rendered at `width` exactly as pi would draw it. */
+    function rowAt(width: number): string {
+        const content = ui.renderedWidget("belowEditor", WIDGET_KEY, width);
+        assert.ok(content, "the dock must be mounted");
         assert.equal(content.length, 1, "the dock must stay a single line");
 
         return content[0]!;
+    }
+
+    /** The dock line at a width that leaves nothing out, without its margin. */
+    function line(): string {
+        return withoutMargin(rowAt(WIDE));
+    }
+
+    /** The row at `width` without its margin, with colour sequences removed. */
+    function plainRowAt(width: number): string {
+        return stripTerminalSequences(withoutMargin(rowAt(width)));
+    }
+
+    /** Render each row at its own width and one column narrower: the next row must appear. */
+    function assertRowsShrinkInOrder(rows: readonly string[]): void {
+        rows.forEach((expected, index) => {
+            const width = visibleWidth(expected) + MARGIN_COLUMNS;
+            assert.equal(plainRowAt(width), expected, `at ${width} columns the row must keep it`);
+
+            const narrower = rows[index + 1];
+            if (narrower !== undefined) {
+                assert.equal(
+                    plainRowAt(width - 1),
+                    narrower,
+                    `one column below ${width} the row must leave out one whole part`,
+                );
+            }
+        });
     }
 
     it("does nothing before a context is set", () => {
@@ -65,11 +100,10 @@ describe("question dock", () => {
         render();
 
         assert.equal(line(), "1 pending question · Which database? · /question to answer");
-        assert.deepEqual(ui.widgetCalls.at(-1), {
-            key: WIDGET_KEY,
-            content: ["1 pending question · Which database? · /question to answer"],
-            placement: "belowEditor",
-        });
+        const call = ui.widgetCalls.at(-1);
+        assert.equal(call?.key, WIDGET_KEY);
+        assert.equal(call?.placement, "belowEditor");
+        assert.equal(typeof call?.content, "function", "the row is fitted to the render width");
     });
 
     it("counts the questions inside each pending request", () => {
@@ -127,35 +161,94 @@ describe("question dock", () => {
         assert.equal(line(), "1 pending question · Which database? · /question to answer");
     });
 
-    it("truncates a long question and keeps one line", () => {
-        questionManager.create([{ question: `Which ${"x".repeat(60)} database?\nsecond line` }]);
-
-        render();
-
-        const rendered = line();
-        assert.equal(rendered.includes("\n"), false);
-
-        const clean = stripTerminalSequences(rendered);
-        assert.match(clean, /^1 pending question · .*… · \/question to answer$/);
-        // 18 count + 3 + 42 summary + 3 + 20 hint; the summary budget is the only slack.
-        assert.ok(visibleWidth(clean) <= 86, `dock line too wide: ${clean}`);
-    });
-
-    it("truncates a CJK question by terminal columns, not by string length", () => {
-        // 24 code units but 48 columns: a length-based budget never truncates it.
-        const question = "运行测试脚本并输出结果并继续运行并检查日志输出与状态";
-        assert.ok(question.length <= 40, "guard: the code-unit length fits the budget");
-        assert.ok(visibleWidth(question) > 40, "guard: the display width does not");
+    it("shows a long question whole instead of cutting it", () => {
+        const question = `Which ${"x".repeat(100)} database?`;
         questionManager.create([{ question }]);
 
         render();
 
-        const summary = /^1 pending question · (.*) · \/question to answer$/.exec(
-            stripTerminalSequences(line()),
-        )?.[1];
-        assert.ok(summary, "the dock line must keep its shape");
-        assert.ok(visibleWidth(summary) <= 41, `summary too wide: ${JSON.stringify(summary)}`);
-        assert.ok(summary.endsWith("…"), "an over-budget question must be marked as truncated");
+        const expected = `1 pending question · ${question} · /question to answer`;
+        const actual = plainRowAt(WIDE);
+
+        assert.equal(actual, expected);
+        assert.equal(actual.includes("…"), false);
+    });
+
+    it("keeps a multi-line question on one line", () => {
+        questionManager.create([{ question: "Which database?\nsecond line" }]);
+
+        render();
+
+        assert.equal(rowAt(WIDE).includes("\n"), false);
+    });
+
+    it("falls back from the whole question to its header when the complete row does not fit", () => {
+        const question = `Which database should the new service use for ${"x".repeat(17)}?`;
+        assert.equal(question.length, 64, "guard: the example question is 64 characters");
+        const request = questionManager.create([{ question, header: "Database" }]);
+        void questionManager.waitForSettle(request.id, new AbortController().signal);
+
+        render();
+
+        assert.equal(
+            plainRowAt(80),
+            "1 pending question · agent waiting · Database · /question to answer",
+        );
+        assert.equal(
+            plainRowAt(140),
+            `1 pending question · agent waiting · ${question} · /question to answer`,
+        );
+    });
+
+    it("leaves out summary, hint and waiting mark in rank order, keeping the count", () => {
+        const request = questionManager.create([
+            { question: "Which database?", header: "Database" },
+        ]);
+        void questionManager.waitForSettle(request.id, new AbortController().signal);
+
+        render();
+
+        assertRowsShrinkInOrder([
+            "1 pending question · agent waiting · Which database? · /question to answer",
+            "1 pending question · agent waiting · Database · /question to answer",
+            "1 pending question · agent waiting · /question to answer",
+            "1 pending question · agent waiting",
+            "1 pending question",
+        ]);
+    });
+
+    it("keeps only the margin when even the count does not fit", () => {
+        questionManager.create([{ question: "Which database?" }]);
+
+        render();
+
+        const countWidth = visibleWidth("1 pending question");
+        for (let width = 0; width < countWidth + MARGIN_COLUMNS; width++) {
+            assert.equal(rowAt(width), " ", `at ${width} columns only the margin may remain`);
+        }
+    });
+
+    it("never renders more than one line wider than the width or cut with an ellipsis", () => {
+        const request = questionManager.create([
+            { question: "运行测试脚本并输出结果并继续运行并检查日志输出与状态", header: "日志" },
+        ]);
+        void questionManager.waitForSettle(request.id, new AbortController().signal);
+
+        render();
+
+        for (let width = 0; width <= 120; width++) {
+            const row = rowAt(width);
+            assert.equal(row.includes("\n"), false, `@${width}: one line only`);
+            assert.ok(
+                visibleWidth(row) <= Math.max(width, 1),
+                `@${width}: row too wide: ${JSON.stringify(row)}`,
+            );
+            assert.equal(
+                stripTerminalSequences(row).includes("…"),
+                false,
+                `@${width}: no part may be cut with an ellipsis`,
+            );
+        }
     });
 
     it("clears only the dock widget", () => {

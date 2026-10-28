@@ -35,6 +35,8 @@
   global and project scopes, and `/dock` opens its section of Core's settings panel.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`; Dock previews use Claude Opus 5.5 as their fixed model example.
 
+- **Response token speed beside the model.** A `tok/s` segment shows the latest measured response's output tokens divided by Pi's measured response duration, dimmed after completion. Only positive, finite measurements are used; no live rate is estimated. Narrow terminals hide the entire segment before truncating the model, without changing the statistics row.
+
 ### Fixed
 
 - **Running shells use a yellow marker.** Shell Inspector owns its running, completed and
@@ -43,12 +45,13 @@
   restoring editor focus, so the same key cannot also select the previous submitted input.
 - **Releasing a key no longer abandons dock Focus.** A terminal key-release event is ignored
   instead of falling through to the editor handoff branch, which treated it as typing.
+- **Right-aligned, persistent response speed.** The model and speed reach the dock's right edge without moving the statistics grid, with single spaces between thinking level, speed and unit. Hide the speed segment until a reliable measurement exists, then retain the last value through new responses, missing measurements and cancellation.
 
 ### Changed
 
 - **The info row keeps every statistic in place.** Each statistic keeps its own columns whether or
   not it has data, so bars and labels no longer move when tokens, cache or cost first arrive, and
-  the model on the dock row now starts on one of the info row's bars. Cache writes have their own
+  the divider before the dock row's model follows the info row's bars. Cache writes have their own
   slot on the far left, so providers that never report them leave only blank space there. All
   statistics now need 120 columns instead of 117.
 
@@ -84,3 +87,10 @@
   instead of blank padding, so module boundaries stay readable in a wide row.
 - **Document dock rendering rules.** Explain how the 12-column estimate limits visible
   cells and how scrolling keeps the selected item in view.
+- **The info row keeps the cache hit rate the longest.** Tokens and cost now give way before
+  `CH`, so a shrinking row keeps the hit rate beside context use and `(auto)` once cost is gone.
+  The drop order is cache writes, cache reads, tokens, cost, hit rate and `(auto)`; the hit-rate
+  slot survives down to 80 columns instead of 104, and cost down to 90 instead of 79.
+
+- **The speed segment uses the thinking level's bullet.** `model • max • 48.2 tok/s` replaces the
+  mixed `·` and `•` separators in the model segment.

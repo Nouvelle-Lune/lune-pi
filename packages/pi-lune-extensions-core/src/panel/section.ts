@@ -7,7 +7,7 @@
  * candidates only in clones. Validation/editor resolution stays usable without TUI.
  */
 import { Value } from "typebox/value";
-import type { Static, TObject, TSchema } from "typebox";
+import { Type, type Static, type TObject, type TSchema } from "typebox";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import type {
@@ -122,12 +122,25 @@ export type SettingsCustomEditor<T, TValues> = (
 ) => SettingsEditorComponent;
 
 /**
+ * A secondary menu: a page of fields that one row opens inside the panel frame.
+ * Renderers build it again on every refresh, so its fields can follow changes made
+ * outside Settings, such as files the menu edits. Its fields may open further menus.
+ */
+export interface SettingsMenu {
+    /** Unique IDs within the menu; a renderer keeps an open menu by the IDs on its path. */
+    readonly fields: readonly SettingsPanelField[];
+    /** Shown instead of the list when fields is empty. */
+    readonly emptyMessage?: string;
+}
+
+/**
  * cycle commits static choices immediately; select confirms a candidate list.
  * text accepts raw strings only; number accepts one finite number for number/integer
  * schemas; json parses then validates complete JSON values; custom hands editing to
- * the field's customEditor. Preview availability does not determine the editor.
+ * the field's customEditor; menu opens the field's secondary menu. Preview
+ * availability does not determine the editor.
  */
-export type SettingsEditor = "cycle" | "select" | "text" | "number" | "json" | "custom";
+export type SettingsEditor = "cycle" | "select" | "text" | "number" | "json" | "custom" | "menu";
 
 /**
  * Field presentation/editing metadata, not storage policy.
@@ -143,6 +156,11 @@ export type SettingsFieldOptions<T, TValues> = {
      * ungrouped fields come before every group.
      */
     group?: string;
+    /**
+     * ID of a menu of the same panel that lists the field on its page instead of in the
+     * section. That menu declares no open function; see SettingsMenuDefinition.
+     */
+    inMenu?: string;
     /**
      * Hide the field while this returns false, e.g. options of a disabled feature.
      * Hidden fields keep their stored values. Runs on every refresh: keep it cheap and pure.
@@ -218,6 +236,12 @@ export interface SettingsPanelField {
     customEditor?(
         context: Omit<SettingsCustomEditorContext<unknown, unknown>, "values">,
     ): SettingsEditorComponent;
+    /**
+     * Present exactly when editor is "menu". A menu row holds no value: renderers show
+     * formatValue(undefined) as its summary and never inspect, set or reset it.
+     * createSettingsMenuField builds such a field.
+     */
+    menu?(context: ExtensionContext, scope: SettingsScope): SettingsMenu;
     /** Current precedence explanation; renderers use explicit scope overrides for editing. */
     inspect(): SettingInspection<unknown>;
     /** Validate/commit a candidate at this explicit persistence scope, not a candidate range. */
@@ -286,21 +310,24 @@ function schemaChoices(schema: SettingsPanelSchema): SettingsChoice[] | undefine
 export function settingsEditor(
     field: Pick<SettingsPanelField, "editor" | "choiceSource" | "choices" | "schema"> & {
         customEditor?: unknown;
+        menu?: unknown;
     },
 ): SettingsEditor {
     return (
         field.editor ??
-        (field.customEditor
-            ? "custom"
-            : field.choiceSource
-              ? "select"
-              : field.choices?.length
-                ? "cycle"
-                : field.schema.type === "string"
-                  ? "text"
-                  : field.schema.type === "number" || field.schema.type === "integer"
-                    ? "number"
-                    : "json")
+        (field.menu
+            ? "menu"
+            : field.customEditor
+              ? "custom"
+              : field.choiceSource
+                ? "select"
+                : field.choices?.length
+                  ? "cycle"
+                  : field.schema.type === "string"
+                    ? "text"
+                    : field.schema.type === "number" || field.schema.type === "integer"
+                      ? "number"
+                      : "json")
     );
 }
 
@@ -321,6 +348,7 @@ export function resolveSettingsFieldOptions(
         visible?: unknown;
         disabled?: unknown;
         customEditor?: unknown;
+        menu?: unknown;
     },
 ) {
     if (metadata?.presentation && !metadata.preview) {
@@ -331,9 +359,24 @@ export function resolveSettingsFieldOptions(
         (typeof metadata.group !== "string" || !metadata.group.trim())
     )
         throw new TypeError(`Settings group for "${id}" must be a non-empty string`);
-    for (const name of ["visible", "disabled", "customEditor"] as const)
+    for (const name of ["visible", "disabled", "customEditor", "menu"] as const)
         if (metadata?.[name] !== undefined && typeof metadata[name] !== "function")
             throw new TypeError(`Settings ${name} for "${id}" must be a function`);
+    if (metadata?.menu) {
+        if ((metadata.editor ?? "menu") !== "menu")
+            throw new TypeError(`Menu "${id}" conflicts with editor "${metadata.editor}"`);
+        if (
+            metadata.customEditor ||
+            metadata.choices ||
+            metadata.choiceSource ||
+            metadata.secret ||
+            metadata.preview
+        )
+            throw new TypeError(
+                `Menu "${id}" cannot use a custom editor, choices, secret or a preview; it opens its own fields`,
+            );
+    } else if (metadata?.editor === "menu")
+        throw new TypeError(`Editor "menu" requires a menu for "${id}"`);
     if (metadata?.customEditor) {
         if ((metadata.editor ?? "custom") !== "custom")
             throw new TypeError(
@@ -359,6 +402,7 @@ export function resolveSettingsFieldOptions(
     const editor = settingsEditor({
         editor: metadata?.editor,
         customEditor: metadata?.customEditor,
+        menu: metadata?.menu,
         choiceSource: metadata?.choiceSource,
         choices,
         schema,
@@ -409,6 +453,58 @@ export function assertSettingsGroups(fields: readonly { group?: string }[]): voi
         if (current !== undefined) finished.add(current);
         current = group;
     }
+}
+
+/** A row that opens a secondary menu; see createSettingsMenuField. */
+export interface SettingsMenuFieldOptions {
+    /** Unique among the fields of the section or menu that lists the row. */
+    id: string;
+    label: string;
+    description?: string;
+    group?: string;
+    /** Scopes at which the menu can open; its own fields keep their own scopes. */
+    scopes: readonly SettingsScope[];
+    /** Text beside the label, such as a count of the menu's entries. */
+    summary?(context: ExtensionContext, scope: SettingsScope): string;
+    visible?(context: ExtensionContext, scope: SettingsScope): boolean;
+    disabled?(context: ExtensionContext, scope: SettingsScope): string | undefined;
+    /** Build the page; renderers call it again on every refresh while it is open. */
+    menu(context: ExtensionContext, scope: SettingsScope): SettingsMenu;
+}
+
+/**
+ * Build a field whose row opens a secondary menu. The row has no value of its own, so
+ * set and reset reject: the menu's fields hold the values.
+ */
+export function createSettingsMenuField(options: SettingsMenuFieldOptions): SettingsPanelField {
+    const schema = Type.Null() as SettingsPanelSchema;
+    resolveSettingsFieldOptions(options.id, schema, options);
+    const refuse = () =>
+        Promise.reject(
+            new TypeError(`${options.label} is a menu; change the settings inside it instead`),
+        );
+    return {
+        id: options.id,
+        label: options.label,
+        description: options.description,
+        schema,
+        editor: "menu",
+        group: options.group,
+        scopes: options.scopes,
+        visible: options.visible,
+        disabled: options.disabled,
+        menu: options.menu,
+        formatValue: (_value, context, scope) => options.summary?.(context, scope) ?? "",
+        inspect: () => ({
+            defaultValue: null,
+            globalValue: undefined,
+            projectValue: undefined,
+            value: null,
+            source: "default",
+        }),
+        set: refuse,
+        reset: refuse,
+    };
 }
 
 /**

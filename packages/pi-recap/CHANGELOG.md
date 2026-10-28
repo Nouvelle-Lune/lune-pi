@@ -37,6 +37,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
   using persisted display history to suppress it. Cached recaps can reappear
   after reload, branch restoration, or equivalent effective settings changes
   without another model request; active prompts still defer display.
+- **Recap after reload.** A saved recap that matches the restored session shows
+  again as soon as `/reload` or a session restart finishes, instead of waiting
+  for the terminal to lose and regain focus. With automatic recap off, only a
+  recap that was already shown returns. Showing a recap again no longer
+  appends another session entry.
 - **Delay re-arming.** The idle-delay timer re-evaluates its conditions when it
   fires, so a timer that fires a moment before the wall clock reaches the
   deadline re-arms instead of dropping the recap.

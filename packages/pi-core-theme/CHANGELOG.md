@@ -38,11 +38,13 @@ All notable changes are documented here using
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
-- **Cmd+click paths and links.** When the terminal supports OSC 8 links, existing file
-  paths in messages, path-tool headings and tool output become `file://` links, and URLs in
-  tool output become links. Markdown links to local paths, such as `cards.ts:42`, also get
-  `file://` targets, so Cmd+click opens them. Links have no underline until the pointer is
-  on them. Terminals without OSC 8 support show the same text as before.
+- **Cmd+click paths and links.** When the terminal supports OSC 8 links, explicit Markdown
+  file links, inline-code paths and path-tool headings open existing files and directories.
+  URLs in messages and tool output also become links. Links have no underline until the
+  pointer is on them. Terminals without OSC 8 support show the same text as before.
+- **Loaded agents at startup.** With Lune Subagent loaded, an `[Agents]` section below
+  Pi's loaded-resource lists names the reusable agents available to the session. It follows
+  the active theme, startup visibility and expansion controls, and stays hidden when empty.
 
 ### Changed
 
@@ -72,6 +74,10 @@ All notable changes are documented here using
 - **Header shows `@ files and sessions`.** The second hint row advertises `@` completion,
   which Core extends with earlier sessions, in place of the model picker
   key. That key moves to the expanded shortcut list as `select model`.
+
+- **Explicit file references.** Bare paths in prose and tool output now stay plain text,
+  avoiding filesystem checks for arbitrary logs and code. Use an inline-code path or a
+  Markdown file link for a clickable reference; path-tool headings and URLs remain linked.
 
 ### Fixed
 
@@ -129,3 +135,7 @@ All notable changes are documented here using
   every frame, and removing link underlines re-parsed every row each time, so frames in long
   sessions took about four times as long, including 30 times a second while thinking. Rows
   without a hovered link now reuse the previous frame's result.
+- **URLs in inline code were not clickable.** A URL written as inline code, such as
+  `https://example.com/path`, stayed plain code text. A span that holds exactly one complete
+  `http(s)` URL is now a link and keeps its code style. Commands that contain a URL, code
+  blocks and domains without `http(s)://` stay unchanged.

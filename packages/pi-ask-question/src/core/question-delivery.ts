@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { formatAnswerMessage } from "./question-format.ts";
-import { questionManager, toAnswerMessageQuestion } from "./questionManager.ts";
+import { toAnswerMessageQuestion, type QuestionManager } from "./questionManager.ts";
 import type { AskQuestionRequest } from "./question-types.ts";
 
 /** Custom message type carrying answers (or a skip) back to the model. */
@@ -26,14 +26,15 @@ export interface QuestionDeliveryOptions {
  */
 export function registerQuestionAnswerNotifications(
     pi: ExtensionAPI,
+    manager: QuestionManager,
     options: QuestionDeliveryOptions = {},
 ): () => void {
-    return questionManager.subscribe((event) => {
+    return manager.subscribe((event) => {
         if (event.type !== "request-answered" && event.type !== "request-skipped") {
             return;
         }
 
-        const request = questionManager.get(event.id);
+        const request = manager.get(event.id);
 
         // A request answered into a waiting tool call has no outbox entry: the tool result
         // already carries the answer.
@@ -90,10 +91,11 @@ export function deliverQuestionResult(
  */
 export function reconcileQuestionDeliveries(
     pi: ExtensionAPI,
+    manager: QuestionManager,
     ctx: ExtensionContext,
     options: QuestionDeliveryOptions = {},
 ): void {
-    for (const request of releaseDeliveredQuestions(ctx)) {
+    for (const request of releaseDeliveredQuestions(manager, ctx)) {
         deliverQuestionResult(pi, request, options);
     }
 }
@@ -106,8 +108,11 @@ export function reconcileQuestionDeliveries(
  * have been cleared from pi's queue by an abort: sending it again would start the turn the user
  * just stopped. The next session start or tree move attempts those again.
  */
-export function releaseDeliveredQuestions(ctx: ExtensionContext): Readonly<AskQuestionRequest>[] {
-    const undelivered = questionManager.getUndeliveredRequests();
+export function releaseDeliveredQuestions(
+    manager: QuestionManager,
+    ctx: ExtensionContext,
+): Readonly<AskQuestionRequest>[] {
+    const undelivered = manager.getUndeliveredRequests();
 
     if (undelivered.length === 0) {
         return [];
@@ -118,7 +123,7 @@ export function releaseDeliveredQuestions(ctx: ExtensionContext): Readonly<AskQu
 
     for (const request of undelivered) {
         if (committed.has(request.id)) {
-            questionManager.acknowledgeDelivery(request.id);
+            manager.acknowledgeDelivery(request.id);
         } else {
             missing.push(request);
         }

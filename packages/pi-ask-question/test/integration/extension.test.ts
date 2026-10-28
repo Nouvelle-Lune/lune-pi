@@ -12,22 +12,21 @@
  * runs the extension inside a real pi process.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
-import luneAskQuestion from "../../src/index.ts";
 import {
     QUESTION_STATE_ENTRY,
-    questionManager,
     type AskQuestion,
     type AskQuestionAnswer,
 } from "../../src/core/questionManager.ts";
+import type { QuestionManager } from "../../src/core/questionManager.ts";
 import { ASK_QUESTION_ANSWER_MESSAGE } from "../../src/core/question-delivery.ts";
-import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
 import {
     createFakeContext,
-    createFakePiHost,
+    loadAskQuestion,
+    type AskQuestionHost,
     createFakeTheme,
     createFakeUi,
     requireTool,
@@ -36,7 +35,21 @@ import {
     type FakePiHost,
     type FakeUi,
     type SendMessageCall,
+    dockRow,
 } from "../harness.ts";
+
+/**
+ * The question manager of the extension load made last. A test has one session unless it says
+ * otherwise, so this is the manager of the session under test.
+ */
+let questionManager: QuestionManager;
+
+/** Load the extension afresh; each load owns its manager, so nothing carries over between tests. */
+function load(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    const host = loadAskQuestion(options);
+    questionManager = host.manager;
+    return host;
+}
 
 const WIDGET_KEY = "pi-ask-question";
 const ENTER = "\r";
@@ -60,7 +73,7 @@ const liveSessions: Session[] = [];
 
 /** Register the extension and start a session over `branch`, defaulting to a fresh one. */
 async function startSession(branch: FakeBranchEntry[] = []): Promise<Session> {
-    const host = createFakePiHost(luneAskQuestion, { branch });
+    const host = load({ branch });
     const ui = createFakeUi();
     const ctx = createFakeContext({ ui, branch });
 
@@ -271,14 +284,8 @@ function settledAnswers(record: Record<string, unknown>): AskQuestionAnswer[] | 
 }
 
 describe("pi-ask-question extension", () => {
-    beforeEach(() => {
-        resetQuestionPanelState();
-        questionManager.clearAll();
-    });
-
     afterEach(async () => {
-        // The manager and the dock are module singletons, so a listener left subscribed after
-        // its test would fire into a finished test's fake ui on every later manager event.
+        // Shut every session down so no listener, overlay or dock registration outlives its test.
         for (const session of liveSessions.splice(0)) {
             await session.host.fire(
                 "session_shutdown",
@@ -289,7 +296,7 @@ describe("pi-ask-question extension", () => {
 
     describe("registration", () => {
         it("registers the tool, the command and the answer renderer", () => {
-            const host = createFakePiHost(luneAskQuestion);
+            const host = load();
 
             assert.ok(host.tools.has("ask_user_questions"));
             assert.ok(host.commands.has("question"));
@@ -349,10 +356,7 @@ describe("pi-ask-question extension", () => {
             assert.equal(ui.customCalls.length, 1);
             assert.equal(ui.customCalls[0]!.overlay, true);
             assert.equal(questionManager.getPendingRequests().length, 1);
-            assert.equal(
-                ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
-                "1 pending question · Which database? · /question to answer",
-            );
+            assert.equal(dockRow(ui), "1 pending question · Which database? · /question to answer");
         });
 
         it("persists the pending request before the user sees it", async () => {
@@ -1072,10 +1076,7 @@ describe("pi-ask-question extension", () => {
             assert.match(panelText(ui), /Which database\?/, "the first call owns the panel");
             assert.equal(questionManager.getPendingRequests().length, 2);
             // The dock names the question the panel would show next, which is the queued one.
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which port\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which port\?/);
 
             answerFocusedOption(ui);
             assert.ok(
@@ -1083,10 +1084,7 @@ describe("pi-ask-question extension", () => {
                 "the queued call surfaces",
             );
             assert.match(panelText(ui), /Which port\?/);
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /1 pending question · Which port\?/,
-            );
+            assert.match(String(dockRow(ui)), /1 pending question · Which port\?/);
         });
 
         it("walks through three pending requests in order", async () => {
@@ -1239,19 +1237,13 @@ describe("pi-ask-question extension", () => {
 
             // Showing the second request moved it behind the deferred first one, and the dock
             // has to say so while the second panel is still up.
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which database\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which database\?/);
 
             ui.panel!.handleInput?.("\x1b");
             await ui.panelClosed;
             await drain();
 
-            assert.match(
-                String(ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0]),
-                /2 pending questions · Which database\?/,
-            );
+            assert.match(String(dockRow(ui)), /2 pending questions · Which database\?/);
 
             void host.commands
                 .get("question")!
@@ -1332,7 +1324,7 @@ describe("pi-ask-question extension", () => {
             assert.equal(restored.length, 1);
             assert.equal(restored[0]!.questions[0]!.question, "Which database?");
             assert.equal(
-                second.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(second.ui),
                 "1 pending question · Which database? · /question to answer",
             );
 
@@ -1425,7 +1417,9 @@ describe("pi-ask-question extension", () => {
             await ask(host, ui, QUESTIONS, "call-1");
             assert.equal(ui.customCalls.length, 1);
 
-            // The session is replaced while the first overlay is still up.
+            // The session is replaced while the first overlay is still up: pi ends the old
+            // session before it starts the next one on the same extension load.
+            await host.fire("session_shutdown", createFakeContext({ ui, branch: [] }));
             const replacement = createFakeUi();
             const replacementQuestions: AskQuestion[] = [
                 {
@@ -1460,11 +1454,12 @@ describe("pi-ask-question extension", () => {
             await ask(host, ui, QUESTIONS, "call-1");
             assert.equal(ui.customCalls.length, 1);
 
+            // pi ends the replaced session before it starts the next one on the same load.
+            await host.fire("session_shutdown", createFakeContext({ ui, branch: [] }));
+
             const writesToFirst = ui.widgetCalls.length;
             const replacement = createFakeUi();
 
-            // The fake host can deliver a second session_start to the same extension
-            // instance, which is what a reload looks like from the module's side.
             await host.fire("session_start", createFakeContext({ ui: replacement, branch: [] }));
 
             assert.equal(
@@ -1582,7 +1577,7 @@ describe("pi-ask-question extension", () => {
 
     describe("tool call card", () => {
         it("renders each stage of the arguments while the model streams them", () => {
-            const tool = requireTool(createFakePiHost(luneAskQuestion), "ask_user_questions");
+            const tool = requireTool(load(), "ask_user_questions");
             const stages: unknown[] = [
                 {},
                 { questions: [{}] },
@@ -1611,7 +1606,7 @@ describe("pi-ask-question extension", () => {
 
     describe("transcript renderer", () => {
         it("renders the answered questions", () => {
-            const host = createFakePiHost(luneAskQuestion);
+            const host = load();
             const renderer = host.messageRenderers.get(ASK_QUESTION_ANSWER_MESSAGE);
             assert.ok(renderer);
 

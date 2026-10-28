@@ -21,7 +21,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
 import { ShellInspector } from "../../src/shell/shell-inspector.ts";
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import type { BackgroundShellNotificationDetails } from "../../src/shell/shell-notification.ts";
 import {
     createTempWorkDir,
@@ -74,13 +73,13 @@ describe("pi-shell-inspector kill key", () => {
     let pidFile: string;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("inspector-kill");
         session = await openSession(workDir);
         pidFile = join(workDir, "shell.pid");
 
         inspector = new ShellInspector(
             session.ctx,
+            session.manager,
             () => {},
             () => {},
             () => TERMINAL_ROWS,
@@ -126,13 +125,13 @@ describe("pi-shell-inspector kill key", () => {
 
         const pid = await waitForPid();
         await waitFor("the shell's ready line to reach the job", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("ready"),
+            (session.manager.getJob(jobId)?.output.content ?? "").includes("ready"),
         );
         assert.equal(isProcessAlive(pid), true, "the shell must be running before the kill");
 
         press("x");
 
-        const killed = shellManager.getJob(jobId);
+        const killed = session.manager.getJob(jobId);
         assert.ok(killed, "the killed shell must stay listed");
         assert.equal(killed.status, "killed", "x must settle the selected shell as killed");
         assert.equal(
@@ -146,7 +145,7 @@ describe("pi-shell-inspector kill key", () => {
             "the kill must abort the job's process tree",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
             "the kill must move the running shell into the killed counter",
         );
@@ -239,22 +238,22 @@ describe("pi-shell-inspector kill key", () => {
         press("x");
 
         assert.equal(
-            shellManager.getJob(target.jobId)?.status,
+            session.manager.getJob(target.jobId)?.status,
             "killed",
             "the selected shell must be killed",
         );
         assert.equal(
-            shellManager.getJob(other.jobId)?.status,
+            session.manager.getJob(other.jobId)?.status,
             "running",
             "the unselected shell must survive",
         );
         assert.equal(
-            shellManager.getJob(other.jobId)?.controller.signal.aborted,
+            session.manager.getJob(other.jobId)?.controller.signal.aborted,
             false,
             "the unselected shell's process must stay alive",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             { runningCount: 1, completedCount: 0, failedCount: 0, killedCount: 1 },
             "only the selected shell may move a counter",
         );
@@ -267,7 +266,7 @@ describe("pi-shell-inspector kill key", () => {
             toolCallId: "call-kill-race",
         });
         const terminalEvents: string[] = [];
-        const unsubscribe = shellManager.subscribe((event) => {
+        const unsubscribe = session.manager.subscribe((event) => {
             if (
                 (event.type === "job-completed" ||
                     event.type === "job-failed" ||
@@ -281,7 +280,7 @@ describe("pi-shell-inspector kill key", () => {
         try {
             press("x");
             assert.equal(
-                shellManager.getJob(jobId)?.status,
+                session.manager.getJob(jobId)?.status,
                 "killed",
                 "the key must settle the job as killed",
             );
@@ -300,7 +299,7 @@ describe("pi-shell-inspector kill key", () => {
                 ["job-killed"],
                 "the kill must remain the job's only terminal event",
             );
-            const job = shellManager.getJob(jobId)!;
+            const job = session.manager.getJob(jobId)!;
             assert.equal(job.status, "killed", "the abort rejection must not change the status");
             assert.equal(
                 job.error,
@@ -308,7 +307,7 @@ describe("pi-shell-inspector kill key", () => {
                 "the abort rejection must not rewrite the reason",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
                 "the race must move the killed counter once",
             );
@@ -329,7 +328,7 @@ describe("pi-shell-inspector kill key", () => {
             toolCallId: "call-double-kill",
         });
         const terminalEvents: string[] = [];
-        const unsubscribe = shellManager.subscribe((event) => {
+        const unsubscribe = session.manager.subscribe((event) => {
             if (event.type === "job-killed" && event.id === jobId) {
                 terminalEvents.push(event.type);
             }
@@ -339,7 +338,7 @@ describe("pi-shell-inspector kill key", () => {
             press("x");
             assert.doesNotThrow(() => press("x"), "the second x must not throw");
 
-            const job = shellManager.getJob(jobId)!;
+            const job = session.manager.getJob(jobId)!;
             assert.equal(job.status, "killed", "the repeated kill must leave the status as killed");
             assert.equal(
                 job.error,
@@ -352,7 +351,7 @@ describe("pi-shell-inspector kill key", () => {
                 "the kill must have aborted the job once",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
                 "the second x must not move a counter",
             );
@@ -391,26 +390,26 @@ describe("pi-shell-inspector kill key", () => {
             });
             if (status === "killed") {
                 assert.equal(
-                    shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+                    session.manager.settleJob(jobId, { type: "killed", error: "manual kill" }),
                     true,
                     "the fixture kill must be accepted",
                 );
             } else {
                 assert.equal(
-                    (await waitForJobSettled(jobId)).status,
+                    (await waitForJobSettled(session.manager, jobId)).status,
                     status,
                     `the fixture must settle as ${status}`,
                 );
             }
 
-            const before = shellManager.getJob(jobId)!;
+            const before = session.manager.getJob(jobId)!;
             const originalError = before.error;
             const originalExitCode = before.exitCode;
             const originalFinishedAt = before.finishedAt;
-            const statsBefore = shellManager.getAllJobsStatusStat();
+            const statsBefore = session.manager.getAllJobsStatusStat();
             const notificationsBefore = session.host.sendMessageCalls.length;
             const terminalEvents: string[] = [];
-            const unsubscribe = shellManager.subscribe((event) => {
+            const unsubscribe = session.manager.subscribe((event) => {
                 if (
                     (event.type === "job-completed" ||
                         event.type === "job-failed" ||
@@ -427,13 +426,13 @@ describe("pi-shell-inspector kill key", () => {
                 unsubscribe();
             }
 
-            const after = shellManager.getJob(jobId)!;
+            const after = session.manager.getJob(jobId)!;
             assert.equal(after.status, status, "x must not change a settled shell's status");
             assert.equal(after.error, originalError, "x must not overwrite the recorded error");
             assert.equal(after.exitCode, originalExitCode, "x must not restamp the exit code");
             assert.equal(after.finishedAt, originalFinishedAt, "x must not restamp the finish");
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 statsBefore,
                 "x must not move a counter",
             );

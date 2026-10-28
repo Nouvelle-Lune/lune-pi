@@ -136,7 +136,8 @@ text for strings, a number editor for `number`/`integer`, JSON otherwise. String
 masked with `secret: true`; `globalOnly` rows are marked "global only" in the project view;
 untrusted projects show a banner and refuse project edits. Fields can be listed under
 group headings, shown or disabled conditionally, and edited with your own pi-tui component
-via `customEditor`; see the [recipes](docs/recipes.md) and [Panel guide](docs/panel.md).
+via `customEditor`. Secondary menus open a nested page of fields from one row, for entries
+kept outside Settings; see the [recipes](docs/recipes.md) and [Panel guide](docs/panel.md).
 
 Core registers no appearance changes. The Lune header, palettes and tool cards live in the
 independent `@lune_99/pi-core-theme` extension, which adds its own `Theme` section.
@@ -203,40 +204,61 @@ See [Dock](docs/dock.md).
 
 ## Mentions
 
-Core's Pi entry adds earlier sessions to Pi's `@` completion in the editor.
+Core's Pi entry adds local Pi, Codex and Claude Code sessions to the same `@` completion list.
 
 The list after `@` starts with up to three local sessions from every project, newest first.
-Each row shows `[session]`, the age, the project and the session title. Type after `@` to
-filter them by title, project or id. Files whose name contains what you typed come before
+Each row shows its source (`[pi]`, `[codex]` or `[claude]`), age, project and title.
+Type after `@` to filter by source, title, project or id. Files whose name contains what you typed come before
 the sessions, so Tab still picks the file you typed. File matches are Pi's own.
 
-Type `@@` to list only sessions. `@@` searches every local session by title, project, id and
+Type `@@` to list only sessions from all three tools together. It searches by source, title, project, id and
 the text of its messages, and shows up to 50 matches.
 
 ```text
 继续这个 @@recap
-→ [session]  3d  lune-pi          调查recap现在生成的条件是什么
-  [session]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
+→ [pi]      3d  lune-pi          调查recap现在生成的条件是什么
+  [claude]  6d  lune-recap       如果我把recap的焦点检测去掉会怎么样？
 ```
 
-Picking a row inserts `@session:<id>`. When you send the prompt, Core opens that session with
-Pi's `SessionManager.open()` and rebuilds it with `buildSessionProjection()`, the way Pi builds
-its model context: the active branch only, a compaction summary in place of older history, and
-context edits applied. Of that, it keeps only your prompts, the assistant's text and the
-compaction summary. Thinking, images, tool calls and output, shell commands and extension
-messages are left out. The result is written to
-`<agentDir>/tmp/session-refs/<session id>.<entry id>.md` (at most 40 KB), and the token
-becomes an `@` reference to that file, so the agent reads it only when it needs it.
+Picking a row inserts `@session:<id>` for Pi, `@codex:<id>` for Codex or `@claude:<id>` for
+Claude Code. The prefixes identify references; both completion lists combine all three sources.
+Codex reads `<CODEX_HOME>/sessions/` (default `~/.codex/sessions/`) and Claude Code reads
+`<CLAUDE_CONFIG_DIR>/projects/` (default `~/.claude/projects/`). Codex archived sessions and
+both tools' subagent sessions are excluded. Codex titles come from its optional
+`session_index.jsonl`; Claude Code uses its custom or generated session title.
 
-Core does not write session files. Like `/resume`, `SessionManager.open()` upgrades a session
-file that uses an older Pi session format. If an id matches no session or more than one, the
+When you send the prompt, Core saves an exact JSONL copy in the system temporary directory.
+Pi rebuilds its active branch with `SessionManager.inMemory()` and `buildSessionProjection()`,
+including compaction and context edits. Codex applies compaction replacement history and turn
+rollbacks; Claude Code follows the active parent chain and reconnects messages preserved by
+compaction. The filtered copy keeps your prompts, assistant text and readable compaction
+summaries. Thinking, images, tool calls and output, system context and encrypted compaction
+payloads are left out. The result is written to
+`<os.tmpdir()>/pi-lune-session-refs/<source>.<session id>.<snapshot hash>.md` (at most 40 KB), and the token
+becomes an `@` reference to that file, so the agent reads it only when it needs it.
+The Markdown links to the complete `<source>.<session id>.<snapshot hash>.jsonl` copy in the same
+directory for details it leaves out; it does not expose the original session file path.
+Copies remain available across Pi restarts until the operating system reclaims them; cleanup
+timing depends on its temporary-file policy. Mentioning a session again recreates a missing
+Markdown or JSONL copy. Changed session contents or titles produce a new pair of copies, preserving
+earlier references. Existing copies under `<agentDir>/tmp/session-refs/` can be removed manually when their
+old references are no longer needed.
+
+Core leaves both the original session file and the complete JSONL copy unchanged, including
+when Pi upgrades an older session format in memory. If an id matches no session or more than one, the
 prompt is not sent and your text returns to the editor.
 
-Core reads the session list with Pi's `SessionManager.listAll()` when a session starts (about
-1 s for 330 sessions). Lookups use that list and reload it in the background when it is older
+Core loads all three sources into its existing `SessionCatalog` when a session starts, using
+Pi's `SessionManager.listAll()` for Pi sessions. Lookups use that list and reload it in the background when it is older
 than one minute, so a new session can take up to a minute to appear. Typing never waits for
-the list. A typed `@session:<id>` that is not in the list makes Core reload the list before it
-sends the prompt.
+the list. External files whose inode, size and modification time have not changed reuse their
+parsed metadata and searchable text; searching also reuses the existing lower-case text cache.
+Unchanged reference snapshots reuse `TranscriptCache`. A typed reference that is not in the
+list makes Core reload it before sending the prompt. Invalid or unsupported Codex and Claude
+Code files are silently excluded, and failed parses are cached until their files change.
+An invalid Codex title index leaves titles derived from the session messages. If an external
+session becomes invalid after selection, its reference stays as typed while the rest of the
+prompt is sent normally. Parser failures will be recorded in Core Log once it is available.
 
 Mentions are part of Core's Pi entry only; importing the SDK does not activate them.
 

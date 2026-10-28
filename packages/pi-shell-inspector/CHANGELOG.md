@@ -26,6 +26,16 @@
   session UI cleanup, and host-presence switching. The existing independent status bar is
   restored immediately when Lune Dock is disabled through `/dock` or is absent.
 
+- **Quieter idle Dock item.** All display levels show only `○ Shell` when no jobs are tracked, matching Agents without the `· idle` suffix. Job summaries, status markers and inspector behavior are unchanged.
+
+- **Dock lines drop whole parts instead of cutting them.** A short Lune Dock cell leaves out the runtime, then the latest command, then the counts, with failures kept longest, then `Shell`, down to the marker alone, as the Agents item does. The row below the editor no longer cuts the running command at 20 columns: it shows the whole command or leaves it out, after the `/shell to open` hint.
+
+- **The Dock failure marker clears by itself.** A failed or killed job turns the Lune Dock marker into a red `✕` for 10 seconds, or until you open the inspector. After that, a gray `●` shows while failed jobs are listed and nothing runs, so an item that holds only failures no longer stays red after you have seen it.
+
+### Fixed
+
+- **Each session owns its background shells.** A Lune Subagents run that selected `background_shell` killed the main session's jobs and cleared its shell view, because Pi reuses the loaded module for sessions in the same working directory and the job table lived in that module. Each extension load now has its own shell manager, so a run or a second session cannot see, kill or clear another session's jobs.
+
 ## [1.2.0] - 2026-10-05
 
 ### Added

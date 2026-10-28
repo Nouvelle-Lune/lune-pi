@@ -18,7 +18,7 @@
  * process, clear a shell that is not selected, or reset the selection / output pause that belongs
  * to another shell.
  *
- * The tests render the real component against the real `shellManager` singleton with a recording
+ * The tests render the real component against the real `ShellManager` with a recording
  * stub theme, so assertions read plain strings (no ANSI) and the paused marker can be checked by
  * the color it asks for. `test/integration/inspector-kill.test.ts` presses the same key against a
  * real background shell; the overlay, key routing and the real TUI are out of scope here, and
@@ -31,8 +31,11 @@ import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
 import { ShellInspector } from "../../src/shell/shell-inspector.ts";
-import { shellManager, type ShellJobOutcome } from "../../src/shell/shell-manager.ts";
+import { ShellManager, type ShellJobOutcome } from "../../src/shell/shell-manager.ts";
 import { readJobScreen } from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+let manager = new ShellManager();
 
 /** Raw sequences a terminal sends for the inspector's keys. */
 const SHIFT_UP = "\x1b[1;2A";
@@ -78,13 +81,13 @@ function prefixedOutput(prefix: string, count: number): string {
 
 /** Write a job's output and wait until the emulator has executed it. */
 async function writeOutput(id: string, output: string): Promise<void> {
-    shellManager.appendOutput(id, output);
-    await readJobScreen(id);
+    manager.appendOutput(id, output);
+    await readJobScreen(manager, id);
 }
 
 /** Add a running job whose output is already complete for the purposes of rendering. */
 async function addJob(id: string, command: string, output: string, label?: string): Promise<void> {
-    shellManager.startJob({ id, command, label, cwd: "/work", controller: new AbortController() });
+    manager.startJob({ id, command, label, cwd: "/work", controller: new AbortController() });
     await writeOutput(id, output);
 }
 
@@ -96,7 +99,7 @@ async function addSettledJob(
     outcome: ShellJobOutcome = { type: "completed", exitCode: 0 },
 ): Promise<void> {
     await addJob(id, command, output);
-    shellManager.settleJob(id, outcome);
+    manager.settleJob(id, outcome);
 }
 
 /** The right pane of one rendered line; empty for the separator and border lines. */
@@ -118,7 +121,7 @@ describe("shell inspector", () => {
     let closeRequests: number;
 
     beforeEach(() => {
-        shellManager.clearAllJobs();
+        manager = new ShellManager();
         stub = createStubTheme();
         renderRequests = 0;
         closeRequests = 0;
@@ -130,6 +133,7 @@ describe("shell inspector", () => {
     function createInspector(): ShellInspector {
         return new ShellInspector(
             { ui: { theme: stub.theme } } as unknown as ExtensionContext,
+            manager,
             () => {
                 renderRequests += 1;
             },
@@ -142,7 +146,7 @@ describe("shell inspector", () => {
     }
 
     afterEach(() => {
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
         // dispose() also stops the refresh interval the running jobs started, so tests cannot leak
         // a timer into the next one.
         inspector.dispose();
@@ -298,31 +302,31 @@ describe("shell inspector", () => {
     it("renders every settled status with its own colour", () => {
         // Contract: the inspector colours a job by status in both panes - completed is success,
         // failed is the error colour, and a killed background shell is muted.
-        shellManager.startJob({
+        manager.startJob({
             id: "completed",
             command: "echo done",
             cwd: "/work",
             controller: new AbortController(),
         });
-        shellManager.settleJob("completed", { type: "completed", exitCode: 0 });
-        shellManager.startJob({
+        manager.settleJob("completed", { type: "completed", exitCode: 0 });
+        manager.startJob({
             id: "failed",
             command: "exit 1",
             cwd: "/work",
             controller: new AbortController(),
         });
-        shellManager.settleJob("failed", {
+        manager.settleJob("failed", {
             type: "failed",
             error: "Command exited with code 1",
             exitCode: 1,
         });
-        shellManager.startJob({
+        manager.startJob({
             id: "killed",
             command: "sleep 60",
             cwd: "/work",
             controller: new AbortController(),
         });
-        shellManager.settleJob("killed", { type: "killed", error: "timeout:1" });
+        manager.settleJob("killed", { type: "killed", error: "timeout:1" });
 
         const { fgCalls } = frame();
 
@@ -520,7 +524,7 @@ describe("shell inspector", () => {
         press("j"); // select job-b
 
         inspector.dispose();
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
         await addJob("job-c", "cmd-c", prefixedOutput("c", 3));
         inspector = createInspector();
 
@@ -547,14 +551,14 @@ describe("shell inspector", () => {
     it("shows the last chunk even when the job settles before the next frame", async () => {
         // Contract: the TUI renders on a timer, and xterm parses queued writes on the first timer
         // after the write, so a job that streams and exits in one turn still shows its last line.
-        shellManager.startJob({
+        manager.startJob({
             id: "job-1",
             command: "npm run build",
             cwd: "/work",
             controller: new AbortController(),
         });
-        shellManager.appendOutput("job-1", "step 1\rstep 2");
-        shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+        manager.appendOutput("job-1", "step 1\rstep 2");
+        manager.settleJob("job-1", { type: "completed", exitCode: 0 });
 
         await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -597,14 +601,14 @@ describe("shell inspector", () => {
         assert.ok(visible.length > 1, "a long logical line must occupy multiple pane rows");
         assert.equal(visible.join(""), wide, "every character must remain readable");
         assert.deepEqual(
-            shellManager.getScreenLines("job-1"),
+            manager.getScreenLines("job-1"),
             [wide],
             "pane wrapping must not change the screen",
         );
     });
 
     it("says that a running job has no output yet", async () => {
-        shellManager.startJob({
+        manager.startJob({
             id: "job-1",
             command: "sleep 5",
             cwd: "/work",
@@ -620,7 +624,7 @@ describe("shell inspector", () => {
 
     it("keeps the last screen of a settled job", async () => {
         await addJob("job-1", "npm test", "suite 1 ok\n");
-        shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+        manager.settleJob("job-1", { type: "completed", exitCode: 0 });
 
         assert.deepEqual(
             visibleOutput(),
@@ -638,7 +642,7 @@ describe("shell inspector", () => {
 
         press("x");
 
-        const killed = shellManager.getJob("job-b");
+        const killed = manager.getJob("job-b");
         assert.ok(killed, "the killed shell must stay listed");
         assert.equal(killed.status, "killed", "x must settle the selected shell as killed");
         assert.equal(
@@ -652,12 +656,12 @@ describe("shell inspector", () => {
             "killing a shell must abort its process tree",
         );
         assert.equal(
-            shellManager.getJob("job-a")?.status,
+            manager.getJob("job-a")?.status,
             "running",
             "only the selected shell is killed",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            manager.getAllJobsStatusStat(),
             { runningCount: 1, completedCount: 0, failedCount: 0, killedCount: 1 },
             "the kill must move only the selected shell's counter",
         );
@@ -671,12 +675,12 @@ describe("shell inspector", () => {
         press("x");
 
         assert.equal(
-            shellManager.getJob("job-a")?.status,
+            manager.getJob("job-a")?.status,
             "killed",
             "the selection starts on the first shell",
         );
         assert.equal(
-            shellManager.getJob("job-b")?.status,
+            manager.getJob("job-b")?.status,
             "running",
             "the unselected shell must survive",
         );
@@ -714,11 +718,11 @@ describe("shell inspector", () => {
 
     it("refuses to kill a shell that already settled", async () => {
         await addJob("job-1", "echo done", lineOutput(1));
-        shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+        manager.settleJob("job-1", { type: "completed", exitCode: 0 });
 
         press("x");
 
-        const job = shellManager.getJob("job-1");
+        const job = manager.getJob("job-1");
         assert.ok(job, "the settled shell must stay listed");
         assert.equal(job.status, "completed", "a settled shell must not become killed");
         assert.equal(job.exitCode, 0, "a refused kill must not change the exit code");
@@ -729,7 +733,7 @@ describe("shell inspector", () => {
             "a refused kill must not abort anything",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            manager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 1, failedCount: 0, killedCount: 0 },
             "a refused kill must not move a counter",
         );
@@ -742,17 +746,17 @@ describe("shell inspector", () => {
         press("x");
 
         assert.equal(
-            shellManager.getJob("job-1")?.status,
+            manager.getJob("job-1")?.status,
             "killed",
             "the first x must settle the shell as killed",
         );
         assert.equal(
-            shellManager.getJob("job-1")?.error,
+            manager.getJob("job-1")?.error,
             "Shell killed by user",
             "the second x must not rewrite the reason",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            manager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
             "the second kill must not count the shell twice",
         );
@@ -783,12 +787,12 @@ describe("shell inspector", () => {
             press("c");
 
             assert.equal(
-                shellManager.getJob("job-1")?.id,
+                manager.getJob("job-1")?.id,
                 undefined,
                 "the cleared shell must leave the manager",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -816,17 +820,17 @@ describe("shell inspector", () => {
 
     it("refuses to clear a running shell with the accent notice", async () => {
         await addJob("job-1", "sleep 60", "still running\n");
-        const controller = shellManager.getJob("job-1")!.controller;
+        const controller = manager.getJob("job-1")!.controller;
         const redrawsBefore = renderRequests;
 
         press("c");
 
-        const job = shellManager.getJob("job-1");
+        const job = manager.getJob("job-1");
         assert.ok(job, "a running shell must stay in the manager");
         assert.equal(job.status, "running", "a running shell must not be cleared");
         assert.equal(controller.signal.aborted, false, "the refusal must not touch the process");
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            manager.getAllJobsStatusStat(),
             {
                 runningCount: 1,
                 completedCount: 0,
@@ -888,7 +892,7 @@ describe("shell inspector", () => {
         press("c");
 
         assert.deepEqual(
-            shellManager.getAllJobsList().map((job) => job.id),
+            manager.getAllJobsList().map((job) => job.id),
             ["job-a", "job-c"],
             "clearing the middle shell must keep the order of the rest",
         );
@@ -913,7 +917,7 @@ describe("shell inspector", () => {
         press("c");
 
         assert.deepEqual(
-            shellManager.getAllJobsList().map((job) => job.id),
+            manager.getAllJobsList().map((job) => job.id),
             ["job-a"],
             "clearing the last shell must leave the earlier one",
         );
@@ -934,7 +938,7 @@ describe("shell inspector", () => {
 
         press("c");
 
-        assert.equal(shellManager.getJob("job-b")?.id, undefined, "c must clear the paused shell");
+        assert.equal(manager.getJob("job-b")?.id, undefined, "c must clear the paused shell");
         assert.equal(
             pausedMarker(),
             undefined,
@@ -984,7 +988,7 @@ describe("shell inspector", () => {
             press("c");
         }, "an empty job list must leave every key harmless");
         assert.equal(
-            shellManager.getAllJobsList().length,
+            manager.getAllJobsList().length,
             0,
             "the keys must not resurrect a cleared shell",
         );
@@ -1162,7 +1166,7 @@ describe("shell inspector", () => {
                 "output must not contain truncation markers",
             );
         }
-        assert.deepEqual(shellManager.getScreenLines("job-1"), [wide, "next"]);
+        assert.deepEqual(manager.getScreenLines("job-1"), [wide, "next"]);
     });
 
     it("scrolls within a logical line taller than the output viewport", async () => {
@@ -1455,7 +1459,7 @@ describe("shell inspector", () => {
         // before the same job command is shown in the list and the selected-job details.
         const rawCommand = "\x1b[31mprintf\x1b[0m\t'a\r\nb'  ok\x1b]0;title\x07";
         const normalized = "printf 'a b' ok";
-        shellManager.startJob({
+        manager.startJob({
             id: "job-1",
             command: rawCommand,
             cwd: "/work",
@@ -1486,7 +1490,7 @@ describe("shell inspector", () => {
             `terminal control sequences must not appear in the details command, got ${JSON.stringify(detailsCommand)}`,
         );
         assert.equal(
-            shellManager.getJob("job-1")?.command,
+            manager.getJob("job-1")?.command,
             rawCommand,
             "render normalization must not rewrite the command stored on the job",
         );

@@ -8,7 +8,7 @@ keyboard and press Enter to open its existing interface directly; there is no ac
 
 ```text
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- ○ Shell · idle │ ○ Ask · idle                                                  │ (anthropic) claude-opus-5-5 • max
+ ○ Shell │ ○ Ask                                                                │ (anthropic) claude-opus-5-5 • max
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    …/local-extensions/pi-recap   (main)      │ R187k │ CH 98.9% │ ↑28k  ↓5.6k │ $0.008  │  27k/1.0M · 2.7%  │ (auto)
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ The dock **replaces Pi's built-in footer**, so every statistic it showed stays v
 
 | Row  | Left                                         | Right                                                                                                               |
 | ---- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Dock | Module cells, one per contributing extension | `(provider) model • thinking level`                                                                                 |
+| Dock | Module cells, one per contributing extension | `(provider) model • thinking level • 48.2 tok/s`                                                                    |
 | Info | Working directory, git branch, session name  | Cache `W`rite, cache `R`ead, `CH` cache hit, tokens `↑in ↓out`, cost, context use (`used/window · share`), `(auto)` |
 
 Statuses set by other extensions through `ctx.ui.setStatus()` follow on a row of their own.
@@ -30,12 +30,29 @@ use and `(auto)`, and the others fill their own columns once Pi reports tokens, 
 Slots that often stay blank, such as cache writes for providers that do not report them, sit on
 the left, so their blank columns join the gap after the directory.
 
-The model starts on one of the info row's bars, so the bar before it continues a bar below. It takes
-the rightmost bar that leaves room for it within half the row, drops the provider before it gives up
-that alignment, and sits flush right only when no bar fits even the bare model.
+The model and speed are flush right. The divider before them continues one of the info row's bars,
+with any spare padding between the divider and model, never after the speed. It takes the rightmost
+bar that leaves room within half the row, dropping the provider and then the speed before giving up
+divider alignment.
+
+The speed segment follows the thinking level (or model name for models without thinking) with single
+spaces and the same `•` bullet, as in `model • max • 48.2 tok/s`. Without a reliable measurement the
+entire segment stays hidden, including its separator and unit. Once measured, the latest speed stays
+visible through subsequent generation and after completion or cancellation, until a new valid
+measurement replaces it. It is highlighted while an assistant response is generating and dimmed when
+finished.
+
+Speed is the provider-reported output tokens divided by Pi's measured response duration, including
+the wait for the first token, not a pure decoding benchmark. Both output tokens and duration must be
+positive and finite. Pi does not provide a reliable cross-provider live token count; partial usage,
+text length, stream chunks, tool usage and tool execution time are not used. A response without valid
+measurements does not erase the previous value or invent a zero. The measurement resets on detachment,
+reload, session replacement or tree navigation, and is hidden for a different model. Narrow terminals
+drop the entire speed segment before truncating the model; no part of its number or unit is clipped.
+The model visibility switch also controls speed, and `classic` leaves Pi's footer unchanged.
 
 Which slots are reserved depends on the terminal width alone: a narrow terminal drops cache writes,
-cache reads, hit rate, tokens, cost and `(auto)` in that order, always keeps context use, and gives
+cache reads, tokens, cost, hit rate and `(auto)` in that order, always keeps context use, and gives
 the rest to the working directory, which is shortened from the left against the full reservation so
 it does not move either. Below 40 columns the model is hidden so the cells keep the whole row.
 Provider shows only when more than one is available, and `(auto)` reflects the compaction setting
@@ -65,12 +82,12 @@ Choose a style in `/dock`; the panel previews it, focused, before you commit.
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
-│ ○ Shell · idle │ ○ Ask · idle        │ model • max       │   boxed
+│ ○ Shell │ ○ Ask                      │ model • max       │   boxed
 ├──────────────────────────────────────────────────────────┤
 │  ~/proj  (main)        │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%  │
 ╰──────────────────────────────────────────────────────────╯
 
- ○ Shell · idle │ ○ Ask · idle         │ model • max         compact
+ ○ Shell │ ○ Ask                       │ model • max         compact
   ~/proj  (main)         │ ↑28k  ↓5.6k │  27k/1.0M · 2.7%
 ```
 
@@ -154,7 +171,8 @@ stays red. This is plugin-owned, ephemeral view state.
 Ask Question supplies base identity, pending request count in detail (requests, rather than
 individual questions), and the next request's subject in full. Enter opens the existing
 `/question` panel, including draft persistence on Esc. Both plugins remain registered when idle,
-with an idle base. Visibility is controlled by Dock settings and never by plugin state.
+showing only their status marker and name at every display level. Visibility is controlled by
+Dock settings and never by plugin state.
 
 The Dock protocol in Core (`@lune_99/pi-lune-extensions-core/dock`, protocol version 1) exposes `LuneDockSnapshot` and
 `LuneDockProvider`: `getSnapshot()`, `subscribe(listener)` and `activate()`. Every supplied

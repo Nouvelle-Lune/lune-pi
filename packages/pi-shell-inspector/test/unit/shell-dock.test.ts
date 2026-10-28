@@ -7,8 +7,8 @@
  * runtime) or the per-status count list of a mixed job list. Every segment is requested in its own
  * status colour - accent while running, success when completed, error for failed and killed - and
  * the ` · ` separators plus the `/shell to open` hint stay dim, so the dock never reads as one
- * uniformly coloured block. The tests drive the real `shellManager`
- * singleton through a fake UI that records every `setWidget` and `theme.fg` call, so they assert
+ * uniformly coloured block. The tests drive a real `ShellManager`
+ * through a fake UI that records every `setWidget` and `theme.fg` call, so they assert
  * exactly what the extension asks pi to mount. How pi composes that widget with another extension's
  * widget is covered by `test/integration/subagent-widget.test.ts`; the real TUI is observed through
  * `test/tui`, where the `shelldocksum` scenario shows the same states by hand.
@@ -20,8 +20,16 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 import { ShellDock } from "../../src/shell/shell-dock.ts";
-import { shellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
-import { createFakeContext, createFakeUi, type FakeExtensionUi } from "../harness.ts";
+import { ShellManager, type ShellJobStatus } from "../../src/shell/shell-manager.ts";
+import {
+    createFakeContext,
+    createFakeUi,
+    withoutMargin,
+    type FakeExtensionUi,
+} from "../harness.ts";
+
+/** Job table of the current test; every test starts with an empty one. */
+let manager = new ShellManager();
 
 /**
  * Widget key the extension registers.
@@ -33,7 +41,7 @@ const WIDGET_KEY = "pi-shell-inspector";
 
 /** Start one job and settle it into `status`. */
 function addJob(id: string, command: string, status: ShellJobStatus = "running"): void {
-    shellManager.startJob({
+    manager.startJob({
         id,
         command,
         cwd: "/work",
@@ -44,17 +52,17 @@ function addJob(id: string, command: string, status: ShellJobStatus = "running")
         case "running":
             return;
         case "completed":
-            shellManager.settleJob(id, { type: "completed", exitCode: 0 });
+            manager.settleJob(id, { type: "completed", exitCode: 0 });
             return;
         case "failed":
-            shellManager.settleJob(id, {
+            manager.settleJob(id, {
                 type: "failed",
                 error: "Command exited with code 1",
                 exitCode: 1,
             });
             return;
         case "killed":
-            shellManager.settleJob(id, { type: "killed", error: "timeout:1" });
+            manager.settleJob(id, { type: "killed", error: "timeout:1" });
     }
 }
 
@@ -65,7 +73,7 @@ function addJob(id: string, command: string, status: ShellJobStatus = "running")
  * `Date.now()` is what makes the rendered "Ns" deterministic without mocking the clock.
  */
 function setJobTimes(id: string, startedAgoMs: number, finishedAgoMs?: number): void {
-    const job = shellManager.getJob(id);
+    const job = manager.getJob(id);
     assert.ok(job, `expected job ${id} to exist`);
 
     const mutable = job as { startedAt: number; finishedAt?: number };
@@ -76,23 +84,11 @@ function setJobTimes(id: string, startedAgoMs: number, finishedAgoMs?: number): 
     }
 }
 
-/** Terminal columns the dock allows the command segment before the ellipsis. */
-const COMMAND_COLUMN_BUDGET = 20;
+/** Width wide enough that no part of any row below is left out. */
+const WIDE = 200;
 
-/** Truncation marker the dock appends after the column budget. */
-const ELLIPSIS = "…";
-
-/** The command segment of the single-running-shell dock line. */
-function commandSegment(line: string): string {
-    const match = /^1 running shell · (.*) · \d+s · \/shell to open$/.exec(line);
-    assert.ok(match, `not the single-running-shell summary: ${line}`);
-    return match[1]!;
-}
-
-/** True when `text` holds a UTF-16 surrogate code unit without its partner. */
-function hasLoneSurrogate(text: string): boolean {
-    return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
-}
+/** Terminal columns the standalone row reserves around its content: one margin column per side. */
+const MARGIN_COLUMNS = 2;
 
 describe("shell dock", () => {
     let dock: ShellDock;
@@ -100,14 +96,14 @@ describe("shell dock", () => {
     let ctx: ExtensionContext;
 
     beforeEach(() => {
-        shellManager.clearAllJobs();
-        dock = new ShellDock();
+        manager = new ShellManager();
+        dock = new ShellDock(manager);
         ui = createFakeUi();
         ctx = createFakeContext("/work", { ui });
     });
 
     afterEach(() => {
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
         // clear() also stops the refresh interval a running job started, so tests cannot leak a
         // timer into the next one.
         dock.clear();
@@ -119,12 +115,22 @@ describe("shell dock", () => {
         dock.render();
     }
 
-    /** The dock line currently mounted below the editor. */
-    function line(): string {
-        const content = ui.mountedWidget("belowEditor", WIDGET_KEY);
-        assert.ok(Array.isArray(content), "the dock must be mounted as an array of lines");
+    /** The row mounted below the editor, rendered at `width` exactly as pi would draw it. */
+    function rowAt(width: number): string {
+        const content = ui.renderedWidget("belowEditor", WIDGET_KEY, width);
+        assert.ok(content, "the dock must be mounted");
         assert.equal(content.length, 1, "the dock must stay a single line");
         return content[0]!;
+    }
+
+    /** The dock line currently mounted below the editor, at a width that leaves nothing out. */
+    function line(): string {
+        return withoutMargin(rowAt(WIDE));
+    }
+
+    /** The row at `width` without its margin, with colour sequences removed. */
+    function plainRowAt(width: number): string {
+        return stripTerminalSequences(withoutMargin(rowAt(width)));
     }
 
     describe("render", () => {
@@ -179,14 +185,13 @@ describe("shell dock", () => {
 
             render();
 
-            assert.deepEqual(
-                ui.widgetCalls.at(-1),
-                {
-                    key: WIDGET_KEY,
-                    content: ["1 running shell · sleep 30 · 0s · /shell to open"],
-                    placement: "belowEditor",
-                },
-                "the running shell must be mounted below the editor under the dock key",
+            const call = ui.widgetCalls.at(-1);
+            assert.equal(call?.key, WIDGET_KEY, "the dock must use its own widget key");
+            assert.equal(call?.placement, "belowEditor", "the dock must mount below the editor");
+            assert.equal(
+                typeof call?.content,
+                "function",
+                "the dock must mount a component, so it can fit its row to the width pi gives it",
             );
             assert.equal(
                 line(),
@@ -215,137 +220,6 @@ describe("shell dock", () => {
                 line(),
                 "1 running shell · sleep 30 · 12s · /shell to open",
                 "the elapsed segment must report whole seconds",
-            );
-        });
-
-        it("truncates the command of the single running shell to the 20-column budget", () => {
-            // Contract: the command segment is capped at the 20-column terminal budget including the
-            // ellipsis, so one long command cannot push the dock line past the editor width.
-            const command = `echo ${"x".repeat(40)}`;
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            const segment = stripTerminalSequences(commandSegment(line()));
-            assert.ok(
-                visibleWidth(segment) <= COMMAND_COLUMN_BUDGET,
-                `the command must fit ${COMMAND_COLUMN_BUDGET} columns: ${JSON.stringify(segment)}`,
-            );
-            assert.ok(
-                segment.endsWith(ELLIPSIS),
-                `an over-budget command must be marked as truncated, got ${JSON.stringify(segment)}`,
-            );
-            assert.notEqual(segment, command, "the command must actually be shortened");
-        });
-
-        it("keeps a command of exactly 20 characters unchanged", () => {
-            // Contract: the cap is inclusive, so a command that fits is not marked as truncated.
-            const command = "y".repeat(20);
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            assert.equal(
-                line(),
-                `1 running shell · ${command} · 0s · /shell to open`,
-                "a command that exactly fits the budget must stay unchanged",
-            );
-        });
-
-        it("truncates a CJK command by terminal columns, not by string length", () => {
-            // Desired contract: the 20-column cap is a terminal-display budget. The command below is
-            // 16 code units but 32 columns, so a length-based slice() never truncates it.
-            const command = "运行测试脚本并输出结果并继续运行";
-            assert.ok(
-                command.length <= COMMAND_COLUMN_BUDGET,
-                "guard: the code-unit length fits the budget",
-            );
-            assert.ok(
-                visibleWidth(command) > COMMAND_COLUMN_BUDGET,
-                "guard: the display width does not",
-            );
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            const segment = stripTerminalSequences(commandSegment(line()));
-            assert.ok(
-                visibleWidth(segment) <= COMMAND_COLUMN_BUDGET,
-                `the command must fit ${COMMAND_COLUMN_BUDGET} columns: ${JSON.stringify(segment)}`,
-            );
-            assert.ok(
-                segment.endsWith(ELLIPSIS),
-                `an over-budget command must be marked as truncated, got ${JSON.stringify(segment)}`,
-            );
-            assert.equal(
-                hasLoneSurrogate(segment),
-                false,
-                "the truncated CJK command must stay well-formed",
-            );
-        });
-
-        it("truncates an emoji command without splitting a surrogate pair", () => {
-            // Desired contract: 19 ASCII code units plus an emoji cross the budget at code-unit 20,
-            // which is exactly between the emoji's two surrogate halves.
-            const command = `${"a".repeat(19)}🚀 tail`;
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            const segment = stripTerminalSequences(commandSegment(line()));
-            assert.equal(
-                hasLoneSurrogate(segment),
-                false,
-                `a truncated command must stay well-formed: ${JSON.stringify(segment)}`,
-            );
-            assert.ok(
-                visibleWidth(segment) <= COMMAND_COLUMN_BUDGET,
-                `the command must fit ${COMMAND_COLUMN_BUDGET} columns: ${JSON.stringify(segment)}`,
-            );
-            assert.ok(
-                segment.endsWith(ELLIPSIS),
-                `an over-budget command must be marked as truncated, got ${JSON.stringify(segment)}`,
-            );
-        });
-
-        it("keeps the unbroken emoji example within the column budget", () => {
-            // The example from the design discussion: it is long in code units, but the budget must
-            // still be measured in columns and the ellipsis must be placed after the truncated text.
-            const command = "🚀 build release artifacts 🔧";
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            const segment = stripTerminalSequences(commandSegment(line()));
-            assert.equal(
-                hasLoneSurrogate(segment),
-                false,
-                "the truncated emoji command must stay well-formed",
-            );
-            assert.ok(
-                visibleWidth(segment) <= COMMAND_COLUMN_BUDGET,
-                `the command must fit ${COMMAND_COLUMN_BUDGET} columns: ${JSON.stringify(segment)}`,
-            );
-        });
-
-        it("keeps a command carrying ANSI bytes within the visible-column budget", () => {
-            // Defensive contract: an escape sequence is zero-width, so it must not consume the
-            // terminal budget or push the visible command past it.
-            const command = `\x1b[31mecho ${"x".repeat(40)}\x1b[0m`;
-            addJob("job-1", command);
-            setJobTimes("job-1", 100);
-
-            render();
-
-            const segment = stripTerminalSequences(commandSegment(line()));
-            assert.ok(
-                visibleWidth(segment) <= COMMAND_COLUMN_BUDGET,
-                `the visible command must fit ${COMMAND_COLUMN_BUDGET} columns: ${JSON.stringify(segment)}`,
             );
         });
 
@@ -389,10 +263,10 @@ describe("shell dock", () => {
                 "the completed summary must stay below the editor",
             );
             assert.deepEqual(
-                ui.fgCalls,
+                ui.fgCalls.filter((call) => call.color !== "dim" || call.text !== " · "),
                 [
+                    { color: "dim", text: "/shell to open" },
                     { color: "success", text: "1 shell completed" },
-                    { color: "dim", text: " · /shell to open" },
                 ],
                 "the completed count must be green and the hint dim",
             );
@@ -510,13 +384,13 @@ describe("shell dock", () => {
                 ui.fgCalls.some((call) => call.color === "dim" && call.text === " · "),
                 `the count segments must be joined with a dim separator, got ${JSON.stringify(ui.fgCalls)}`,
             );
-            assert.deepEqual(
-                ui.fgCalls.at(-1),
-                {
-                    color: "dim",
-                    text: " · /shell to open",
-                },
-                "the count list must end with the dim hint",
+            assert.ok(
+                ui.fgCalls.some((call) => call.color === "dim" && call.text === "/shell to open"),
+                `the hint must be dim, got ${JSON.stringify(ui.fgCalls)}`,
+            );
+            assert.ok(
+                line().endsWith("/shell to open"),
+                "the count list must still end with the hint",
             );
         });
 
@@ -532,7 +406,7 @@ describe("shell dock", () => {
                 "two running shells must use the count summary",
             );
 
-            shellManager.settleJob("job-2", { type: "completed", exitCode: 0 });
+            manager.settleJob("job-2", { type: "completed", exitCode: 0 });
             render();
 
             assert.equal(
@@ -556,13 +430,18 @@ describe("shell dock", () => {
             render();
 
             assert.deepEqual(
-                ui.fgCalls,
-                [
-                    { color: "accent", text: "1 running shell" },
-                    { color: "dim", text: " · " },
-                    { color: "dim", text: " · /shell to open" },
-                ],
+                ui.fgCalls.filter((call) => call.color !== "dim"),
+                [{ color: "accent", text: "1 running shell" }],
                 "only the running count may be accented; command and elapsed time stay plain",
+            );
+            assert.deepEqual(
+                [
+                    ...new Set(
+                        ui.fgCalls.filter((call) => call.color === "dim").map((c) => c.text),
+                    ),
+                ].sort(),
+                [" · ", "/shell to open"],
+                "only the separators and the hint may be dim",
             );
         });
 
@@ -594,7 +473,7 @@ describe("shell dock", () => {
                     "the elapsed segment must follow every tick",
                 );
 
-                shellManager.settleJob("job-1", { type: "completed", exitCode: 0 });
+                manager.settleJob("job-1", { type: "completed", exitCode: 0 });
                 render();
                 const callsAfterSettle = ui.widgetCalls.length;
                 mock.timers.tick(5_000);
@@ -604,9 +483,143 @@ describe("shell dock", () => {
                     "the timer must stop when no shell runs",
                 );
             } finally {
-                shellManager.clearAllJobs();
+                manager.clearAllJobs();
                 render();
                 mock.timers.reset();
+            }
+        });
+    });
+
+    describe("width", () => {
+        /** Render `expected` rows at their own width and one column narrower, in order. */
+        function assertRowsShrinkInOrder(rows: readonly string[]): void {
+            rows.forEach((expected, index) => {
+                const width = visibleWidth(expected) + MARGIN_COLUMNS;
+                assert.equal(
+                    plainRowAt(width),
+                    expected,
+                    `at ${width} columns the row must keep exactly: ${expected}`,
+                );
+
+                const narrower = rows[index + 1];
+                if (narrower !== undefined) {
+                    assert.equal(
+                        plainRowAt(width - 1),
+                        narrower,
+                        `one column below ${width} the row must leave out one whole part`,
+                    );
+                }
+            });
+        }
+
+        it("shows the whole command of the single running shell instead of cutting it", () => {
+            const command = `echo ${"x".repeat(60)}`;
+            addJob("job-1", command);
+            setJobTimes("job-1", 100);
+
+            render();
+
+            const actual = plainRowAt(WIDE);
+            assert.equal(actual, `1 running shell · ${command} · 0s · /shell to open`);
+            assert.equal(actual.includes("…"), false, "no part may be cut with an ellipsis");
+        });
+
+        it("leaves out hint, elapsed seconds and command of a running shell in that order", () => {
+            addJob("job-1", "echo hello world");
+            setJobTimes("job-1", 5_000);
+
+            render();
+
+            assertRowsShrinkInOrder([
+                "1 running shell · echo hello world · 5s · /shell to open",
+                "1 running shell · echo hello world · 5s",
+                "1 running shell · echo hello world",
+                "1 running shell",
+            ]);
+        });
+
+        it("leaves out the hint of a completed shell before anything else", () => {
+            addJob("job-1", "echo done", "completed");
+            setJobTimes("job-1", 5_000, 1_000);
+
+            render();
+
+            assertRowsShrinkInOrder([
+                "1 shell completed in 4s · /shell to open",
+                "1 shell completed in 4s",
+            ]);
+        });
+
+        it("leaves out counts by rank, keeping failures longest", () => {
+            addJob("running", "sleep 30", "running");
+            addJob("completed", "echo done", "completed");
+            addJob("failed", "exit 1", "failed");
+            addJob("killed", "sleep 60", "killed");
+            addJob("killed-2", "sleep 60", "killed");
+
+            render();
+
+            // Hint first, then completed, running, killed, failed; the kept counts keep their order.
+            assertRowsShrinkInOrder([
+                "5 shells · 1 running · 1 completed · 1 failed · 2 killed · /shell to open",
+                "5 shells · 1 running · 1 completed · 1 failed · 2 killed",
+                "5 shells · 1 running · 1 failed · 2 killed",
+                "5 shells · 1 failed · 2 killed",
+                "5 shells · 1 failed",
+                "5 shells",
+            ]);
+        });
+
+        it("keeps the lead and falls back to the bare margin when even the lead does not fit", () => {
+            addJob("job-1", "sleep 30");
+            setJobTimes("job-1", 100);
+
+            render();
+
+            const leadWidth = visibleWidth("1 running shell");
+            for (let width = 0; width < leadWidth + MARGIN_COLUMNS; width++) {
+                assert.equal(rowAt(width), " ", `at ${width} columns only the margin may remain`);
+            }
+            assert.equal(plainRowAt(leadWidth + MARGIN_COLUMNS), "1 running shell");
+        });
+
+        it("never renders more than one line wider than the width or cut with an ellipsis", () => {
+            // Every row shape at every width: whole parts or nothing, never a partial one.
+            const scenarios: Array<[string, () => void]> = [
+                [
+                    "running",
+                    () => addJob("a", "echo 运行测试脚本并输出结果 🚀 and more", "running"),
+                ],
+                ["completed", () => addJob("a", "echo done", "completed")],
+                [
+                    "mixed",
+                    () => {
+                        addJob("a", "sleep 30", "running");
+                        addJob("b", "exit 1", "failed");
+                        addJob("c", "sleep 60", "killed");
+                    },
+                ],
+            ];
+
+            for (const [name, setup] of scenarios) {
+                manager.clearAllJobs();
+                setup();
+                setJobTimes("a", 5_000, 1_000);
+                render();
+
+                for (let width = 0; width <= 100; width++) {
+                    const row = rowAt(width);
+                    assert.equal(row.includes("\n"), false, `${name}@${width}: one line only`);
+                    assert.ok(
+                        visibleWidth(row) <= Math.max(width, 1),
+                        `${name}@${width}: row too wide: ${JSON.stringify(row)}`,
+                    );
+                    assert.equal(
+                        stripTerminalSequences(row).includes("…"),
+                        false,
+                        `${name}@${width}: no part may be cut with an ellipsis`,
+                    );
+                }
             }
         });
     });

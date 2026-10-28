@@ -13,10 +13,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createTempWorkDir,
-    loadRegisteredTool,
+    sessionTool,
     openSession,
     removeTempWorkDir,
     resultText,
@@ -62,10 +61,9 @@ describe("pi-shell-inspector background_shell invocation", () => {
     let inspector: BashToolDefinition;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("background-shell");
         session = await openSession(workDir);
-        inspector = loadRegisteredTool(workDir, "background_shell");
+        inspector = sessionTool(session, "background_shell");
     });
 
     afterEach(async () => {
@@ -97,7 +95,7 @@ describe("pi-shell-inspector background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-list-completed",
         });
-        await waitForJobSettled(completed.jobId);
+        await waitForJobSettled(session.manager, completed.jobId);
         await startBackgroundBashCommand(session.tool, {
             command: "sleep 30",
             ctx: session.ctx,
@@ -129,7 +127,7 @@ describe("pi-shell-inspector background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-status-only",
         });
-        await waitForJobSettled(jobId);
+        await waitForJobSettled(session.manager, jobId);
 
         const text = await inspect(inspector, { jobs: [{ jobID: jobId }] });
         assert.equal(
@@ -154,7 +152,7 @@ describe("pi-shell-inspector background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-screen",
         });
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
         assert.ok(
             settled.output.content.includes("\r"),
             `guard: the raw stream must carry the redraw, got ${JSON.stringify(settled.output.content.slice(0, 200))}`,
@@ -203,7 +201,7 @@ describe("pi-shell-inspector background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-mixed",
         });
-        await waitForJobSettled(jobId);
+        await waitForJobSettled(session.manager, jobId);
 
         const text = await inspect(inspector, {
             jobs: [

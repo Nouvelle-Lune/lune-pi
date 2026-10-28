@@ -95,7 +95,7 @@ describe("pi-shell-inspector registration", () => {
         // Contract: the wrapper replaces the built-in tool under the same name, so pi uses it
         // instead of the built-in one, `background_shell` reads the jobs that wrapper starts, and
         // `kill_background_shell` stops exactly one of those jobs. All three come from one
-        // extension because they share the module-level shell manager. The description is the
+        // extension because they share the shell manager of the load. The description is the
         // built-in one plus the wrapper's own guidance for background mode.
         const registered = registerExtension(workDir).registeredTools;
         assert.deepEqual(

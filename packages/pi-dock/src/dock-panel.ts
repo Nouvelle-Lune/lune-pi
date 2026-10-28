@@ -39,6 +39,7 @@ const sampleStatus: DockStatus = {
     sessionName: undefined,
     model: { provider: "anthropic", id: "claude-opus-5-5", thinking: "max" },
     showProvider: true,
+    tokenSpeed: { tokensPerSecond: 48.2, generating: false },
     usage: {
         input: 28_000,
         output: 5_600,
@@ -121,7 +122,8 @@ export const dockPanel = defineSettingsPanel(dockSettings, {
         }),
         field("showModel", {
             label: "Show model",
-            description: "Provider, model and thinking level beside the cells.",
+            description:
+                "Provider, model, thinking level and response token speed beside the cells.",
             preview: dockPreview,
         }),
         field("showWorkspace", {

@@ -1,27 +1,51 @@
 import type { ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import {
     createDockContribution,
+    type DockHandle,
     type LuneDockSnapshot,
 } from "@lune_99/pi-lune-extensions-core/dock";
-import { shellDock } from "./shell-dock.ts";
+import { DockAlerts } from "./dock-alert.ts";
+import { fitRanked, type RankedPart } from "./dock-line.ts";
+import { ShellDock } from "./shell-dock.ts";
 import { collapseShellCommand } from "./shell-command.ts";
 import { openShellInspector } from "./shell-inspector.ts";
-import { shellManager, type ShellManagerEvent } from "./shell-manager.ts";
+import type { ShellManager, ShellManagerEvent } from "./shell-manager.ts";
 
 export const SHELL_CONTRIBUTION_ID = "shell-inspector";
 
+/**
+ * Ranks of the line's parts: a narrow cell drops the lowest first, so failures stay longest and
+ * the runtime goes before the command it belongs to.
+ */
+const FAILED_RANK = 5;
+const RUNNING_RANK = 4;
+const COMPLETED_RANK = 3;
+const LATEST_RANK = 2;
+const ELAPSED_RANK = 1;
+
+/**
+ * The Dock item of the background shells. Its lines count the jobs by status and never cut a
+ * part: a narrow cell leaves out whole parts, then the title. A failed or killed job turns the
+ * marker red for a short time, or until the user opens the inspector.
+ */
 export class ShellDockContribution {
     private generation = 0;
-    private readonly acknowledged = new Set<string>();
+    private readonly alerts = new DockAlerts(() => this.render());
     private ctx: ExtensionContext | undefined;
     private timer: ReturnType<typeof setInterval> | undefined;
-    private readonly dock = createDockContribution({
-        id: SHELL_CONTRIBUTION_ID,
-        getSnapshot: (ctx) => this.getSnapshot(ctx),
-        activate: (ctx) => this.open(ctx),
-        standalone: shellDock,
-    });
+    private readonly manager: ShellManager;
+    private readonly dock: DockHandle;
+
+    constructor(manager: ShellManager) {
+        this.manager = manager;
+        this.dock = createDockContribution({
+            id: SHELL_CONTRIBUTION_ID,
+            getSnapshot: (ctx) => this.getSnapshot(ctx),
+            activate: (ctx) => this.open(ctx),
+            standalone: new ShellDock(manager),
+        });
+    }
 
     attach(ctx: ExtensionContext): void {
         this.detach({ retired: true });
@@ -36,12 +60,12 @@ export class ShellDockContribution {
         this.timer = undefined;
         this.ctx = undefined;
         this.dock.detach(options);
-        this.acknowledged.clear();
+        this.alerts.clear();
     }
 
     onManagerEvent(event: ShellManagerEvent): void {
-        if (event.type === "jobs-cleared") this.acknowledged.clear();
-        if (event.type === "job-cleared") this.acknowledged.delete(event.id);
+        if (event.type === "jobs-cleared") this.alerts.clear();
+        if (event.type === "job-cleared") this.alerts.forget(event.id);
         // Output chunks affect the independent command/runtime row, not the shared summary.
         this.dock.refresh({ summaryChanged: event.type !== "output-updated" });
         this.syncTimer();
@@ -52,7 +76,7 @@ export class ShellDockContribution {
     }
 
     private syncTimer(): void {
-        if (this.ctx?.mode === "tui" && shellManager.getRunningJobsList().length > 0) {
+        if (this.ctx?.mode === "tui" && this.manager.getRunningJobsList().length > 0) {
             this.timer ??= setInterval(() => this.render(), 1000);
         } else if (this.timer) {
             clearInterval(this.timer);
@@ -60,66 +84,73 @@ export class ShellDockContribution {
         }
     }
 
+    /** Base names the item; detail adds the counts; full adds the latest job and its runtime. */
     getSnapshot(ctx = this.ctx!): LuneDockSnapshot {
-        const jobs = shellManager.getAllJobsList();
+        const theme = ctx.ui.theme;
+        const jobs = this.manager.getAllJobsList();
         const failed = jobs.filter((job) => job.status === "failed" || job.status === "killed");
         const running = jobs.filter((job) => job.status === "running");
+        const completed = jobs.filter((job) => job.status === "completed");
         let color: ThemeColor;
         let marker: string;
-        if (failed.some((job) => !this.acknowledged.has(job.id))) {
+        if (failed.some((job) => this.alerts.shows(job.id, job.finishedAt))) {
             color = "error";
             marker = "✕";
         } else if (running.length > 0) {
             color = "warning";
             marker = "◐";
-        } else if (jobs.some((job) => job.status === "completed")) {
+        } else if (failed.length > 0) {
+            // Settled with failures: green would claim success, and red stays for new failures.
+            color = "muted";
+            marker = "●";
+        } else if (completed.length > 0) {
             color = "success";
             marker = "●";
-        } else if (jobs.length > 0) {
-            color = "error";
-            marker = "✕";
         } else {
             color = "dim";
             marker = "○";
         }
-        const summary =
-            jobs.length === 0
-                ? "idle"
-                : [
-                      running.length > 0 ? `${running.length} running` : undefined,
-                      jobs.filter((job) => job.status === "completed").length > 0
-                          ? `${jobs.filter((job) => job.status === "completed").length} completed`
-                          : undefined,
-                      failed.length > 0 ? `${failed.length} failed/killed` : undefined,
-                  ]
-                      .filter(Boolean)
-                      .join(" · ");
+        const muted = (text: string): string => theme.fg("muted", text);
+        const summary: RankedPart[] = [
+            running.length > 0
+                ? { text: muted(`${running.length} running`), rank: RUNNING_RANK }
+                : undefined,
+            completed.length > 0
+                ? { text: muted(`${completed.length} completed`), rank: COMPLETED_RANK }
+                : undefined,
+            failed.length > 0
+                ? { text: muted(`${failed.length} failed/killed`), rank: FAILED_RANK }
+                : undefined,
+        ].filter((part) => part !== undefined);
         const latest = jobs[jobs.length - 1];
-        const command = latest ? collapseShellCommand(latest.command) : undefined;
-        const elapsed = latest
-            ? Math.floor(((latest.finishedAt ?? Date.now()) - latest.startedAt) / 1000)
-            : undefined;
-        const component = (suffix: string): Component => ({
+        const details: RankedPart[] = latest
+            ? [
+                  {
+                      text: muted(`latest: ${collapseShellCommand(latest.command)}`),
+                      rank: LATEST_RANK,
+                  },
+                  {
+                      text: muted(
+                          `${Math.floor(((latest.finishedAt ?? Date.now()) - latest.startedAt) / 1000)}s`,
+                      ),
+                      rank: ELAPSED_RANK,
+                  },
+              ]
+            : [];
+        const symbol = theme.fg(color, marker);
+        // `● Shell · 2 running · 1 completed` with every part that fits, down to the marker alone.
+        const component = (parts: readonly RankedPart[]): Component => ({
             render: (width) => [
-                truncateToWidth(
-                    `${ctx.ui.theme.fg(color, marker)} Shell${suffix ? ctx.ui.theme.fg("muted", ` · ${suffix}`) : ""}`,
-                    width,
-                ),
+                fitRanked(parts, width, (texts) =>
+                    [`${symbol} Shell`, ...texts].join(muted(" · ")),
+                ) ?? (visibleWidth(symbol) <= width ? symbol : ""),
             ],
             invalidate() {},
         });
         return {
-            base: component(""),
+            base: component([]),
             detail: component(summary),
-            full: component(
-                [
-                    summary,
-                    command ? `latest: ${command}` : undefined,
-                    elapsed !== undefined ? `${elapsed}s` : undefined,
-                ]
-                    .filter(Boolean)
-                    .join(" · "),
-            ),
+            full: component([...summary, ...details]),
         };
     }
 
@@ -127,13 +158,13 @@ export class ShellDockContribution {
         const generation = this.generation;
         // A failure arriving after the panel opened has not necessarily been seen. Only
         // the opening snapshot is acknowledged, and only after a successful interaction.
-        const seen = shellManager
+        const seen = this.manager
             .getAllJobsList()
             .filter((job) => job.status === "failed" || job.status === "killed")
             .map((job) => job.id);
-        await openShellInspector(ctx);
+        await openShellInspector(ctx, this.manager);
         if (generation !== this.generation) return;
-        for (const id of seen) this.acknowledged.add(id);
+        for (const id of seen) this.alerts.acknowledge(id);
         this.render();
     }
 }

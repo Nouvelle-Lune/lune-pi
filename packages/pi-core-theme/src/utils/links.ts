@@ -1,15 +1,10 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getCapabilities, hyperlink } from "@earendil-works/pi-tui";
 
 const urlPattern = /https?:\/\/[^\s<>"'`|，。；：！？、」』】（）【】《》『』「」]+/g;
-// A path needs a slash, so prose words and dotted code names never cost a file-system check.
-// The lookbehind keeps `host:path` remotes and the tail of other URL schemes unlinked.
-const pathPattern =
-    /(?<![\w.@+~/:-])(?:~?(?:\/[\w.@+-]+)+|[\w.@+-]+(?:\/[\w.@+-]+)+)\/?(?::\d+(?:-\d+)?){0,2}/g;
-const linkPattern = new RegExp(`${urlPattern.source}|${pathPattern.source}`, "g");
 // File URLs cannot carry an editor location, so `:line[:column]` and `#anchor` suffixes are dropped.
 const location = /(?::\d+(?:-\d+)?){1,2}$|#.*$/;
 
@@ -30,36 +25,43 @@ export function hyperlinksEnabled(): boolean {
     return getCapabilities().hyperlinks;
 }
 
-/** A file URL for an existing file or directory, resolved from `cwd`. */
+/** A file URL for an explicit local reference to an existing file or directory. */
 export function fileHref(path: string, cwd: string): string | undefined {
     const target = path.replace(location, "");
-    // A bare `/` or `~` is punctuation in prose far more often than a link to the root.
-    if (!/\w/.test(target)) return undefined;
+    // URI schemes, scp targets and network shares must not become local existence checks.
+    if (
+        !/\w/.test(target) ||
+        /^[\\/]{2}/.test(path) ||
+        /^[^/\\]*@[^/\\]*:/.test(path) ||
+        (/^[^/\\]*:/.test(target) && !isAbsolute(target)) ||
+        /[\u0000-\u001f\u007f]/.test(path)
+    )
+        return undefined;
     const absolute = target.startsWith("~/")
         ? join(homedir(), target.slice(1))
         : resolve(cwd, target);
     return existsSync(absolute) ? pathToFileURL(absolute).href : undefined;
 }
 
-/**
- * Replace each URL in plain text, and each existing path when `cwd` is given. `text` excludes
- * trailing punctuation, which stays outside the replacement.
- */
+const wholeUrl = new RegExp(`^${urlPattern.source}$`);
+
+/** The target for text that is exactly one complete HTTP(S) URL, with no trailing punctuation. */
+export function webHref(value: string): string | undefined {
+    return wholeUrl.test(value) && trimUrl(value) === value ? value : undefined;
+}
+
+/** Replace HTTP(S) URLs in plain text, leaving trailing punctuation outside the replacement. */
 export function replaceLinks(
     value: string,
-    cwd: string | undefined,
     render: (text: string, href: string) => string,
 ): string {
-    return value.replace(linkPattern, (match) => {
-        const url = /^https?:\/\//.test(match);
-        const text = url ? trimUrl(match) : match.replace(/\.+$/, "");
-        if (!text) return match;
-        const href = url ? text : cwd === undefined ? undefined : fileHref(text, cwd);
-        return href ? render(text, href) + match.slice(text.length) : match;
+    return value.replace(urlPattern, (match) => {
+        const text = trimUrl(match);
+        return text ? render(text, text) + match.slice(text.length) : match;
     });
 }
 
-/** Plain text gains OSC 8 links for URLs and existing paths, so Cmd+click opens them. */
-export function linkText(value: string, cwd: string): string {
-    return hyperlinksEnabled() ? replaceLinks(value, cwd, hyperlink) : value;
+/** Plain text gains OSC 8 links only for HTTP(S) URLs. */
+export function linkText(value: string): string {
+    return hyperlinksEnabled() ? replaceLinks(value, hyperlink) : value;
 }

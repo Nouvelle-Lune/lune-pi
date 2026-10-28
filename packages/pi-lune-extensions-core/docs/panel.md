@@ -110,6 +110,65 @@ built for `/panel/host` (the `SettingsPanelField` type from `/panel`) gain the o
 `visible(ctx, scope)`, `disabled(ctx, scope)` and `customEditor(hostContext)`, where the
 host context omits `values`. See the [recipes](recipes.md) for complete examples.
 
+## Secondary menus
+
+A secondary menu is a row that opens a nested page of fields inside the same frame. Use it for
+entries that a fixed field list cannot hold, such as records kept in files. Declared panels
+take `menus`, listed after the fields in the same group order rules:
+
+```ts
+defineSettingsPanel(settings, {
+    label: "Agents",
+    fields: (field) => [field("enabled", { label: "Enabled" })],
+    menus: [
+        {
+            id: "files",
+            label: "Agent files",
+            summary: ({ scope }) => `${listFiles(scope).length} files`,
+            open: ({ scope }) => ({
+                fields: listFiles(scope).map((file) => fileField(file, scope)),
+                emptyMessage: "No agent files yet.",
+            }),
+        },
+    ],
+});
+```
+
+`open({ values, scope, context })` returns a `SettingsMenu`: host-level `SettingsPanelField`
+objects, which the consumer builds with its own `inspect`, `set` and `reset`, and an optional
+`emptyMessage`. A menu ID must not repeat a field ID (a path, or a nested path as JSON).
+
+To move declared Settings fields onto a page, give the menu no `open` and name it in each
+field's `inMenu`. The page lists those fields in their declared order, with the usual editors,
+scopes and group rules, and the section no longer lists them:
+
+```ts
+defineSettingsPanel(settings, {
+    label: "Routing",
+    fields: (field) => [
+        field("enabled", { label: "Enabled" }),
+        field(["tiers", "fast"], { label: "Fast", inMenu: "tiers" }),
+        field(["tiers", "strong"], { label: "Strong", inMenu: "tiers" }),
+    ],
+    menus: [{ id: "tiers", label: "Tiers", summary: ({ values }) => describe(values.tiers) }],
+});
+```
+
+A menu needs either `open` or at least one field that names it, not both, and `inMenu` must
+name a menu of the same panel.
+`summary`, `visible` and `disabled` work like the matching field options. Custom hosts build a
+menu row with `createSettingsMenuField({ id, label, scopes, summary?, menu })`, and menu fields
+may be menu rows themselves, so menus nest.
+
+The renderer marks menu rows with `→` and shows the summary as the row value. Enter opens the
+menu, Esc goes back one level, and the title shows the path, such as
+`Lune settings › Agents › reviewer · global`. The open menu is kept as the IDs on its path and
+built again from its rows on every refresh: after each save, scope switch (Ctrl+G) or reload.
+Its fields therefore follow external data, and a menu whose row disappears closes; keep row IDs
+stable when an entry changes. Switching sections closes every menu. A menu row has no value:
+Ctrl+R on it reports that the settings inside it are reset there, and `set` and `reset` of a
+`createSettingsMenuField` row reject.
+
 ## Opening and keyboard controls
 
 Import `openSettingsPanel` from `/panel/tui`, not `/panel`.
@@ -127,6 +186,7 @@ The registry itself still returns registration order.
 
 - Main list: Tab/Shift+Tab or Right/Left switch sections; Ctrl+G switches global/project;
   Ctrl+R resets the selected override; Ctrl+S reloads the active section (or retries one that failed to load).
+  Enter on a menu row opens it; Escape goes back one menu, then closes the panel.
 - Editor: Enter saves; Ctrl+S saves and then reloads; Escape discards the candidate.
   Text inputs, choice lists and custom editors keep Left/Right, so arrows do not switch
   sections while one is open.

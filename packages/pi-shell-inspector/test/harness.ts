@@ -26,6 +26,7 @@
  * Renderers are called directly by the registration tests, which pin the delegation contract; the
  * TUI itself is not simulated, and the real TUI is observed through `test/tui`.
  */
+import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,8 +46,8 @@ import type {
     ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
-import luneShellInspectorExtension from "../src/index.ts";
-import { shellManager, type ShellJob } from "../src/shell/shell-manager.ts";
+import { installShellInspector } from "../src/index.ts";
+import type { ShellJob, ShellManager } from "../src/shell/shell-manager.ts";
 
 /** Tool definition the extension registers; the parameter schema stays opaque for the harness. */
 export type BashToolDefinition = ToolDefinition;
@@ -130,9 +131,27 @@ export type WidgetPlacement = "aboveEditor" | "belowEditor";
  * Widget payload accepted by `ctx.ui.setWidget`.
  *
  * pi renders a `string[]` as text lines (capped at `MAX_WIDGET_LINES`) and a component factory as
- * an arbitrary component; the shell dock only ever passes the array form or `undefined`.
+ * an arbitrary component; the shell dock passes a component factory (its row is fitted to the width
+ * pi hands to `render`) or `undefined`.
  */
 export type WidgetContent = readonly string[] | ((...args: unknown[]) => unknown);
+
+/**
+ * A standalone dock row without the one-column left margin it renders with.
+ *
+ * pi pads string widgets by one column on each side; the dock keeps that margin when it draws as a
+ * component, so a row that lacks it is a regression.
+ */
+export function withoutMargin(line: string): string {
+    assert.ok(
+        line.startsWith(" "),
+        `the dock row must start with a 1-space margin: ${JSON.stringify(line)}`,
+    );
+    return line.slice(1);
+}
+
+/** Width at which `renderedWidget` renders a component-factory widget unless a test picks another. */
+export const DEFAULT_WIDGET_WIDTH = 120;
 
 /** One captured `setWidget` call, in call order. */
 export interface WidgetCall {
@@ -201,6 +220,15 @@ export interface FakeExtensionUi {
     ): void;
     /** Content currently mounted for `key`, or `undefined` when the key is not mounted. */
     mountedWidget(placement: WidgetPlacement, key: string): WidgetContent | undefined;
+    /**
+     * Lines of the widget mounted for `key`, or `undefined` when the key is not mounted. A component
+     * factory is rendered at `width`, as pi would; a `string[]` is returned as it is.
+     */
+    renderedWidget(
+        placement: WidgetPlacement,
+        key: string,
+        width?: number,
+    ): readonly string[] | undefined;
     /** Mounted keys of a placement bucket, in pi's reinsertion order. */
     mountedKeys(placement: WidgetPlacement): readonly string[];
 }
@@ -255,6 +283,17 @@ export function createFakeUi(): FakeExtensionUi {
 
         mountedWidget(placement, key) {
             return buckets[placement].get(key);
+        },
+
+        renderedWidget(placement, key, width = DEFAULT_WIDGET_WIDTH) {
+            const content = buckets[placement].get(key);
+
+            if (typeof content !== "function") {
+                return content;
+            }
+
+            const component = content(undefined, this.theme) as { render(width: number): string[] };
+            return component.render(width);
         },
 
         mountedKeys(placement) {
@@ -579,6 +618,8 @@ export type PiEventHandler = (event: unknown, ctx: ExtensionContext, ...rest: un
  * mirrors pi's behaviour of throwing outside a session.
  */
 export interface FakePiHost {
+    /** Shell manager of this extension load; every load owns its own jobs. */
+    readonly manager: ShellManager;
     readonly registeredTools: readonly BashToolDefinition[];
     readonly registeredCommands: readonly RegisteredCommand[];
     /** Message renderers the extension registered, in call order. */
@@ -701,14 +742,16 @@ export function registerExtension(
         },
     } as unknown as ExtensionAPI;
 
+    let manager: ShellManager;
     process.chdir(cwd);
     try {
-        luneShellInspectorExtension(api);
+        manager = installShellInspector(api);
     } finally {
         process.chdir(previousCwd);
     }
 
     return {
+        manager,
         registeredTools,
         registeredCommands,
         registeredMessageRenderers,
@@ -726,6 +769,20 @@ export function registerExtension(
 /** The tool definition the extension registered under `name`, for a load-time cwd of `cwd`. */
 export function loadRegisteredTool(cwd: string, name: string): BashToolDefinition {
     const tool = registerExtension(cwd).registeredTools.find((entry) => entry.name === name);
+    if (!tool) {
+        throw new Error(`pi-shell-inspector did not register a "${name}" tool`);
+    }
+    return tool;
+}
+
+/**
+ * The tool definition registered by the extension load a session was opened on.
+ *
+ * Unlike {@link loadRegisteredTool}, which loads the extension again, the returned tool is bound to
+ * the session's own shell manager and therefore sees the jobs the session started.
+ */
+export function sessionTool(session: { host: FakePiHost }, name: string): BashToolDefinition {
+    const tool = session.host.registeredTools.find((entry) => entry.name === name);
     if (!tool) {
         throw new Error(`pi-shell-inspector did not register a "${name}" tool`);
     }
@@ -760,6 +817,8 @@ export function createBuiltInBashDefinition(cwd: string): BashToolDefinition {
 /** A loaded extension plus the session it was started in. */
 export interface ExtensionSession {
     host: FakePiHost;
+    /** Shell manager of the loaded extension, i.e. the session's own job table. */
+    manager: ShellManager;
     tool: BashToolDefinition;
     ctx: ExtensionContext;
     ui: FakeExtensionUi;
@@ -795,7 +854,7 @@ export async function openSession(
     const ui = contextOptions.ui ?? createFakeUi();
     const ctx = createFakeContext(cwd, { ...contextOptions, ui, sessionLog });
     await host.emit("session_start", ctx);
-    return { host, tool, ctx, ui, sessionLog };
+    return { host, manager: host.manager, tool, ctx, ui, sessionLog };
 }
 
 /* -------------------------------------------------------------------------------------------------
@@ -945,6 +1004,7 @@ export const JOB_SETTLE_TIMEOUT_MS = 15_000;
  * settled when the wait starts resolves immediately.
  */
 export function waitForJobSettled(
+    manager: ShellManager,
     jobId: string,
     timeoutMs: number = JOB_SETTLE_TIMEOUT_MS,
 ): Promise<Readonly<ShellJob>> {
@@ -962,12 +1022,12 @@ export function waitForJobSettled(
         };
 
         const settledJob = (): Readonly<ShellJob> | undefined => {
-            const job = shellManager.getJob(jobId);
+            const job = manager.getJob(jobId);
             return job && job.status !== "running" ? job : undefined;
         };
 
         // Subscribe before the first check so a job that settles in between is never missed.
-        const unsubscribe = shellManager.subscribe(() => {
+        const unsubscribe = manager.subscribe(() => {
             const job = settledJob();
             if (job) {
                 finish(() => resolve(job));
@@ -975,7 +1035,7 @@ export function waitForJobSettled(
         });
 
         const timer = setTimeout(() => {
-            const job = shellManager.getJob(jobId);
+            const job = manager.getJob(jobId);
             finish(() =>
                 reject(
                     new Error(
@@ -995,11 +1055,12 @@ export function waitForJobSettled(
 
 /** Start a background call and wait for the job it created to settle. */
 export async function runBackgroundBashCommand(
+    manager: ShellManager,
     tool: BashToolDefinition,
     options: BashRunOptions,
 ): Promise<{ run: BashRun; job: Readonly<ShellJob> }> {
     const { run, jobId } = await startBackgroundBashCommand(tool, options);
-    const job = await waitForJobSettled(jobId);
+    const job = await waitForJobSettled(manager, jobId);
     return { run, job };
 }
 
@@ -1031,13 +1092,13 @@ export async function waitFor(
  * tick, so a reader that looks at the screen right after a chunk arrived would still see the
  * previous screen. Flushing through the same queue makes the read deterministic.
  */
-export async function readJobScreen(jobId: string): Promise<string[]> {
-    const terminal = shellManager.getJob(jobId)?.terminal;
+export async function readJobScreen(manager: ShellManager, jobId: string): Promise<string[]> {
+    const terminal = manager.getJob(jobId)?.terminal;
     if (!terminal) {
         throw new Error(`cannot read the screen of unknown shell job ${JSON.stringify(jobId)}`);
     }
 
     await new Promise<void>((resolve) => terminal.write("", () => resolve()));
 
-    return shellManager.getScreenLines(jobId);
+    return manager.getScreenLines(jobId);
 }

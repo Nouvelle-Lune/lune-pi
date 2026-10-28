@@ -19,11 +19,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import type { ShellManager } from "../../src/shell/shell-manager.ts";
 import type { BackgroundShellNotificationDetails } from "../../src/shell/shell-notification.ts";
 import {
     createTempWorkDir,
-    loadRegisteredTool,
+    sessionTool,
     openSession,
     readJobScreen,
     removeTempWorkDir,
@@ -94,9 +94,12 @@ function notificationsFor(session: ExtensionSession, jobID: string): SendMessage
 }
 
 /** Terminal events observed for one job while the probe is active. */
-function watchTerminalEvents(jobID: string): { events: string[]; stop: () => void } {
+function watchTerminalEvents(
+    manager: ShellManager,
+    jobID: string,
+): { events: string[]; stop: () => void } {
     const events: string[] = [];
-    const unsubscribe = shellManager.subscribe((event) => {
+    const unsubscribe = manager.subscribe((event) => {
         if (
             (event.type === "job-completed" ||
                 event.type === "job-failed" ||
@@ -118,10 +121,9 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
     let killTool: BashToolDefinition;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("kill-background-shell");
         session = await openSession(workDir);
-        killTool = loadRegisteredTool(workDir, "kill_background_shell");
+        killTool = sessionTool(session, "kill_background_shell");
     });
 
     afterEach(async () => {
@@ -139,13 +141,13 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-already-completed",
         });
-        await waitForJobSettled(completed.jobId);
+        await waitForJobSettled(session.manager, completed.jobId);
         const failed = await startBackgroundBashCommand(session.tool, {
             command: "printf 'broken\\n'; exit 3",
             ctx: session.ctx,
             toolCallId: "call-already-failed",
         });
-        await waitForJobSettled(failed.jobId);
+        await waitForJobSettled(session.manager, failed.jobId);
 
         const targetCommand = "printf 'target-ready\\n'; exec sleep 300";
         const target = await startBackgroundBashCommand(session.tool, {
@@ -159,10 +161,10 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             toolCallId: "call-bystander",
         });
         await waitFor("the target shell to print its ready line", () =>
-            (shellManager.getJob(target.jobId)?.output.content ?? "").includes("target-ready"),
+            (session.manager.getJob(target.jobId)?.output.content ?? "").includes("target-ready"),
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             {
                 runningCount: 2,
                 completedCount: 1,
@@ -174,7 +176,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
 
         const text = await killShell(killTool, target.jobId);
 
-        const job = shellManager.getJob(target.jobId);
+        const job = session.manager.getJob(target.jobId);
         assert.ok(job, "a killed shell must stay in the manager until it is explicitly cleared");
         assert.equal(job.status, "killed", "the tool must settle the requested shell as killed");
         assert.equal(
@@ -192,7 +194,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
         assert.ok(text.includes(target.jobId), `the result must identify the killed job: ${text}`);
 
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             {
                 runningCount: 1,
                 completedCount: 1,
@@ -201,7 +203,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             },
             "only the target shell may move from running to killed",
         );
-        const bystander = shellManager.getJob(other.jobId);
+        const bystander = session.manager.getJob(other.jobId);
         assert.equal(bystander?.status, "running", "only the requested shell may be killed");
         assert.equal(
             bystander?.controller.signal.aborted,
@@ -210,7 +212,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
         );
 
         // The killed job stays on the read path: background_shell reports its settled status.
-        const inspector = loadRegisteredTool(workDir, "background_shell");
+        const inspector = sessionTool(session, "background_shell");
         assert.equal(
             await inspectShell(inspector, target.jobId),
             `${target.jobId}: killed - ${targetCommand}`,
@@ -229,9 +231,9 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             toolCallId: "call-notify-once",
         });
         await waitFor("the shell to start running", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("ready"),
+            (session.manager.getJob(jobId)?.output.content ?? "").includes("ready"),
         );
-        const terminalEvents = watchTerminalEvents(jobId);
+        const terminalEvents = watchTerminalEvents(session.manager, jobId);
 
         try {
             await killShell(killTool, jobId);
@@ -316,7 +318,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 "a late rejection must not notify again",
             );
 
-            const job = shellManager.getJob(jobId);
+            const job = session.manager.getJob(jobId);
             assert.ok(job, "the notification path must not remove the job");
             assert.equal(job.status, "killed", "the late rejection must not change the status");
             assert.equal(
@@ -325,7 +327,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 "the late rejection must not rewrite the reason",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -349,12 +351,16 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             toolCallId: "call-late-side-effect",
         });
         await waitFor("the shell to arm its late side effect", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("armed"),
+            (session.manager.getJob(jobId)?.output.content ?? "").includes("armed"),
         );
 
         const text = await killShell(killTool, jobId);
         assert.match(text, /killed/i, `the result must report the kill: ${text}`);
-        assert.equal(shellManager.getJob(jobId)?.status, "killed", "the job must settle as killed");
+        assert.equal(
+            session.manager.getJob(jobId)?.status,
+            "killed",
+            "the job must settle as killed",
+        );
 
         // Past the fixture's own deadline, plus a margin for process teardown.
         await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -365,8 +371,8 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             "a killed process tree must not keep executing",
         );
         assert.ok(
-            !(shellManager.getJob(jobId)?.output.content ?? "").includes("late"),
-            `no output may arrive after the kill, got ${JSON.stringify(shellManager.getJob(jobId)?.output.content ?? "")}`,
+            !(session.manager.getJob(jobId)?.output.content ?? "").includes("late"),
+            `no output may arrive after the kill, got ${JSON.stringify(session.manager.getJob(jobId)?.output.content ?? "")}`,
         );
     });
 
@@ -378,33 +384,33 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             toolCallId: "call-history",
         });
         await waitFor("the shell's output to arrive", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("kept-two"),
+            (session.manager.getJob(jobId)?.output.content ?? "").includes("kept-two"),
         );
 
         await killShell(killTool, jobId);
 
-        const job = shellManager.getJob(jobId);
+        const job = session.manager.getJob(jobId);
         assert.ok(job, "kill must stop execution, not remove the job");
         assert.equal(job.status, "killed", "the kill must settle the job as killed");
         assert.equal(
-            shellManager.getJobOutput(jobId),
+            session.manager.getJobOutput(jobId),
             "kept-one\nkept-two\n",
             "the raw output must stay readable",
         );
         assert.deepEqual(
-            await readJobScreen(jobId),
+            await readJobScreen(session.manager, jobId),
             ["kept-one", "kept-two"],
             "the xterm screen must stay readable",
         );
 
         // Clearing stays a separate operation: only it drops the settled job and its resources.
-        assert.equal(shellManager.clearJob(jobId), true, "a killed job must remain clearable");
-        assert.equal(shellManager.getJob(jobId), undefined, "clearing must drop the killed job");
+        assert.equal(session.manager.clearJob(jobId), true, "a killed job must remain clearable");
+        assert.equal(session.manager.getJob(jobId), undefined, "clearing must drop the killed job");
     });
 
     it("answers an unknown job id without throwing, mutating or notifying", async () => {
         const events: string[] = [];
-        const unsubscribe = shellManager.subscribe((event) => events.push(event.type));
+        const unsubscribe = session.manager.subscribe((event) => events.push(event.type));
         let text = "";
 
         try {
@@ -423,7 +429,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
         );
         assert.deepEqual(events, [], "an unknown id must not emit a manager event");
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             NO_JOBS,
             "an unknown id must not move a counter",
         );
@@ -453,23 +459,23 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 await killShell(killTool, jobId);
             } else {
                 assert.equal(
-                    (await waitForJobSettled(jobId)).status,
+                    (await waitForJobSettled(session.manager, jobId)).status,
                     status,
                     `the fixture must settle as ${status}`,
                 );
             }
 
-            const before = shellManager.getJob(jobId)!;
+            const before = session.manager.getJob(jobId)!;
             const snapshot = {
                 status: before.status,
                 error: before.error,
                 exitCode: before.exitCode,
                 finishedAt: before.finishedAt,
                 aborted: before.controller.signal.aborted,
-                stats: shellManager.getAllJobsStatusStat(),
+                stats: session.manager.getAllJobsStatusStat(),
                 notifications: notificationsFor(session, jobId).length,
             };
-            const terminalEvents = watchTerminalEvents(jobId);
+            const terminalEvents = watchTerminalEvents(session.manager, jobId);
             let text: string;
 
             try {
@@ -485,7 +491,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 `the refusal must explain that the shell settled: ${text}`,
             );
 
-            const after = shellManager.getJob(jobId);
+            const after = session.manager.getJob(jobId);
             assert.ok(after, "a refused kill must not remove the job");
             assert.equal(
                 after.status,
@@ -509,7 +515,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 "a refused kill must not touch the controller",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 snapshot.stats,
                 "a refused kill must not move a counter",
             );
@@ -532,13 +538,13 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
             ctx: session.ctx,
             toolCallId: "call-idempotent",
         });
-        const terminalEvents = watchTerminalEvents(jobId);
+        const terminalEvents = watchTerminalEvents(session.manager, jobId);
 
         try {
             const first = await killShell(killTool, jobId);
             assert.match(first, /killed/i, `the first result must report the kill: ${first}`);
 
-            const killedJob = shellManager.getJob(jobId)!;
+            const killedJob = session.manager.getJob(jobId)!;
             const finishedAt = killedJob.finishedAt;
             assert.ok(
                 finishedAt !== undefined,
@@ -572,7 +578,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 /(not running|no longer running|already)/i,
                 `the refusal must explain that the shell settled: ${second}`,
             );
-            const after = shellManager.getJob(jobId)!;
+            const after = session.manager.getJob(jobId)!;
             assert.equal(
                 after.status,
                 "killed",
@@ -594,7 +600,7 @@ describe("pi-shell-inspector kill_background_shell invocation", () => {
                 "the repeated kill must keep the abort",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 1 },
                 "a repeated kill must not move a counter",
             );

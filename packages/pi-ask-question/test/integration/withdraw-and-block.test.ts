@@ -6,28 +6,40 @@
  * is covered by `test/unit/question-panel.test.ts`.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
-import luneAskQuestion from "../../src/index.ts";
 import {
     QUESTION_STATE_ENTRY,
-    questionManager,
     type AskQuestion,
     type AskQuestionStateSnapshot,
 } from "../../src/core/questionManager.ts";
-import { resetQuestionPanelState } from "../../src/tui/panel/question-panel.ts";
+import type { QuestionManager } from "../../src/core/questionManager.ts";
 import {
     createFakeContext,
-    createFakePiHost,
+    loadAskQuestion,
+    type AskQuestionHost,
     createFakeTheme,
     createFakeUi,
     requireTool,
     type FakeBranchEntry,
-    type FakePiHost,
     type FakeUi,
+    dockRow,
 } from "../harness.ts";
+
+/**
+ * The question manager of the extension load made last. A test has one session unless it says
+ * otherwise, so this is the manager of the session under test.
+ */
+let questionManager: QuestionManager;
+
+/** Load the extension afresh; each load owns its manager, so nothing carries over between tests. */
+function load(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    const host = loadAskQuestion(options);
+    questionManager = host.manager;
+    return host;
+}
 
 const WIDGET_KEY = "pi-ask-question";
 const ENTER = "\r";
@@ -52,7 +64,7 @@ const OTHER_QUESTIONS: AskQuestion[] = [
 type ToolResult = Awaited<ReturnType<ReturnType<typeof requireTool>["execute"]>>;
 
 interface Session {
-    readonly host: FakePiHost;
+    readonly host: AskQuestionHost;
     readonly ui: FakeUi;
     readonly branch: FakeBranchEntry[];
 }
@@ -60,7 +72,7 @@ interface Session {
 const liveSessions: Session[] = [];
 
 async function startSession(branch: FakeBranchEntry[] = []): Promise<Session> {
-    const host = createFakePiHost(luneAskQuestion, { branch });
+    const host = load({ branch });
     const ui = createFakeUi();
 
     await host.fire("session_start", createFakeContext({ ui, branch }));
@@ -120,7 +132,8 @@ async function startBlock(
     options: { signal?: AbortSignal; questions?: AskQuestion[] } = {},
 ): Promise<BlockCall> {
     const updates: Array<{ details: unknown }> = [];
-    const before = new Set(questionManager.getPendingRequests().map((request) => request.id));
+    const manager = session.host.manager;
+    const before = new Set(manager.getPendingRequests().map((request) => request.id));
 
     const result = requireTool(session.host, "ask_user_questions").execute(
         "call-block",
@@ -130,7 +143,7 @@ async function startBlock(
         contextOf(session),
     );
 
-    const created = questionManager.getPendingRequests().find((request) => !before.has(request.id));
+    const created = manager.getPendingRequests().find((request) => !before.has(request.id));
     assert.ok(created, "a blocking call must create its request before it waits");
 
     return { result, requestId: created.id, updates };
@@ -178,18 +191,10 @@ function renderedText(component: { render(width: number): string[] }): string {
 }
 
 describe("withdraw and block", () => {
-    beforeEach(() => {
-        resetQuestionPanelState();
-        questionManager.clearAll();
-    });
-
     afterEach(async () => {
         for (const session of liveSessions.splice(0)) {
             await session.host.fire("session_shutdown", contextOf(session));
         }
-
-        resetQuestionPanelState();
-        questionManager.clearAll();
     });
 
     describe("withdraw_user_questions", () => {
@@ -584,7 +589,7 @@ describe("withdraw and block", () => {
             await startBlock(session, { signal: controller.signal });
 
             assert.equal(
-                session.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(session.ui, WIDGET_KEY),
                 "1 pending question · agent waiting · Which database? · /question to answer",
             );
 
@@ -592,9 +597,123 @@ describe("withdraw and block", () => {
             await drain();
 
             assert.equal(
-                session.ui.mountedWidget("belowEditor", WIDGET_KEY)?.[0],
+                dockRow(session.ui, WIDGET_KEY),
                 "1 pending question · Which database? · /question to answer",
             );
+        });
+    });
+
+    // Pi caches an extension's factory per working directory, so a subagent run started in the
+    // main session's folder loads the same module again. Each load must own its questions and
+    // its panel, or the run's lifecycle steps would reach into the main session.
+    describe("two extension loads in one process", () => {
+        /** The main session (A) and a subagent run (B); both start in the same working directory. */
+        async function startMainAndRun(): Promise<{ main: Session; run: Session }> {
+            const main = await startSession();
+            const run = await startSession();
+
+            return { main, run };
+        }
+
+        it("leaves the pending request and its persisted state of the other load alone", async () => {
+            const main = await startSession();
+            const requestId = await ask(main);
+            const persistedBefore = structuredClone(newestSnapshot(main.host.branch));
+            const writesBefore = main.host.appendEntryCalls.length;
+
+            const run = await startSession();
+
+            assert.ok(main.host.manager.getPendingRequest(requestId), "after the run starts");
+            assert.equal(main.ui.customCalls.length, 1, "the main panel is still the open one");
+
+            await run.host.fire("session_shutdown", contextOf(run));
+
+            assert.ok(main.host.manager.getPendingRequest(requestId), "after the run shuts down");
+            assert.equal(main.host.manager.getPendingRequests().length, 1);
+            assert.equal(main.host.appendEntryCalls.length, writesBefore);
+
+            const expected = persistedBefore;
+            const actual = newestSnapshot(main.host.branch);
+            assert.deepEqual(actual, expected);
+            assert.equal(run.host.manager.getPendingRequests().length, 0);
+        });
+
+        it("keeps a blocking call of the other load waiting until its request is answered", async () => {
+            const { main, run } = await startMainAndRun();
+            const call = await startBlock(main);
+            let settled = false;
+            void call.result.then(() => {
+                settled = true;
+            });
+
+            await run.host.fire("session_start", contextOf(run));
+            await run.host.fire("session_shutdown", contextOf(run));
+            await drain();
+
+            assert.equal(settled, false, "the run's lifecycle must not settle the main call");
+            assert.equal(main.host.manager.isWaiting(call.requestId), true);
+
+            answerFocusedOption(main.ui);
+            const result = await call.result;
+
+            assert.equal((result.details as { status: string }).status, "answered");
+            assert.equal(result.isError, undefined);
+        });
+
+        it("does not withdraw a request of the other load", async () => {
+            const { main, run } = await startMainAndRun();
+            const requestId = await ask(main);
+
+            const result = await withdraw(run, requestId);
+
+            assert.equal((result.details as { status: string }).status, "refused");
+            assert.ok(main.host.manager.getPendingRequest(requestId));
+            assert.equal(main.host.manager.getPendingRequests().length, 1);
+        });
+
+        it("keeps the panel ownership of the other load while its overlay is up", async () => {
+            const { main, run } = await startMainAndRun();
+            await ask(main);
+            assert.equal(main.ui.customCalls.length, 1);
+
+            await run.host.fire("session_start", contextOf(run));
+            await main.host.commands.get("question")!.handler("", contextOf(main));
+
+            assert.equal(main.ui.customCalls.length, 1, "no second overlay over the open one");
+
+            await run.host.fire("session_shutdown", contextOf(run));
+            await main.host.commands.get("question")!.handler("", contextOf(main));
+
+            assert.equal(main.ui.customCalls.length, 1, "nor after the run shuts down");
+        });
+
+        it("stops its own panel loop when the session shuts down", async () => {
+            const session = await startSession();
+            const requestId = await ask(session);
+            assert.equal(session.ui.customCalls.length, 1);
+
+            // The next session restores the request from the branch, so a loop that survived
+            // the shutdown would find pending work and open another overlay.
+            await session.host.fire("session_shutdown", contextOf(session));
+            const next = createFakeUi();
+            await session.host.fire(
+                "session_start",
+                createFakeContext({ ui: next, branch: session.host.branch }),
+            );
+            assert.ok(session.host.manager.getPendingRequest(requestId), "guard: restored");
+
+            session.ui.customCalls[0]!.close("settled");
+            await drain();
+
+            assert.equal(session.ui.customCalls.length, 1, "the ended session opens nothing");
+            assert.equal(next.customCalls.length, 0, "and the loop does not hijack the next one");
+
+            // The command resolves only when the panel closes, so it is not awaited here.
+            void session.host.commands
+                .get("question")!
+                .handler("", createFakeContext({ ui: next, branch: session.host.branch }));
+            await drain();
+            assert.equal(next.customCalls.length, 1, "the next session can own the panel");
         });
     });
 });

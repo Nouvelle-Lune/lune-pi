@@ -11,6 +11,8 @@
  * attempts. A call is never a delivery: only `commitSendMessage` models pi having accepted
  * the message into the session. The real TUI is not simulated.
  */
+import assert from "node:assert/strict";
+
 import type {
     ExtensionAPI,
     ExtensionContext,
@@ -20,9 +22,52 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, KeybindingsManager, TUI } from "@earendil-works/pi-tui";
 
+import type { QuestionManager } from "../src/core/questionManager.ts";
+import { installAskQuestion } from "../src/index.ts";
+
+/** What `setWidget` accepts here: text lines or a component factory (the docks pass the latter). */
+export type WidgetContent = string[] | ((tui: TUI, theme: Theme) => Component);
+
+/**
+ * A standalone dock row without the one-column left margin it renders with.
+ *
+ * pi pads string widgets by one column on each side; the dock keeps that margin when it draws as a
+ * component, so a row that lacks it is a regression.
+ */
+export function withoutMargin(line: string): string {
+    assert.ok(
+        line.startsWith(" "),
+        `the dock row must start with a 1-space margin: ${JSON.stringify(line)}`,
+    );
+    return line.slice(1);
+}
+
+/**
+ * The single standalone dock row of `key` rendered at `width`, without its margin; `undefined`
+ * when nothing is mounted.
+ */
+export function dockRow(
+    ui: FakeUi,
+    key = "pi-ask-question",
+    width = DEFAULT_WIDGET_WIDTH,
+): string | undefined {
+    const lines = ui.renderedWidget("belowEditor", key, width);
+
+    if (lines === undefined) {
+        return undefined;
+    }
+
+    assert.equal(lines.length, 1, "the dock must stay a single line");
+
+    return withoutMargin(lines[0]!);
+}
+
+/** Width at which `renderedWidget` renders a component-factory widget unless a test picks another. */
+export const DEFAULT_WIDGET_WIDTH = 120;
+
 export interface WidgetCall {
     key: string;
-    content: string[] | undefined;
+    content: WidgetContent | undefined;
     placement: WidgetPlacement | undefined;
 }
 
@@ -91,7 +136,7 @@ export interface FakeUi {
     notify(message: string, type?: string): void;
     setWidget(
         key: string,
-        content: string[] | undefined,
+        content: WidgetContent | undefined,
         options?: { placement?: WidgetPlacement },
     ): void;
     custom<T>(
@@ -103,7 +148,10 @@ export interface FakeUi {
         ) => Component & { dispose?(): void },
         options?: { overlay?: boolean },
     ): Promise<T>;
-    mountedWidget(placement: WidgetPlacement, key: string): string[] | undefined;
+    /** Content currently mounted for `key`, or `undefined` when the key is not mounted. */
+    mountedWidget(placement: WidgetPlacement, key: string): WidgetContent | undefined;
+    /** Lines mounted for `key`; a component factory is rendered at `width`, as pi would. */
+    renderedWidget(placement: WidgetPlacement, key: string, width?: number): string[] | undefined;
     mountedKeys(placement: WidgetPlacement): readonly string[];
 }
 
@@ -131,7 +179,7 @@ export function createFakeKeybindings(): KeybindingsManager {
 }
 
 export function createFakeUi(): FakeUi {
-    const buckets: Record<WidgetPlacement, Map<string, string[]>> = {
+    const buckets: Record<WidgetPlacement, Map<string, WidgetContent>> = {
         aboveEditor: new Map(),
         belowEditor: new Map(),
     };
@@ -190,6 +238,16 @@ export function createFakeUi(): FakeUi {
 
         mountedWidget(placement, key) {
             return buckets[placement].get(key);
+        },
+
+        renderedWidget(placement, key, width = DEFAULT_WIDGET_WIDTH) {
+            const content = buckets[placement].get(key);
+
+            if (typeof content !== "function") {
+                return content;
+            }
+
+            return content(createFakeTui(), ui.theme).render(width);
         },
 
         mountedKeys(placement) {
@@ -367,6 +425,24 @@ export function createFakePiHost(
             }
         },
     };
+}
+
+/** A fake host with one load of the extension on it, and the question manager that load owns. */
+export type AskQuestionHost = FakePiHost & { readonly manager: QuestionManager };
+
+/**
+ * Load the extension once onto a fresh fake host.
+ *
+ * Every call is an independent load with its own manager and panel ownership, as pi gives each
+ * session; two calls in one test stand for two sessions that share a module.
+ */
+export function loadAskQuestion(options: { branch?: FakeBranchEntry[] } = {}): AskQuestionHost {
+    let manager: QuestionManager | undefined;
+    const host = createFakePiHost((api) => {
+        manager = installAskQuestion(api);
+    }, options);
+
+    return Object.assign(host, { manager: manager! });
 }
 
 /**

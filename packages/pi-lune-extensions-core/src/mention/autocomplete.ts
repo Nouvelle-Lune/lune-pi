@@ -1,12 +1,13 @@
-import type { SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem, AutocompleteProvider } from "@earendil-works/pi-tui";
 import type { SessionCatalog } from "./catalog.ts";
 import { mentionToken } from "./mention.ts";
+import { SOURCE_NAMES, type LocalSession } from "./session.ts";
 import { formatAge, projectName, SEPARATOR, sessionTitle, TOKEN_BOUNDARY } from "./text.ts";
 
 /** `@@query` lists sessions only and searches their messages too. */
 export const SESSION_TRIGGER = "@@";
-export const SESSION_LABEL = "[session]";
+/** Source tags are padded to the widest one so the age and project columns line up. */
+const SOURCE_TAG_WIDTH = Math.max(...Object.keys(SOURCE_NAMES).map((source) => source.length + 2));
 /** Session rows in the list for a plain `@query`. */
 const SESSION_ROWS = 3;
 /** Rows for `@@query`; the search itself covers every local session. */
@@ -106,20 +107,22 @@ interface SessionSearch {
     id: string;
     title: string;
     project: string;
+    source: string;
     text?: string;
 }
 
 // The catalog keeps one list until its next reload, so the lower-case copies are made once per
 // session and list, not once per keystroke.
-const searches = new WeakMap<SessionInfo, SessionSearch>();
+const searches = new WeakMap<LocalSession, SessionSearch>();
 
-function searchOf(session: SessionInfo): SessionSearch {
+function searchOf(session: LocalSession): SessionSearch {
     let search = searches.get(session);
     if (!search) {
         search = {
             id: session.id.toLowerCase(),
             title: sessionTitle(session).toLowerCase(),
             project: projectName(session).toLowerCase(),
+            source: SOURCE_NAMES[session.source].toLowerCase(),
         };
         searches.set(session, search);
     }
@@ -131,11 +134,11 @@ function searchOf(session: SessionInfo): SessionSearch {
  * messages. Equal ranks keep the catalog's newest-first order because the sort is stable.
  */
 export function matchSessions(
-    sessions: readonly SessionInfo[],
+    sessions: readonly LocalSession[],
     query: string,
     excludePath: string | undefined,
     searchText: boolean,
-): SessionInfo[] {
+): LocalSession[] {
     const needle = query.toLowerCase();
     return sessions
         .filter((session) => session.path !== excludePath && session.messageCount > 0)
@@ -145,25 +148,26 @@ export function matchSessions(
         .map(({ session }) => session);
 }
 
-function matchRank(session: SessionInfo, needle: string, searchText: boolean): number {
+function matchRank(session: LocalSession, needle: string, searchText: boolean): number {
     const search = searchOf(session);
     if (search.id.startsWith(needle) || search.title.includes(needle)) return 3;
-    if (search.project.includes(needle)) return 2;
+    if (search.project.includes(needle) || search.source.includes(needle)) return 2;
     if (!searchText) return 0;
     search.text ??= session.allMessagesText.toLowerCase();
     return search.text.includes(needle) ? 1 : 0;
 }
 
-/** `[session]`, age and project fill pi's label column, which leaves the wide one for the title. */
+/** Source, age and project fill pi's label column, which leaves the wide one for the title. */
 function sessionItem(
-    session: SessionInfo,
-    sessions: readonly SessionInfo[],
+    session: LocalSession,
+    sessions: readonly LocalSession[],
     now: number,
 ): AutocompleteItem {
+    const source = `[${session.source}]`.padEnd(SOURCE_TAG_WIDTH);
     const age = formatAge(now - session.modified.getTime()).padStart(3);
     return {
         value: mentionToken(session, sessions),
-        label: `${SESSION_LABEL} ${age}  ${projectName(session)}`,
+        label: `${source} ${age}  ${projectName(session)}`,
         description: sessionTitle(session),
     };
 }

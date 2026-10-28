@@ -4,6 +4,7 @@ import type { LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock"
 import { DockView, type VisibleDockItem } from "./dock-renderer.ts";
 import {
     CELL_SEPARATOR,
+    modelSegmentVariants,
     renderContextCell,
     renderInfoRow,
     renderModelSegment,
@@ -181,7 +182,7 @@ export class DockFooter {
         if (!hasCells && !right.text) return undefined;
 
         const segment =
-            right.text + " ".repeat(Math.max(0, right.width - visibleWidth(right.text)));
+            " ".repeat(Math.max(0, right.width - visibleWidth(right.text))) + right.text;
         const tail = (hasCells && right.text ? theme.fg("dim", CELL_SEPARATOR) : "") + segment;
         const left = hasCells
             ? (this.cells.render(
@@ -215,12 +216,10 @@ export class DockFooter {
         }
         if (!status || width < MIN_MODEL_ROW_WIDTH) return flush("");
         if (minimal && layout.showUsage) {
-            // Context use outranks the provider prefix: drop the provider before the counter.
+            // Context use outranks optional model segments, so speed never displaces the counter.
             const context = renderContextCell(status, theme);
-            for (const showProvider of new Set([status.showProvider, false])) {
-                const model = layout.showModel
-                    ? renderModelSegment({ ...status, showProvider }, theme, Infinity)
-                    : "";
+            const models = layout.showModel ? modelSegmentVariants(status, theme) : [""];
+            for (const model of models) {
                 const combined = model
                     ? model + theme.fg("dim", CELL_SEPARATOR) + context
                     : context;
@@ -228,16 +227,16 @@ export class DockFooter {
             }
         }
         if (!layout.showModel) return flush("");
-        // Only an info row with statistics has bars for the model to line up with.
+        // Keep the divider on the statistics grid without moving the model off the right edge.
         return !minimal && layout.showUsage
             ? this.placeModel(width, theme, status, layout.showWorkspace, budget)
             : flush(renderModelSegment(status, theme, budget));
     }
 
     /**
-     * Starts the model on one of the info row's bars, so the bar before it continues a bar below
-     * instead of floating between two. The rightmost bar with room wins; the provider goes before
-     * the alignment does, and a model too wide for any bar within budget sits flush right instead.
+     * Keeps the divider on an info-row bar while the model stays flush right within that span.
+     * The rightmost bar with room wins; optional model segments go before divider alignment does,
+     * and a model too wide for any bar uses only its own width.
      */
     private placeModel(
         width: number,
@@ -250,8 +249,7 @@ export class DockFooter {
             .map((column) => column - SEPARATOR_WIDTH)
             .filter((span) => span <= budget)
             .sort((a, b) => a - b);
-        for (const showProvider of new Set([status.showProvider, false])) {
-            const text = renderModelSegment({ ...status, showProvider }, theme, Infinity);
+        for (const text of modelSegmentVariants(status, theme)) {
             const span = spans.find((candidate) => candidate >= visibleWidth(text));
             if (span !== undefined) return { text, width: span };
         }

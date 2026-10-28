@@ -12,11 +12,11 @@
  */
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import { ShellManager } from "../../src/shell/shell-manager.ts";
 import {
     registerBackgroundShellNotifications,
     type BackgroundShellNotificationDetails,
@@ -50,8 +50,8 @@ function sentMessage(calls: readonly SendMessageCall[], index: number): SendMess
 }
 
 /** Start a running job directly in the manager, the way the background runner does. */
-function startJob(id: string, command: string): void {
-    shellManager.startJob({ id, command, cwd: "/work", controller: new AbortController() });
+function startJob(manager: ShellManager, id: string, command: string): void {
+    manager.startJob({ id, command, cwd: "/work", controller: new AbortController() });
 }
 
 /** Run a session and always shut it down again, even when the test fails. */
@@ -70,14 +70,6 @@ async function withSession(
 }
 
 describe("pi-shell-inspector background notifications", () => {
-    beforeEach(() => {
-        shellManager.clearAllJobs();
-    });
-
-    afterEach(() => {
-        shellManager.clearAllJobs();
-    });
-
     it("sends one completion notification with the job metadata and the steering options", async () => {
         // Contract: the immediate tool result cannot report the outcome, so the settled job sends
         // one steering message carrying the id, status, command, exit code and output, without ever
@@ -89,7 +81,7 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-completed",
             });
 
-            const settled = await waitForJobSettled(jobId);
+            const settled = await waitForJobSettled(session.manager, jobId);
             assert.equal(settled.status, "completed", "the job must settle before it can notify");
             await waitFor(
                 "the batched shell notification",
@@ -186,13 +178,13 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-spilled",
             });
 
-            const settled = await waitForJobSettled(jobId);
+            const settled = await waitForJobSettled(session.manager, jobId);
             await waitFor(
                 "the batched shell notification",
                 () => session.host.sendMessageCalls.length === 1,
             );
 
-            const managed = shellManager.getJob(jobId)!;
+            const managed = session.manager.getJob(jobId)!;
             const expected = managed.output.fullOutputPath;
             const job = (
                 session.host.sendMessageCalls[0]!.message
@@ -228,7 +220,7 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-unspilled",
             });
 
-            await waitForJobSettled(jobId);
+            await waitForJobSettled(session.manager, jobId);
             await waitFor(
                 "the batched shell notification",
                 () => session.host.sendMessageCalls.length === 1,
@@ -270,7 +262,7 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-failed",
             });
 
-            const settled = await waitForJobSettled(jobId);
+            const settled = await waitForJobSettled(session.manager, jobId);
             assert.equal(
                 settled.status,
                 "failed",
@@ -312,12 +304,12 @@ describe("pi-shell-inspector background notifications", () => {
             });
 
             assert.equal(
-                shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+                session.manager.settleJob(jobId, { type: "killed", error: "manual kill" }),
                 true,
                 "the explicit kill must be accepted",
             );
             assert.equal(
-                shellManager.getJob(jobId)?.controller.signal.aborted,
+                session.manager.getJob(jobId)?.controller.signal.aborted,
                 true,
                 "the kill must abort the job's controller",
             );
@@ -352,7 +344,7 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-exit-code",
             });
 
-            const settled = await waitForJobSettled(jobId);
+            const settled = await waitForJobSettled(session.manager, jobId);
             assert.equal(settled.status, "failed", "the non-zero exit must settle as failed");
             await waitFor(
                 "the batched shell notification",
@@ -403,14 +395,14 @@ describe("pi-shell-inspector background notifications", () => {
                 toolCallId: "call-notify-silent",
             });
 
-            shellManager.appendOutput(jobId, "");
+            session.manager.appendOutput(jobId, "");
             assert.deepEqual(
                 session.host.sendMessageCalls,
                 [],
                 "started and output events must stay silent",
             );
 
-            shellManager.clearAllJobs();
+            session.manager.clearAllJobs();
 
             // Give the aborted execution time to reject and reach its refused settle.
             await new Promise((resolve) => setTimeout(resolve, 300));
@@ -444,12 +436,12 @@ describe("pi-shell-inspector background notifications", () => {
         // sends the retained tail plus the file path - never the whole flood and never the raw
         // JobOutput object.
         await withSession("notify-spilled", async (session) => {
-            startJob("job-spilled", "noisy-command");
+            startJob(session.manager, "job-spilled", "noisy-command");
             const full = Array.from({ length: 2500 }, (_, index) => `L${index}`).join("\n");
-            shellManager.appendOutput("job-spilled", full);
-            shellManager.settleJob("job-spilled", { type: "completed", exitCode: 0 });
+            session.manager.appendOutput("job-spilled", full);
+            session.manager.settleJob("job-spilled", { type: "completed", exitCode: 0 });
 
-            const path = shellManager.getJob("job-spilled")?.output.fullOutputPath;
+            const path = session.manager.getJob("job-spilled")?.output.fullOutputPath;
             assert.ok(path, `guard: the flood must have spilled, got ${String(path)}`);
 
             await waitFor(
@@ -490,15 +482,15 @@ describe("pi-shell-inspector background notifications", () => {
 
     it("sends exactly one notification per job even when settles repeat", async () => {
         await withSession("notify-once", async (session) => {
-            startJob("job-once", "echo once");
+            startJob(session.manager, "job-once", "echo once");
 
             assert.equal(
-                shellManager.settleJob("job-once", { type: "completed", exitCode: 0 }),
+                session.manager.settleJob("job-once", { type: "completed", exitCode: 0 }),
                 true,
                 "the first settle must be accepted",
             );
             assert.equal(
-                shellManager.settleJob("job-once", { type: "failed", error: "late" }),
+                session.manager.settleJob("job-once", { type: "failed", error: "late" }),
                 false,
                 "a second settle must be refused",
             );
@@ -553,17 +545,17 @@ describe("pi-shell-inspector background notifications", () => {
             ];
 
             for (const { id, outcome, status, exitCode, error } of cases) {
-                startJob(id, "echo kept");
-                shellManager.appendOutput(id, "kept\n");
+                startJob(session.manager, id, "echo kept");
+                session.manager.appendOutput(id, "kept\n");
                 const before = Date.now();
 
                 let settled = false;
                 assert.doesNotThrow(() => {
-                    settled = shellManager.settleJob(id, outcome);
+                    settled = session.manager.settleJob(id, outcome);
                 }, "a throwing sendMessage must not fail the settle");
                 assert.equal(settled, true, "the settle must still be applied");
 
-                const job = shellManager.getJob(id)!;
+                const job = session.manager.getJob(id)!;
                 assert.equal(job.status, status, "the settle outcome must be the job's status");
                 assert.ok(
                     job.finishedAt !== undefined && job.finishedAt >= before,
@@ -600,7 +592,7 @@ describe("pi-shell-inspector background notifications", () => {
             );
             assert.ok(session.ui.notifyCalls.every((call) => call.type === "error"));
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 1,
@@ -611,9 +603,9 @@ describe("pi-shell-inspector background notifications", () => {
             );
 
             failing = false;
-            startJob("state-after-stale", "echo again");
+            startJob(session.manager, "state-after-stale", "echo again");
             assert.equal(
-                shellManager.settleJob("state-after-stale", { type: "completed", exitCode: 0 }),
+                session.manager.settleJob("state-after-stale", { type: "completed", exitCode: 0 }),
                 true,
                 "a later settle must still be accepted",
             );
@@ -626,6 +618,7 @@ describe("pi-shell-inspector background notifications", () => {
     });
 
     it("stops notifying after the returned unsubscribe runs", async () => {
+        const manager = new ShellManager();
         const calls: SendMessageCall[] = [];
         const pi = {
             sendMessage: (
@@ -636,15 +629,15 @@ describe("pi-shell-inspector background notifications", () => {
             },
         } as unknown as ExtensionAPI;
 
-        const unsubscribe = registerBackgroundShellNotifications(pi);
-        startJob("job-before", "echo before");
-        shellManager.settleJob("job-before", { type: "completed", exitCode: 0 });
+        const unsubscribe = registerBackgroundShellNotifications(pi, manager);
+        startJob(manager, "job-before", "echo before");
+        manager.settleJob("job-before", { type: "completed", exitCode: 0 });
         await waitFor("the completion before unsubscribe", () => calls.length === 1);
         assert.equal(calls.length, 1, "the completed job must notify before the unsubscribe");
 
         unsubscribe();
-        startJob("job-after", "echo after");
-        shellManager.settleJob("job-after", { type: "completed", exitCode: 0 });
+        startJob(manager, "job-after", "echo after");
+        manager.settleJob("job-after", { type: "completed", exitCode: 0 });
 
         assert.equal(calls.length, 1, "an unsubscribed listener must stay silent");
         assert.doesNotThrow(() => unsubscribe(), "unsubscribing twice must be harmless");
@@ -661,8 +654,8 @@ describe("pi-shell-inspector background notifications", () => {
                 await host.emit("session_start", ctx);
             }
 
-            startJob("job-restart-1", "echo one");
-            shellManager.settleJob("job-restart-1", { type: "completed", exitCode: 0 });
+            startJob(host.manager, "job-restart-1", "echo one");
+            host.manager.settleJob("job-restart-1", { type: "completed", exitCode: 0 });
             await waitFor(
                 "the batched completion after restart",
                 () => host.sendMessageCalls.length === 1,
@@ -676,8 +669,8 @@ describe("pi-shell-inspector background notifications", () => {
             for (let restart = 0; restart < 3; restart++) {
                 await host.emit("session_start", ctx);
             }
-            startJob("job-restart-2", "echo two");
-            shellManager.settleJob("job-restart-2", { type: "completed", exitCode: 0 });
+            startJob(host.manager, "job-restart-2", "echo two");
+            host.manager.settleJob("job-restart-2", { type: "completed", exitCode: 0 });
 
             await waitFor(
                 "the batched completion after restart",
@@ -706,20 +699,20 @@ describe("pi-shell-inspector background notifications", () => {
     it("keeps multiple near-simultaneous completions individually correct", async () => {
         // Batching must preserve every outcome and the output-to-job association.
         await withSession("notify-burst", async (session) => {
-            startJob("burst-a", "echo a");
-            startJob("burst-b", "exit 3");
-            startJob("burst-c", "sleep 1");
-            shellManager.appendOutput("burst-a", "a-out\n");
-            shellManager.appendOutput("burst-b", "b-out\n");
-            shellManager.appendOutput("burst-c", "c-out\n");
+            startJob(session.manager, "burst-a", "echo a");
+            startJob(session.manager, "burst-b", "exit 3");
+            startJob(session.manager, "burst-c", "sleep 1");
+            session.manager.appendOutput("burst-a", "a-out\n");
+            session.manager.appendOutput("burst-b", "b-out\n");
+            session.manager.appendOutput("burst-c", "c-out\n");
 
             assert.equal(
-                shellManager.settleJob("burst-a", { type: "completed", exitCode: 0 }),
+                session.manager.settleJob("burst-a", { type: "completed", exitCode: 0 }),
                 true,
                 "the completed settle must be accepted",
             );
             assert.equal(
-                shellManager.settleJob("burst-b", {
+                session.manager.settleJob("burst-b", {
                     type: "failed",
                     error: "Background shell exited with code 3",
                     exitCode: 3,
@@ -728,13 +721,13 @@ describe("pi-shell-inspector background notifications", () => {
                 "the failed settle must be accepted",
             );
             assert.equal(
-                shellManager.settleJob("burst-c", { type: "killed", error: "user" }),
+                session.manager.settleJob("burst-c", { type: "killed", error: "user" }),
                 true,
                 "the killed settle must be accepted",
             );
 
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 1,
@@ -799,8 +792,11 @@ describe("pi-shell-inspector background notifications", () => {
             const secondCtx = createFakeContext(secondDir, { ui: createFakeUi() });
             await second.emit("session_start", secondCtx);
 
-            startJob("job-handover", "echo hi");
-            shellManager.settleJob("job-handover", { type: "completed", exitCode: 0 });
+            // Each load owns its manager: a job of the ended session's load stays silent for both.
+            startJob(first.manager, "job-ended", "echo ended");
+            first.manager.settleJob("job-ended", { type: "completed", exitCode: 0 });
+            startJob(second.manager, "job-handover", "echo hi");
+            second.manager.settleJob("job-handover", { type: "completed", exitCode: 0 });
 
             assert.deepEqual(first.sendMessageCalls, [], "the ended session must not be notified");
             await waitFor(
@@ -810,7 +806,7 @@ describe("pi-shell-inspector background notifications", () => {
             assert.equal(
                 second.sendMessageCalls.length,
                 1,
-                "the live session must be notified once",
+                "the live session must be notified once, for its own job only",
             );
 
             await second.emit("session_shutdown", secondCtx);

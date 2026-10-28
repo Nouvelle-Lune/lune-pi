@@ -14,7 +14,7 @@
  * and `session_shutdown` removes it for good before clearing.
  */
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 
 import type { FakePiHost } from "../harness.ts";
 import {
@@ -25,7 +25,6 @@ import {
     startBackgroundBashCommand,
     type SendMessageCall,
 } from "../harness.ts";
-import { shellManager } from "../../src/shell/shell-manager.ts";
 
 /** Custom entry type one persisted shell view snapshot is written under. */
 const SHELL_STATUS_ENTRY = "pi-shell-inspector-view-status";
@@ -69,14 +68,6 @@ function treePreparation(log: FakeSessionLog): Record<string, unknown> {
 }
 
 describe("pi-shell-inspector lifecycle notifications", () => {
-    beforeEach(() => {
-        shellManager.clearAllJobs();
-    });
-
-    afterEach(() => {
-        shellManager.clearAllJobs();
-    });
-
     it("kills a running shell on session_before_tree without notifying the agent", async () => {
         const workDir = createTempWorkDir("tree-kill-single");
         const sessionLog = new FakeSessionLog({ cwd: workDir });
@@ -88,7 +79,7 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 ctx: session.ctx,
                 toolCallId: "call-tree-kill",
             });
-            const running = shellManager.getJob(jobId)!;
+            const running = session.manager.getJob(jobId)!;
             assert.equal(
                 running.status,
                 "running",
@@ -107,7 +98,7 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 "leaving the branch must stop the shell",
             );
             assert.equal(
-                shellManager.getJob(jobId),
+                session.manager.getJob(jobId),
                 undefined,
                 "the lifecycle kill drops the runtime job",
             );
@@ -142,7 +133,7 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 oldLeafId: sessionLog.leafId,
             });
 
-            const restored = shellManager.getJob(jobId);
+            const restored = session.manager.getJob(jobId);
             assert.ok(restored, "the branch's snapshot must restore the killed shell");
             assert.equal(
                 restored.status,
@@ -160,7 +151,7 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 "a restored job is inert state",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -190,11 +181,11 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                     toolCallId: id,
                 });
                 assert.equal(
-                    shellManager.getJob(id)?.status,
+                    session.manager.getJob(id)?.status,
                     "running",
                     "every shell must be running before the tree move",
                 );
-                controllers.push(shellManager.getJob(id)!.controller);
+                controllers.push(session.manager.getJob(id)!.controller);
             }
 
             await session.host.emit(
@@ -242,12 +233,12 @@ describe("pi-shell-inspector lifecycle notifications", () => {
             });
 
             assert.deepEqual(
-                shellManager.getAllJobsList().map((job) => [job.id, job.status]),
+                session.manager.getAllJobsList().map((job) => [job.id, job.status]),
                 ids.map((id) => [id, "killed"]),
                 "the tree must restore every killed shell",
             );
             assert.deepEqual(
-                shellManager.getAllJobsStatusStat(),
+                session.manager.getAllJobsStatusStat(),
                 {
                     runningCount: 0,
                     completedCount: 0,
@@ -272,12 +263,16 @@ describe("pi-shell-inspector lifecycle notifications", () => {
                 ctx: session.ctx,
                 toolCallId: "call-shutdown-kill",
             });
-            const running = shellManager.getJob(jobId)!;
+            const running = session.manager.getJob(jobId)!;
 
             await session.host.emit("session_shutdown", session.ctx);
 
             assert.equal(running.controller.signal.aborted, true, "shutdown must stop the shell");
-            assert.equal(shellManager.getJob(jobId), undefined, "shutdown drops the runtime job");
+            assert.equal(
+                session.manager.getJob(jobId),
+                undefined,
+                "shutdown drops the runtime job",
+            );
             assert.deepEqual(
                 session.host.sendMessageCalls,
                 [],
@@ -298,13 +293,13 @@ describe("pi-shell-inspector lifecycle notifications", () => {
 
             // The notification subscription was removed before the clear: a later manager mutation
             // cannot reach the ended session.
-            shellManager.startJob({
+            session.manager.startJob({
                 id: "after-shutdown",
                 command: "echo late",
                 cwd: workDir,
                 controller: new AbortController(),
             });
-            shellManager.settleJob("after-shutdown", { type: "completed", exitCode: 0 });
+            session.manager.settleJob("after-shutdown", { type: "completed", exitCode: 0 });
 
             assert.deepEqual(
                 session.host.sendMessageCalls,

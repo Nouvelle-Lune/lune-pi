@@ -1,6 +1,6 @@
 import type { ExtensionAPI, MarkdownTransformer } from "@earendil-works/pi-coding-agent";
 import { render as renderMermaid, sourceBox } from "grok-mermaid";
-import { fileHref, hyperlinksEnabled, replaceLinks } from "../utils/links.ts";
+import { fileHref, hyperlinksEnabled, replaceLinks, webHref } from "../utils/links.ts";
 
 const diagrams = new Map<string, ReturnType<typeof renderMermaid> | undefined>();
 const MAX_DIAGRAMS = 48;
@@ -21,18 +21,20 @@ const admonitions: Record<string, string> = {
     CAUTION: "!",
 };
 const protectedInline = /(`+).*?\1|!?\[[^\]]*\]\([^\n]*?\)|<https?:\/\/[^>]+>/g;
-const linkTarget = (text: string, href: string) =>
-    href.startsWith("file:") ? `[${text}](<${href}>)` : `[${text}](${href})`;
+const linkTarget = (text: string, href: string) => `[${text}](${href})`;
 /**
- * Code and existing links keep their text. With OSC 8 links, a code span that names an existing
- * path becomes its link text, and a link to a local path gets a file URL that terminals can open.
+ * Code and existing links keep their text. With OSC 8 links, a code span that is one HTTP(S) URL
+ * or names an existing path becomes its link text, and a link to a local path gets a file URL that
+ * terminals can open.
  */
 function linkProtected(segment: string, cwd: string | undefined): string {
     if (cwd === undefined) return segment;
     const code = /^(`+)(.*?)\1$/.exec(segment)?.[2]?.trim();
     if (code !== undefined) {
-        // Only code with a slash or a file extension costs a file-system check.
-        const href = /\/|\.[A-Za-z\d]+(?::[\d:-]+|#.*)?$/.test(code) && fileHref(code, cwd);
+        // The whole span must be one URL or name an existing path; command arguments are never scanned.
+        const href =
+            webHref(code) ??
+            (/\/|\.[A-Za-z\d]+(?::[\d:-]+|#.*)?$/.test(code) && fileHref(code, cwd));
         return href ? `[${segment}](<${href}>)` : segment;
     }
     const link = /^(\[[^\]]*\]\()<?([^\s<>()]+)>?((?:\s[^)]*)?\))$/.exec(segment);
@@ -44,7 +46,7 @@ function linkProtected(segment: string, cwd: string | undefined): string {
 function prose(value: string, cwd: string | undefined): string {
     const convert = (text: string) => {
         text = text.replace(/[①-⑳]/g, (character) => `(${character.codePointAt(0)! - 0x2460 + 1})`);
-        return replaceLinks(text, cwd, linkTarget);
+        return replaceLinks(text, linkTarget);
     };
     let start = 0;
     const parts: string[] = [];

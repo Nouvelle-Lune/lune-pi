@@ -5,6 +5,9 @@ import {
     getLastAssistantUsage,
     SettingsManager,
     type ExtensionContext,
+    type MessageEndEvent,
+    type MessageStartEvent,
+    type MessageUpdateEvent,
     type ReadonlyFooterDataProvider,
     type SessionEntry,
     type Theme,
@@ -37,6 +40,13 @@ export interface DockUsage {
     cacheHitRate: number | undefined;
 }
 
+export interface DockTokenSpeed {
+    tokensPerSecond: number | undefined;
+    generating: boolean;
+}
+
+export type DockMessageEvent = MessageStartEvent | MessageUpdateEvent | MessageEndEvent;
+
 /** Everything the info rows display, so rendering never touches Pi. */
 export interface DockStatus {
     cwd: string;
@@ -45,6 +55,7 @@ export interface DockStatus {
     model: { provider: string; id: string; thinking: string | undefined } | undefined;
     /** Pi names the provider only when more than one is available. */
     showProvider: boolean;
+    tokenSpeed: DockTokenSpeed;
     usage: DockUsage;
     /** Pi reports no tokens or share until the first response after a compaction. */
     context: { tokens: number | null; percent: number | null; window: number };
@@ -148,6 +159,83 @@ export class DockStatusSource {
     private usage: { key: string; value: DockUsage } | undefined;
     private autoCompact: { ctx: ExtensionContext; value: boolean } | undefined;
     private readonly readAutoCompact: (ctx: ExtensionContext) => boolean;
+    private response:
+        | {
+              ui: ExtensionContext["ui"];
+              sessionId: string;
+              requestTimestamp: number;
+              provider: string | undefined;
+              model: string | undefined;
+              speed: DockTokenSpeed;
+          }
+        | undefined;
+
+    observeMessage(event: DockMessageEvent, ctx: ExtensionContext): boolean {
+        const message = event.message;
+        if (message.role !== "assistant") return false;
+        const sessionId = ctx.sessionManager.getSessionId();
+        const previous = this.response;
+        const continuing =
+            event.type !== "message_start" &&
+            previous?.ui === ctx.ui &&
+            previous.sessionId === sessionId &&
+            previous.requestTimestamp === message.timestamp;
+        const generating = event.type !== "message_end";
+        const { output } = message.usage;
+        const duration = message.durationMs;
+        // Partial usage is not a provider-neutral live token counter; only final SDK timing is measured.
+        const rate =
+            !generating &&
+            Number.isFinite(output) &&
+            output > 0 &&
+            duration !== undefined &&
+            Number.isFinite(duration) &&
+            duration > 0
+                ? (output / duration) * 1000
+                : undefined;
+        // Virtual selections route to physical message models; keep the selection that began this response.
+        const provider = continuing ? previous.provider : ctx.model?.provider;
+        const model = continuing ? previous.model : ctx.model?.id;
+        const sameSelection =
+            previous?.ui === ctx.ui &&
+            previous.sessionId === sessionId &&
+            previous.provider === provider &&
+            previous.model === model;
+        this.response = {
+            ui: ctx.ui,
+            sessionId,
+            requestTimestamp: message.timestamp,
+            provider,
+            model,
+            speed: {
+                // An unfinished or cancelled response must not erase the last measured rate.
+                tokensPerSecond:
+                    rate !== undefined && Number.isFinite(rate) && rate > 0
+                        ? rate
+                        : sameSelection
+                          ? previous.speed.tokensPerSecond
+                          : undefined,
+                generating,
+            },
+        };
+        return true;
+    }
+
+    resetTokenSpeed(): void {
+        this.response = undefined;
+    }
+
+    private collectTokenSpeed(ctx: ExtensionContext): DockTokenSpeed {
+        const response = this.response;
+        const model = ctx.model;
+        return model &&
+            response?.ui === ctx.ui &&
+            response.sessionId === ctx.sessionManager.getSessionId() &&
+            response.provider === model.provider &&
+            response.model === model.id
+            ? response.speed
+            : { tokensPerSecond: undefined, generating: false };
+    }
 
     constructor(readCompaction: (ctx: ExtensionContext) => boolean = readAutoCompact) {
         this.readAutoCompact = readCompaction;
@@ -176,6 +264,7 @@ export class DockStatusSource {
                 thinking: model.reasoning ? (level === "off" ? "thinking off" : level) : undefined,
             },
             showProvider: footerData.getAvailableProviderCount() > 1,
+            tokenSpeed: this.collectTokenSpeed(ctx),
             usage: this.collectUsage(ctx),
             context: {
                 tokens: contextUsage?.tokens ?? null,
@@ -204,15 +293,39 @@ export class DockStatusSource {
     }
 }
 
-/** The provider is the first thing to go when the model name has to fit a narrow budget. */
-export function renderModelSegment(status: DockStatus, theme: Theme, width: number): string {
+const MAX_SPEED_VALUE_WIDTH = 6;
+
+function formatTokenSpeed(rate: number | undefined): string | undefined {
+    if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return undefined;
+    if (rate < 0.1) return "<0.1";
+    for (const decimals of [1, 0]) {
+        const text = rate.toFixed(decimals);
+        if (text.length <= MAX_SPEED_VALUE_WIDTH) return text;
+    }
+    return rate.toExponential(0);
+}
+
+/** Drop optional segments whole before spending any of the model's own columns. */
+export function modelSegmentVariants(status: DockStatus, theme: Theme): string[] {
     const model = status.model;
     const name = model?.id ?? "no-model";
     const thinking = model?.thinking ? theme.fg("dim", ` • ${model.thinking}`) : "";
     const bare = name + thinking;
     const withProvider =
         status.showProvider && model ? theme.fg("accent", `(${model.provider}) `) + bare : bare;
-    return visibleWidth(withProvider) <= width ? withProvider : truncateToWidth(bare, width);
+    if (!model) return [bare];
+    const value = formatTokenSpeed(status.tokenSpeed.tokensPerSecond);
+    if (value === undefined) return [...new Set([withProvider, bare])];
+    const speed = theme.fg(status.tokenSpeed.generating ? "accent" : "dim", ` • ${value} tok/s`);
+    return [...new Set([withProvider + speed, bare + speed, withProvider, bare])];
+}
+
+export function renderModelSegment(status: DockStatus, theme: Theme, width: number): string {
+    const variants = modelSegmentVariants(status, theme);
+    return (
+        variants.find((text) => visibleWidth(text) <= width) ??
+        truncateToWidth(variants.at(-1)!, width)
+    );
 }
 
 /**
@@ -287,9 +400,10 @@ function counterSlot(keep: number, label: string, count: (usage: DockUsage) => n
  * read once per session, so (auto) only claims its columns when it will be shown. Whether a slot
  * is drawn is a separate question, answered by `hasData`.
  *
- * Slots run from the one most likely to stay empty to the ones always drawn, which is also the order
- * a narrow row drops them in, except that (auto) goes before context. Blank slots therefore gather
+ * Slots run from the one most likely to stay empty to the ones always drawn, so blank slots gather
  * on the left, where they read as part of the gap after the directory, not as a hole between numbers.
+ * `keep` orders the drop independently: the counters and cost give way first, while the hit rate
+ * stays until only context and (auto) share the row.
  */
 function statSlots(status: DockStatus): StatSlot[] {
     const slots: StatSlot[] = [
@@ -297,7 +411,7 @@ function statSlots(status: DockStatus): StatSlot[] {
         counterSlot(1, "W", (usage) => usage.cacheWrite),
         counterSlot(2, "R", (usage) => usage.cacheRead),
         {
-            keep: 3,
+            keep: 5,
             width: 3 + PERCENT_WIDTH,
             // A provider that reports no cache traffic has no hit rate worth quoting.
             hasData: ({ usage }) =>
@@ -306,13 +420,13 @@ function statSlots(status: DockStatus): StatSlot[] {
                 theme.fg("muted", `CH ${formatPercent(usage.cacheHitRate ?? 0)}`),
         },
         {
-            keep: 4,
+            keep: 3,
             width: 2 * (1 + COUNT_WIDTH) + 1,
             hasData: ({ usage }) => usage.input > 0 || usage.output > 0,
             render: ({ usage }, theme) => counters(theme, ["↑", usage.input], ["↓", usage.output]),
         },
         {
-            keep: 5,
+            keep: 4,
             width: COST_WIDTH,
             hasData: ({ usage }) => usage.cost > 0,
             render: ({ usage }, theme) => theme.fg("muted", formatCost(usage.cost)),
@@ -381,7 +495,7 @@ function reserveSlots(status: DockStatus, width: number, workspace: boolean): St
 
 /**
  * Where the info row draws the bar before each reserved slot, counted in columns from the right
- * edge, leftmost first. The dock row puts the model on one of these so both rows share a bar.
+ * edge, leftmost first. The dock row reuses one for its model divider so both rows share a bar.
  */
 export function statColumns(status: DockStatus, width: number, workspace: boolean): number[] {
     const slots = reserveSlots(status, width, workspace);

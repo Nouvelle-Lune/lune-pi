@@ -9,9 +9,9 @@ import {
     formatPendingMessage,
     summarizeText,
 } from "../core/question-format.ts";
-import { questionManager, toAnswerMessageQuestion } from "../core/questionManager.ts";
+import { toAnswerMessageQuestion, type QuestionManager } from "../core/questionManager.ts";
 import type { AnswerMessageQuestion, AskQuestionAnswer } from "../core/question-types.ts";
-import { openQuestionPanel } from "../tui/panel/question-panel.ts";
+import type { QuestionPanels } from "../tui/panel/question-panel.ts";
 import { renderQuestionAnswerMessage } from "../tui/question-answer-message.ts";
 
 import Type from "typebox";
@@ -40,7 +40,11 @@ export type AskUserQuestionsDetails =
  * `persist` writes the pending questions (with drafts) into the session, which is what
  * keeps them answerable after Esc or a restart.
  */
-export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
+export function askUserQuestions(
+    manager: QuestionManager,
+    panels: QuestionPanels,
+    persist: (ctx: ExtensionContext) => void,
+) {
     return defineTool({
         name: "ask_user_questions",
         label: "Ask User Questions",
@@ -78,17 +82,15 @@ export function askUserQuestions(persist: (ctx: ExtensionContext) => void) {
                 };
             }
 
-            const request = questionManager.create(params.questions, committedRequestIds(ctx));
+            const request = manager.create(params.questions, committedRequestIds(ctx));
             const requestId = request.id;
             // Registered before the panel opens, so the panel picks this request first.
             const wait =
-                params.mode === "block"
-                    ? questionManager.waitForSettle(requestId, signal)
-                    : undefined;
+                params.mode === "block" ? manager.waitForSettle(requestId, signal) : undefined;
 
             // Not awaited: Esc closes the panel without an answer, so the overlay closing ends
             // neither this call nor a wait.
-            void openQuestionPanel(ctx, { onDeferred: () => persist(ctx) });
+            void panels.open(ctx, { onDeferred: () => persist(ctx) });
 
             if (!wait) {
                 return {

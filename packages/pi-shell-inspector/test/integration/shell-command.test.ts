@@ -12,7 +12,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import {
     createFakeContext,
     createTempWorkDir,
@@ -31,7 +30,6 @@ describe("/shell command", () => {
     let shellCommand: RegisteredCommand;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("shell-command");
         session = await openSession(workDir);
 

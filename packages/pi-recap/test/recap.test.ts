@@ -245,9 +245,14 @@ async function fixture(t: TestContext) {
         provider: (value: () => Promise<AssistantMessage>) => {
             provider = value;
         },
-        reload: () => {
+        // Pi resets extension UI before it fires session_start for a reload, so the
+        // widget is gone and the new runtime is told the session started.
+        // `sessionStart: false` builds a runtime without that notification.
+        reload: ({ sessionStart = true }: { sessionStart?: boolean } = {}) => {
             runtime.dispose();
+            widget = undefined;
             runtime = new RecapRuntime(pi, ctx, manager, terminalInput);
+            if (sessionStart) runtime.sessionStarted(ctx);
         },
     };
 }
@@ -764,16 +769,67 @@ describe("recap automatic cache restoration", { concurrency: false, timeout: 100
         assert.equal(f.session.getBranch().length, entries);
     });
 
-    test("reloading the same branch redisplays its previously displayed recap on focus-in without another request", async (t) => {
+    test("reloading the same branch shows its saved recap at once without a focus event or another request", async (t) => {
         const f = await displayedBeforeInvalidation(t);
+        f.reload();
+        assert.equal(f.calls.length, 1);
+        assert.ok(f.widget(), "session start after reload must display the saved recap");
+        assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
+    });
+
+    test("reloading with automatic recap off shows a previously displayed manual recap without another request", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.runtime.manual(f.ctx);
+        assert.equal(f.manager.get("enabled"), false);
+        f.reload();
+        assert.equal(f.calls.length, 1);
+        assert.ok(f.widget());
+        assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
+    });
+
+    test("reloading with automatic recap off does not show a saved recap that was never displayed", async (t) => {
+        const f = await generatedWhileAway(t);
+        await f.manager.set("enabled", false);
+        f.reload();
+        assert.equal(f.widget(), undefined);
+        assert.equal(f.calls.length, 1);
+    });
+
+    test("reloading after the conversation changed does not show the stale saved recap", async (t) => {
+        const f = await displayedBeforeInvalidation(t);
+        f.session.appendMessage({
+            role: "user",
+            content: "The conversation moved on before reload",
+            timestamp: Date.now(),
+        });
+        f.reload();
+        assert.equal(f.widget(), undefined);
+        assert.equal(f.calls.length, 1);
+    });
+
+    test("showing the saved recap again after reload does not append a session entry", async (t) => {
+        const f = await displayedBeforeInvalidation(t);
+        const expected = f.session.getBranch().length;
+        f.reload();
+        assert.ok(f.widget());
+        f.focus("\x1b[O");
+        f.focus("\x1b[I");
+        const actual = f.session.getBranch().length;
+        assert.equal(actual, expected);
+    });
+
+    test("a runtime that is busy at session start shows the saved recap once it is ready", async (t) => {
+        const f = await displayedBeforeInvalidation(t);
+        f.pending(true);
         f.reload();
         assert.equal(f.widget(), undefined);
 
-        f.focus("\x1b[O");
-        assert.equal(f.widget(), undefined);
-        f.focus("\x1b[I");
+        f.pending(false);
+        f.runtime.prompt(true, f.ctx);
+        f.runtime.prompt(false, f.ctx);
         assert.equal(f.calls.length, 1);
-        assert.ok(f.widget(), "reload must not treat historical display as a mounted widget");
+        assert.ok(f.widget(), "the deferred recap must show when the runtime becomes ready");
         assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
     });
 
@@ -819,7 +875,8 @@ describe("recap automatic cache restoration", { concurrency: false, timeout: 100
 
     test("a restored recap remains hidden during a prompt and redisplays when the prompt closes", async (t) => {
         const f = await displayedBeforeInvalidation(t);
-        f.reload();
+        // Restore without session start so the focus-in path alone is under test.
+        f.reload({ sessionStart: false });
         f.runtime.prompt(true, f.ctx);
         f.focus("\x1b[I");
         assert.equal(f.widget(), undefined);

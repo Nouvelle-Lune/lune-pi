@@ -34,6 +34,10 @@
 
 - **Short request ids in the tool result.** New requests get an eight-digit hex id, and the `ask_user_questions` result now shows it (`Request id: 3f2a9c1e`), so the model can pass it to `withdraw_user_questions`. Requests restored from older sessions keep their UUIDs.
 
+- **Quieter idle Dock item.** All display levels show only `○ Ask` when no requests are pending, matching Agents without the `· idle` suffix. Pending-request counts and waiting indicators are unchanged.
+
+- **Dock lines drop whole parts instead of cutting them.** A short Lune Dock cell leaves out the request title, then the count, then `Ask`, so `agent waiting` stays longest. The row below the editor no longer cuts the question at 40 columns: it shows the whole question, its header when the question does not fit, or neither. The `/question to answer` hint stays longer than both.
+
 ### Fixed
 
 - **Tool card while streaming.** The `ask_user_questions` card no longer falls back to pi's raw-argument card while the model is still writing the call.
@@ -41,6 +45,8 @@
 - **Image paste in the answer editor.** pi's paste key (`Ctrl+V`, `Alt+V` on Windows and WSL) now works in the `Type something` editor as it does in pi's editor: an image is saved to a temporary file and pasted as its path, so the model can read it. A paste on the focused `Type something` row opens the editor first. The clipboard is read through pi-tui's native helper, so on Linux it needs an X11 display.
 
 - **Tab and the arrow keys leave a free-form question.** A question without options opens its editor by itself, and the editor took `Tab`, `⇧Tab`, `←` and `→`, so the other questions could only be reached after `Esc`. While the editor is open, `Tab` and `⇧Tab` now switch questions and keep the draft; `←` and `→` switch while the editor is empty and move the cursor once it holds text.
+
+- **Each session owns its questions.** A Lune Subagents run that selected `ask_user_questions` cleared the main session's pending questions, interrupted a blocking call and released the open panel, because Pi reuses the loaded module for sessions in the same working directory and that state lived in the module. Each extension load now has its own question manager and panel ownership.
 
 ### Refactored
 

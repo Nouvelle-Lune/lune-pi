@@ -1,4 +1,6 @@
-import type { SessionInfo } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
+import type { TestContext } from "node:test";
+import type { LocalSession } from "../../src/mention/session.ts";
 
 type Raw = Record<string, unknown>;
 
@@ -71,7 +73,7 @@ export class SessionFile {
         return this.lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
     }
 
-    info(overrides: Partial<SessionInfo> = {}): SessionInfo {
+    info(overrides: Partial<LocalSession> = {}): LocalSession {
         return sessionInfo({ id: this.id, cwd: this.cwd, ...overrides });
     }
 }
@@ -83,8 +85,9 @@ export const toolCall = (name: string, args: Raw = {}): Raw => ({
     arguments: args,
 });
 
-export function sessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
+export function sessionInfo(overrides: Partial<LocalSession> = {}): LocalSession {
     return {
+        source: "pi",
         path: "/sessions/s.jsonl",
         id: "01a14931-31bb-7000-8000-000000000001",
         cwd: "/work/project",
@@ -95,4 +98,21 @@ export function sessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
         allMessagesText: "first message",
         ...overrides,
     };
+}
+
+/** Catalog tests must never discover the developer's real external sessions. */
+export function isolateExternalSessions(t: TestContext, root: string) {
+    const homes = {
+        CODEX_HOME: path.join(root, "codex"),
+        CLAUDE_CONFIG_DIR: path.join(root, "claude"),
+    };
+    const previous = new Map(Object.keys(homes).map((key) => [key, process.env[key]]));
+    for (const [key, value] of Object.entries(homes)) process.env[key] = value;
+    t.after(() => {
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    });
+    return { codexHome: homes.CODEX_HOME, claudeHome: homes.CLAUDE_CONFIG_DIR };
 }

@@ -17,6 +17,7 @@ import {
     type TUI,
 } from "@earendil-works/pi-tui";
 import luneCore from "../src/extension.ts";
+import { isolateExternalSessions } from "./harness/session-fixtures.ts";
 import { defineSettings, assertSettingsSchema } from "../src/settings/index.ts";
 import { acquireSettings } from "../src/settings/advanced.ts";
 import { createSettingsSandbox } from "../src/testing/index.ts";
@@ -258,7 +259,8 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
     });
 
     test("Core startup mounts an empty first-position placeholder and shutdown removes only Core", async (t) => {
-        const { ctx, ui, releases, settingsPath } = await fixture(t);
+        const { ctx, ui, releases, settingsPath, root } = await fixture(t);
+        isolateExternalSessions(t, root);
         // Core startup also installs session mentions, which register an editor autocomplete provider.
         Object.assign(ui, { addAutocompleteProvider: () => {} });
         const context = { ...ctx, sessionManager: SessionManager.inMemory(ctx.cwd) };

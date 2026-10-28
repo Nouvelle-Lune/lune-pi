@@ -5,12 +5,13 @@ import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { SessionCatalog } from "../../src/mention/catalog.ts";
-import { SessionFile } from "../harness/session-fixtures.ts";
+import { isolateExternalSessions, SessionFile } from "../harness/session-fixtures.ts";
 
 const day = (n: number) => Date.parse(`2026-02-${String(n).padStart(2, "0")}T00:00:00.000Z`);
 
 async function fixture(t: TestContext) {
     const root = await mkdtemp(path.join(os.tmpdir(), "session-catalog-"));
+    isolateExternalSessions(t, root);
     t.after(() => rm(root, { recursive: true, force: true }));
     const previous = process.env["PI_CODING_AGENT_DIR"];
     const agentDir = path.join(root, "agent");
@@ -60,7 +61,10 @@ test("a custom store lists the same sessions as SessionManager.listAll, newest a
     const actual = await catalog.list();
 
     assert.deepEqual(ids(actual), ["sess-new-00000002", "sess-mid-00000003", "sess-old-00000001"]);
-    assert.deepEqual(actual, expected);
+    assert.deepEqual(
+        actual,
+        expected.map((session) => ({ ...session, source: "pi" })),
+    );
     assert.equal(actual[0]!.name, "Named");
 });
 
@@ -77,12 +81,30 @@ test("a project folder of the default store lists every project, like listAll", 
     const actual = await catalog.list();
 
     assert.deepEqual(ids(actual), ["proj-b-00000000002", "proj-a-00000000001"]);
-    assert.deepEqual(actual, expected);
+    assert.deepEqual(
+        actual,
+        expected.map((session) => ({ ...session, source: "pi" })),
+    );
 });
 
 test("an empty session directory lists every project of the default store", async (t) => {
     const { agentDir, write } = await fixture(t);
     await write(path.join(agentDir, "sessions", "--work-a--"), "proj-a-00000000001");
+    const catalog = new SessionCatalog("", silent);
+    t.after(() => catalog.dispose());
+
+    assert.deepEqual(ids(await catalog.list()), ["proj-a-00000000001"]);
+});
+
+test("a subagent run session beside the definitions is never returned by the default store", async (t) => {
+    const { agentDir, write } = await fixture(t);
+    await write(path.join(agentDir, "sessions", "--work-a--"), "proj-a-00000000001");
+    // The literal layout of the subagent design: <agentDir>/lune-subagents/sessions/<parent>/<run>.jsonl
+    const runDir = path.join(agentDir, "lune-subagents", "sessions", "proj-a-00000000001");
+    const run = new SessionFile("run-b-00000000002", "/work/run-b-00000000002");
+    run.message({ role: "user", content: "run task", timestamp: day(5) });
+    await mkdir(runDir, { recursive: true });
+    await writeFile(path.join(runDir, "run-b-00000000002.jsonl"), run.jsonl());
     const catalog = new SessionCatalog("", silent);
     t.after(() => catalog.dispose());
 

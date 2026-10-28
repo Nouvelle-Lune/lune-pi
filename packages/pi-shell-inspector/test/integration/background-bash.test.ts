@@ -18,7 +18,6 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
 import type { BackgroundShellNotificationDetails } from "../../src/shell/shell-notification.ts";
 import { getFixture } from "../fixtures/long-running-scripts.ts";
 import {
@@ -42,7 +41,6 @@ describe("pi-shell-inspector background bash", () => {
     let session: ExtensionSession;
 
     beforeEach(async () => {
-        shellManager.clearAllJobs();
         workDir = createTempWorkDir("background");
         session = await openSession(workDir);
     });
@@ -91,7 +89,7 @@ describe("pi-shell-inspector background bash", () => {
             `the call must return while the 2s sleep runs, took ${run.durationMs}ms`,
         );
 
-        const running = shellManager.getJob("call-immediate");
+        const running = session.manager.getJob("call-immediate");
         assert.ok(running, "expected the call to be recorded as a job");
         assert.equal(
             running.status,
@@ -100,7 +98,7 @@ describe("pi-shell-inspector background bash", () => {
         );
         assert.equal(running.output.content, "", "no output has been produced yet");
 
-        const settled = await waitForJobSettled("call-immediate");
+        const settled = await waitForJobSettled(session.manager, "call-immediate");
         assert.equal(settled.status, "completed", "the sleeping command must settle as completed");
         assert.equal(settled.exitCode, 0, "a completed job must carry the process exit code");
         assert.equal(settled.output.content, "", "the command printed nothing");
@@ -116,7 +114,7 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-fields",
             label: "job fields",
         });
-        const job = shellManager.getJob(jobId);
+        const job = session.manager.getJob(jobId);
         assert.ok(job, "expected the started job");
 
         assert.equal(job.id, "call-fields", "the job id must be the tool call id");
@@ -134,7 +132,7 @@ describe("pi-shell-inspector background bash", () => {
             "a running job's controller is not aborted",
         );
 
-        await waitForJobSettled("call-fields");
+        await waitForJobSettled(session.manager, "call-fields");
     });
 
     it("normalizes the label before storing it on the job", async () => {
@@ -148,12 +146,12 @@ describe("pi-shell-inspector background bash", () => {
         });
 
         assert.equal(
-            shellManager.getJob(labelled.jobId)?.label,
+            session.manager.getJob(labelled.jobId)?.label,
             "training run",
             "the label must be stored trimmed",
         );
 
-        await waitForJobSettled(labelled.jobId);
+        await waitForJobSettled(session.manager, labelled.jobId);
 
         const blank = await startBackgroundBashCommand(session.tool, {
             command: "echo unlabelled",
@@ -163,12 +161,12 @@ describe("pi-shell-inspector background bash", () => {
         });
 
         assert.equal(
-            shellManager.getJob(blank.jobId)?.label,
+            session.manager.getJob(blank.jobId)?.label,
             undefined,
             "a blank label must be dropped instead of stored",
         );
 
-        await waitForJobSettled(blank.jobId);
+        await waitForJobSettled(session.manager, blank.jobId);
     });
 
     it("appends output to the job while the command is still running", async () => {
@@ -182,10 +180,10 @@ describe("pi-shell-inspector background bash", () => {
         });
 
         await waitFor("the first chunk to reach the job", () =>
-            (shellManager.getJob(jobId)?.output.content ?? "").includes("first"),
+            (session.manager.getJob(jobId)?.output.content ?? "").includes("first"),
         );
 
-        const streaming = shellManager.getJob(jobId);
+        const streaming = session.manager.getJob(jobId);
         assert.ok(streaming, "expected the streaming job to be stored");
         assert.equal(
             streaming.status,
@@ -194,7 +192,7 @@ describe("pi-shell-inspector background bash", () => {
         );
         assert.equal(streaming.output.content, "first\n", "no later chunk may have arrived yet");
 
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
         assert.equal(settled.status, "completed", "the streaming command must settle as completed");
         assert.equal(
             settled.output.content,
@@ -218,7 +216,7 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-raw",
         });
 
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
 
         assert.equal(
             settled.status,
@@ -242,8 +240,8 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-progress-screen",
         });
 
-        const settled = await waitForJobSettled(jobId);
-        const screen = await readJobScreen(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
+        const screen = await readJobScreen(session.manager, jobId);
 
         assert.ok(
             settled.output.content.includes("\r"),
@@ -266,8 +264,8 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-spinner-screen",
         });
 
-        const settled = await waitForJobSettled(jobId);
-        const screen = await readJobScreen(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
+        const screen = await readJobScreen(session.manager, jobId);
 
         assert.ok(
             settled.output.content.includes("\u001b[2K"),
@@ -293,8 +291,8 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-vt-shapes",
         });
 
-        await waitForJobSettled(jobId, 30_000);
-        const screen = await readJobScreen(jobId);
+        await waitForJobSettled(session.manager, jobId, 30_000);
+        const screen = await readJobScreen(session.manager, jobId);
 
         assert.deepEqual(
             screen,
@@ -326,7 +324,7 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-flood",
         });
 
-        const settled = await waitForJobSettled(jobId, 20_000);
+        const settled = await waitForJobSettled(session.manager, jobId, 20_000);
 
         assert.equal(settled.status, "completed", "the flood must settle as completed");
         assert.equal(settled.output.truncated, true, "the flood must spill to a file");
@@ -354,7 +352,7 @@ describe("pi-shell-inspector background bash", () => {
             `the spill file must keep the last line, got ${JSON.stringify(persisted.slice(-200))}`,
         );
 
-        const reported = shellManager.getJobOutput(jobId);
+        const reported = session.manager.getJobOutput(jobId);
         assert.equal(
             reported.split("\n").at(0),
             `[Output truncated. Full output: ${fullOutputPath}]`,
@@ -372,7 +370,7 @@ describe("pi-shell-inspector background bash", () => {
         // The screen converts the same run in arrival order (fifty streamed batches of a hundred
         // lines), so the newest line is last and nothing was reordered or lost on the way - while its
         // own history is bounded by the emulator's scrollback, like the retained tail.
-        const screen = await readJobScreen(jobId);
+        const screen = await readJobScreen(session.manager, jobId);
         assert.equal(
             screen.at(-1),
             `flood line 05000 ${"x".repeat(24)}`,
@@ -401,7 +399,7 @@ describe("pi-shell-inspector background bash", () => {
         });
         assert.equal(run.failed, false, "the immediate result must not carry the later exit code");
 
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
 
         assert.equal(settled.status, "failed", "a non-zero exit must settle as failed");
         assert.equal(settled.exitCode, 3, "the failing job must keep its exit code");
@@ -438,7 +436,7 @@ describe("pi-shell-inspector background bash", () => {
                 toolCallId: `call-exit-${code}`,
             });
 
-            const settled = await waitForJobSettled(jobId);
+            const settled = await waitForJobSettled(session.manager, jobId);
 
             assert.equal(settled.status, "failed", `exit ${code} must fail the job`);
             assert.equal(settled.exitCode, code, `the ${code} exit code must be recorded`);
@@ -448,7 +446,7 @@ describe("pi-shell-inspector background bash", () => {
                 "the reason must name the exit code",
             );
             assert.equal(
-                shellManager.getJob(jobId)?.controller.signal.aborted,
+                session.manager.getJob(jobId)?.controller.signal.aborted,
                 false,
                 `exit ${code} is not a kill`,
             );
@@ -467,7 +465,7 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-timeout",
         });
 
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
 
         assert.equal(settled.status, "failed", "a timed-out execution must settle as failed");
         assert.equal(settled.error, "timeout:1", "the job must record the runner's timeout reason");
@@ -489,7 +487,7 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-missing-cwd",
         });
 
-        const settled = await waitForJobSettled(jobId);
+        const settled = await waitForJobSettled(session.manager, jobId);
 
         assert.equal(
             settled.cwd,
@@ -522,8 +520,8 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-fast",
         });
 
-        const fastSettled = await waitForJobSettled(fast.jobId);
-        const slowSettled = await waitForJobSettled(slow.jobId);
+        const fastSettled = await waitForJobSettled(session.manager, fast.jobId);
+        const slowSettled = await waitForJobSettled(session.manager, slow.jobId);
 
         assert.equal(fastSettled.status, "failed", "a non-zero exit must fail the job");
         assert.equal(
@@ -536,7 +534,7 @@ describe("pi-shell-inspector background bash", () => {
         assert.equal(slowSettled.status, "completed", "the slow job must complete independently");
         assert.equal(slowSettled.output.content, "slow\n", "the slow job must keep its own output");
         assert.equal(slowSettled.exitCode, 0, "the slow job must keep its own exit code");
-        assert.equal(shellManager.getRunningJobsList().length, 0, "both jobs must be settled");
+        assert.equal(session.manager.getRunningJobsList().length, 0, "both jobs must be settled");
     });
 
     it("rejects a tool call id that is already running", async () => {
@@ -561,12 +559,12 @@ describe("pi-shell-inspector background bash", () => {
             "the duplicate start must be refused by name",
         );
         assert.equal(
-            shellManager.getJob("call-duplicate")?.status,
+            session.manager.getJob("call-duplicate")?.status,
             "running",
             "the original job must survive",
         );
 
-        const settled = await waitForJobSettled(first.jobId);
+        const settled = await waitForJobSettled(session.manager, first.jobId);
         assert.equal(settled.status, "completed", "the original job must finish normally");
         assert.equal(
             settled.output.content,
@@ -586,7 +584,7 @@ describe("pi-shell-inspector background bash", () => {
         });
 
         assert.equal(
-            shellManager.settleJob(jobId, { type: "killed", error: "manual kill" }),
+            session.manager.settleJob(jobId, { type: "killed", error: "manual kill" }),
             true,
             "the first settle must be accepted",
         );
@@ -594,7 +592,7 @@ describe("pi-shell-inspector background bash", () => {
         // Give the aborted execution time to reject and reach its settle call.
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        const job = shellManager.getJob(jobId);
+        const job = session.manager.getJob(jobId);
         assert.equal(job?.status, "killed", "the explicit kill must stay the outcome");
         assert.equal(
             job?.error,
@@ -614,24 +612,24 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-clear-race",
         });
 
-        shellManager.clearAllJobs();
+        session.manager.clearAllJobs();
 
         // Give the aborted execution time to reject and reach its settle call.
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        assert.equal(shellManager.getJob(jobId), undefined, "the cleared job must stay gone");
+        assert.equal(session.manager.getJob(jobId), undefined, "the cleared job must stay gone");
         assert.deepEqual(
-            shellManager.getAllJobsList(),
+            session.manager.getAllJobsList(),
             [],
             "the late settle must not resurrect the job",
         );
         assert.deepEqual(
-            shellManager.getAllJobsStatusStat(),
+            session.manager.getAllJobsStatusStat(),
             { runningCount: 0, completedCount: 0, failedCount: 0, killedCount: 0 },
             "a refused settle must not move a counter",
         );
         assert.equal(
-            shellManager.settleJob(jobId, { type: "completed", exitCode: 0 }),
+            session.manager.settleJob(jobId, { type: "completed", exitCode: 0 }),
             false,
             "a settle for a dropped job must be refused directly, too",
         );
@@ -671,15 +669,15 @@ describe("pi-shell-inspector background bash", () => {
             toolCallId: "call-teardown-chunk",
         });
 
-        shellManager.clearAllJobs();
+        session.manager.clearAllJobs();
         const callsAfterTeardown = session.host.sendMessageCalls.length;
 
         assert.throws(
-            () => shellManager.appendOutput(jobId, "buffered chunk"),
+            () => session.manager.appendOutput(jobId, "buffered chunk"),
             /Unknown shell job: call-teardown-chunk/,
             "a chunk for a cleared job must be refused loudly",
         );
-        assert.equal(shellManager.getJob(jobId), undefined, "the cleared job must stay gone");
+        assert.equal(session.manager.getJob(jobId), undefined, "the cleared job must stay gone");
         assert.equal(
             session.host.sendMessageCalls.length,
             callsAfterTeardown,

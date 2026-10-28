@@ -9,6 +9,9 @@ import {
     SessionManager,
     type ContextUsage,
     type ExtensionContext,
+    type MessageEndEvent,
+    type MessageStartEvent,
+    type MessageUpdateEvent,
     type ReadonlyFooterDataProvider,
     type Theme,
 } from "@earendil-works/pi-coding-agent";
@@ -370,7 +373,10 @@ export function createUsage(parts: Partial<Omit<Usage, "cost">> & { cost?: numbe
     };
 }
 
-export function assistantMessage(usage: Usage): AssistantMessage {
+export function assistantMessage(
+    usage: Usage,
+    overrides: Partial<AssistantMessage> = {},
+): AssistantMessage {
     return {
         role: "assistant",
         content: [{ type: "text", text: "done" }],
@@ -380,7 +386,30 @@ export function assistantMessage(usage: Usage): AssistantMessage {
         usage,
         stopReason: "stop",
         timestamp: 0,
+        ...overrides,
     } as AssistantMessage;
+}
+
+/** A partial assistant update; the dock only reads the message, never the streaming chunk. */
+export function assistantUpdate(message: AssistantMessage): MessageUpdateEvent {
+    return {
+        type: "message_update",
+        message,
+        assistantMessageEvent: {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "x",
+            partial: message,
+        },
+    };
+}
+
+export function assistantStart(message: AssistantMessage): MessageStartEvent {
+    return { type: "message_start", message };
+}
+
+export function assistantEnd(message: AssistantMessage): MessageEndEvent {
+    return { type: "message_end", message };
 }
 
 export function toolResultMessage(usage?: Usage): ToolResultMessage {
@@ -424,6 +453,7 @@ export function createStatus(
             cacheHitRate: undefined,
             ...usage,
         },
+        tokenSpeed: { tokensPerSecond: undefined, generating: false },
         context: { tokens: 24_600, percent: 12.3, window: 200_000 },
         autoCompact: false,
         extensionStatuses: [],

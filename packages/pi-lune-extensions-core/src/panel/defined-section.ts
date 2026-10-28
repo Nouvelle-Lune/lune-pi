@@ -13,6 +13,7 @@ import type { SettingsPanelDefinition } from "./definition.ts";
 import type { SettingsView, SettingsScope, SettingsPath } from "../settings/types.ts";
 import {
     assertSettingsGroups,
+    createSettingsMenuField,
     resolveSettingsFieldOptions,
     type SettingsCustomEditorContext,
     type SettingsSection,
@@ -35,7 +36,22 @@ export function createDefinedSettingsSection<T extends TObject>(
 ): SettingsSection {
     const declarations =
         definition.fields ?? Object.keys(settings.snapshot()).map((path) => ({ path }));
-    assertSettingsGroups(declarations as readonly { group?: string }[]);
+    const menus = definition.menus ?? [];
+    // A field that names a menu is listed on that menu's page, not in the section.
+    const placements = declarations.map(
+        (declaration) => (declaration as { inMenu?: string }).inMenu,
+    );
+    assertSettingsGroups([
+        ...(declarations as readonly { group?: string }[]).filter(
+            (_, index) => placements[index] === undefined,
+        ),
+        ...menus,
+    ]);
+    const scoped = (context: ExtensionContext, scope: SettingsScope) => ({
+        context,
+        scope,
+        values: Value.Clone(settings.snapshot({ scope })) as Static<T>,
+    });
     const fields = declarations.map((declaration) => {
         const metadata = declaration as { path: SettingsPath<T> } & SettingsFieldOptions<
             unknown,
@@ -46,11 +62,7 @@ export function createDefinedSettingsSection<T extends TObject>(
         const id =
             typeof metadata.path === "string" ? metadata.path : JSON.stringify(metadata.path);
         const { choices, editor } = resolveSettingsFieldOptions(id, schema, metadata);
-        const context = (context: ExtensionContext, scope: SettingsScope) => ({
-            context,
-            scope,
-            values: Value.Clone(settings.snapshot({ scope })) as Static<T>,
-        });
+        const context = scoped;
         return {
             id,
             schema,
@@ -102,10 +114,31 @@ export function createDefinedSettingsSection<T extends TObject>(
                 : undefined,
         } satisfies SettingsPanelField;
     });
+    const menuFields = menus.map((menu) =>
+        createSettingsMenuField({
+            id: menu.id,
+            label: menu.label,
+            description: menu.description,
+            group: menu.group,
+            scopes: settings.scopes,
+            summary: menu.summary
+                ? (context, scope) => menu.summary!(scoped(context, scope))
+                : undefined,
+            visible: menu.visible
+                ? (context, scope) => menu.visible!(scoped(context, scope))
+                : undefined,
+            disabled: menu.disabled
+                ? (context, scope) => menu.disabled!(scoped(context, scope))
+                : undefined,
+            menu: menu.open
+                ? (context, scope) => menu.open!(scoped(context, scope))
+                : () => ({ fields: fields.filter((_, index) => placements[index] === menu.id) }),
+        }),
+    );
     return {
         id: definition.id ?? settings.id,
         label: definition.label,
-        fields,
+        fields: [...fields.filter((_, index) => placements[index] === undefined), ...menuFields],
         scopes: settings.scopes,
         subscribe: (listener) => settings.subscribe(listener),
         reload: () => settings.reload(),

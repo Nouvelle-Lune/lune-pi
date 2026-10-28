@@ -85,7 +85,7 @@ describe("dock controller", () => {
         assert.equal(lines.length, 5, "rule, dock row, rule, info row, rule");
         assert.match(
             dockRowOf(componentOf(ui)),
-            /^ 2 shells │ 1 question +│ claude-test • medium *$/,
+            /^ 2 shells │ 1 question +│ +claude-test • medium$/,
         );
         assert.deepEqual(
             ui.widgetCalls
@@ -647,7 +647,7 @@ describe("dock controller footer", () => {
 
         const first = component.render(120).map(stripTerminalSequences);
 
-        assert.match(first[1]!, /\(openai\) gpt-test *$/);
+        assert.match(first[1]!, /\(openai\) gpt-test$/);
         assert.match(first[3]!, /\/work\/project .*\(feature\)/);
         assert.match(
             first[3]!,

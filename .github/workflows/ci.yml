@@ -46,9 +46,10 @@ jobs:
                       dev)
                           case "$HEAD_REF" in
                               main)
-                                  # Strict checks require a sync branch that already contains dev.
-                                  echo "::error::Merge main into a sync/main-to-dev branch based on dev, then open a PR to dev."
-                                  exit 1
+                                  if [[ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+                                      echo "::error::Use a topic branch for fork contributions to dev."
+                                      exit 1
+                                  fi
                                   ;;
                               dev)
                                   echo "::error::Create a topic branch from dev before opening a PR to dev."

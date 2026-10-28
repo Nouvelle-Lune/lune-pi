@@ -7,13 +7,16 @@
  * content the emulator rewrote without adding a line, and a job that reuses the id of a cleared one.
  */
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
-import { shellManager } from "../../src/shell/shell-manager.ts";
+import { ShellManager } from "../../src/shell/shell-manager.ts";
 import { readJobScreen } from "../harness.ts";
 
+/** Job table of the current test; every test starts with an empty one. */
+let manager = new ShellManager();
+
 function startJob(id: string): void {
-    shellManager.startJob({
+    manager.startJob({
         id,
         command: `cmd ${id}`,
         cwd: "/work",
@@ -22,51 +25,55 @@ function startJob(id: string): void {
 }
 
 async function writeOutput(id: string, output: string): Promise<void> {
-    shellManager.appendOutput(id, output);
-    await readJobScreen(id);
+    manager.appendOutput(id, output);
+    await readJobScreen(manager, id);
 }
 
 describe("shell manager screen revision", () => {
+    beforeEach(() => {
+        manager = new ShellManager();
+    });
+
     afterEach(() => {
-        shellManager.clearAllJobs();
+        manager.clearAllJobs();
     });
 
     it("changes once the emulator has parsed new output", async () => {
         startJob("a");
-        const before = shellManager.getScreenRevision("a");
+        const before = manager.getScreenRevision("a");
 
         await writeOutput("a", "first\n");
-        const afterFirst = shellManager.getScreenRevision("a");
+        const afterFirst = manager.getScreenRevision("a");
 
         await writeOutput("a", "second\n");
 
         assert.notEqual(afterFirst, before);
-        assert.notEqual(shellManager.getScreenRevision("a"), afterFirst);
+        assert.notEqual(manager.getScreenRevision("a"), afterFirst);
     });
 
     it("stays put while the screen is only read", async () => {
         startJob("a");
         await writeOutput("a", "first\n");
-        const settled = shellManager.getScreenRevision("a");
+        const settled = manager.getScreenRevision("a");
 
-        shellManager.getScreenLines("a");
-        shellManager.getJob("a");
+        manager.getScreenLines("a");
+        manager.getJob("a");
 
-        assert.equal(shellManager.getScreenRevision("a"), settled);
+        assert.equal(manager.getScreenRevision("a"), settled);
     });
 
     it("changes when output rewrites a line without adding one", async () => {
         startJob("a");
         await writeOutput("a", "progress 10%\r");
-        const before = shellManager.getScreenRevision("a");
-        const linesBefore = shellManager.getScreenLines("a");
+        const before = manager.getScreenRevision("a");
+        const linesBefore = manager.getScreenLines("a");
 
         await writeOutput("a", "progress 90%\r");
-        const linesAfter = shellManager.getScreenLines("a");
+        const linesAfter = manager.getScreenLines("a");
 
         assert.equal(linesAfter.length, linesBefore.length);
         assert.notDeepEqual(linesAfter, linesBefore);
-        assert.notEqual(shellManager.getScreenRevision("a"), before);
+        assert.notEqual(manager.getScreenRevision("a"), before);
     });
 
     it("never repeats a revision across jobs", async () => {
@@ -75,26 +82,26 @@ describe("shell manager screen revision", () => {
         await writeOutput("a", "same\n");
         await writeOutput("b", "same\n");
 
-        assert.notEqual(shellManager.getScreenRevision("a"), shellManager.getScreenRevision("b"));
+        assert.notEqual(manager.getScreenRevision("a"), manager.getScreenRevision("b"));
     });
 
     it("gives a job that reuses a cleared id a revision no earlier screen had", async () => {
         startJob("a");
         await writeOutput("a", "old\n");
-        const seen = shellManager.getScreenRevision("a");
-        shellManager.settleJob("a", { type: "completed", exitCode: 0 });
-        assert.equal(shellManager.clearJob("a"), true);
+        const seen = manager.getScreenRevision("a");
+        manager.settleJob("a", { type: "completed", exitCode: 0 });
+        assert.equal(manager.clearJob("a"), true);
 
         startJob("a");
-        const fresh = shellManager.getScreenRevision("a");
+        const fresh = manager.getScreenRevision("a");
         await writeOutput("a", "new\n");
 
         assert.notEqual(fresh, seen);
-        assert.notEqual(shellManager.getScreenRevision("a"), seen);
+        assert.notEqual(manager.getScreenRevision("a"), seen);
     });
 
     it("refuses an unknown job like the other screen readers", () => {
-        assert.throws(() => shellManager.getScreenRevision("missing"), /Unknown shell job/);
-        assert.throws(() => shellManager.getScreenLines("missing"), /Unknown shell job/);
+        assert.throws(() => manager.getScreenRevision("missing"), /Unknown shell job/);
+        assert.throws(() => manager.getScreenLines("missing"), /Unknown shell job/);
     });
 });
