@@ -28,7 +28,7 @@ The main agent starts the run with `subagent_start` and continues its own work. 
 - **Optional definitions.** Reusable roles are Markdown files, yours or the project's. A one-off task needs no file: the main agent sets up the run in the call.
 - **Several runs from one call.** The main agent can start one run per entry of `tasks`, all at the same time.
 - **Optional worktrees.** A run can work in its own Git worktree, so parallel changes do not touch your files.
-- **Automatic model choice.** With `model: auto`, a Pi classifier rates the task. The run uses the model you set for the task's tier and a thinking level for its reasoning; see [Auto model](#auto-model).
+- **Automatic model choice.** With `model: auto`, a Pi classifier rates the task. The run uses the model you set for the task's tier and a thinking level that this model supports; see [Auto model](#auto-model).
 - **Extensions only for their tools.** A run loads none of your user or project extensions by itself. It gets Pi's native tools and the codemode, tool-search and MCP built-ins, and it cannot start runs of its own. A run that selects a tool of one of your extensions loads that extension, with only the selected tools; see [Extension tools](#extension-tools). Runs load no extensions for models, so a run cannot use a model that an extension provides, such as a model of the llama.cpp built-in: the start fails and says so.
 - **Visible.** Runs show in the Dock and in the `/agents` inspector, where you can read their live transcripts and write to them.
 
@@ -144,23 +144,27 @@ the tests and report the commands, the results and the files you changed.
 
 ### Auto model
 
-`model: auto`, in the call or in a definition, lets a Pi classifier rate the task. The run then uses the model that you set for the task's tier, and a thinking level for the reasoning that the task needs. Set it up in the [Subagents settings](#settings).
+`model: auto`, in the call or in a definition, lets a Pi classifier rate the task. The run then uses the model that you set for the task's tier, and the thinking level that the task needs among the levels this model supports. Set it up in the [Subagents settings](#settings).
 
-The classifier answers two questions in one request. It reads the task, the agent's name, description and instructions, the tool access and the workspace. It does not see model names or prices: you map the tiers to models.
+The classifier answers three separate questions: how difficult the task is, how much reasoning it needs, and whether a mistake in it could do serious harm. It reads the task, the agent's name, description and instructions, the tool access and the workspace. It does not see model names or prices: you map the tiers to models.
 
-| Question  | Levels                         | Result                                      |
-| --------- | ------------------------------ | ------------------------------------------- |
-| Tier      | light, standard, complex, deep | The model set for that tier                 |
-| Reasoning | none, light, moderate, heavy   | Thinking `minimal`, `low`, `medium`, `high` |
+| Question  | Options                                                                      | Result                       |
+| --------- | ---------------------------------------------------------------------------- | ---------------------------- |
+| Tier      | light, standard, complex, deep                                               | The model set for that tier  |
+| Thinking  | Pi's levels `off` to `max` that the run's model supports, as Pi reports them | The run's thinking level     |
+| High risk | Yes or no, as a probability                                                  | A floor for the model's tier |
+
+The tier and high-risk questions always go in the first request. The thinking options depend on the run's model, and the model depends on the tier. When every model that the tier can lead to supports the same levels, the first request also asks the thinking question. Otherwise, a second request asks it after the model is known. A model with only one level gets no thinking question.
 
 - **Tier models.** A tier without a model uses the next tier up that has one. When no tier from the rated one up has a model, the run uses the main agent's model, so the main agent's model is the ceiling. With no tier set, every auto run uses the main agent's model with the rated thinking.
-- **Thinking.** A thinking level from the call or the definition stays; the reasoning rating sets the level only when neither sets it. Pi limits the level to what the model supports.
+- **Thinking.** A thinking level from the call or the definition stays, and then the classifier gets no thinking question.
+- **High risk.** A task is high risk when the classifier's probability reaches the High-risk threshold (default 0.4). The threshold is below one half because a missed high-risk task usually costs more than a false alarm; adjust it with your own tasks. A high-risk task gets at least the model of the High-risk floor tier (default Deep, which falls back to the main agent's model). The rated tier stays as it is, and a tier above the floor is not lowered. The risk does not change the thinking level. It is a model choice only: tool permissions, approvals and the other checks of a run stay the same.
 - **Unsure answers.** When the classifier's confidence in an answer is below 50%, the run uses the next level up.
 - **Long tasks.** The request must fit the classifier's context window, and the package does not know the classifier's tokenizer. It therefore counts UTF-8 bytes, because a token always has at least one byte. The request gets at most 32 KB, and at most the window less 512 tokens for the classifier's own prompt; Pi's llama.cpp classifier shows the request twice, so it gets half. When the task and the agent's instructions do not fit, the instructions get at most a quarter of the room, and each is cut in the middle: the start and the end stay, with a note of how many characters are left out. When less than 1 KB is left for them, the classifier is not called and the run falls back as when the classifier fails.
 - **No classifier selected:** the run uses the main agent's model and thinking. This is the default.
 - **Nothing to rate:** when no tier has a model and the thinking is set, the run uses the main agent's model without a classifier request.
 
-When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that your scope no longer allows is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%); the complex tier's model)` and `Thinking: medium (auto: the classifier rated the reasoning moderate (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
+When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that your scope no longer allows is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
 
 ### Extension tools
 
@@ -225,7 +229,7 @@ The marker shows the most urgent state: a red `✕` for a failed or blocked turn
 
 Run `/agents` to open the inspector. The current branch's runs are on the left, followed by dimmed runs of other branches. The selected run's live transcript is on the right, below the run's heading. The heading shows the run's name, ID, state and report. Below them, it shows the model and thinking level that the run's requests use, for example `Model anthropic/claude-opus-5-5 · high`. For a live run, the model and level come from its session, where Pi limits the level to what the model supports. Otherwise, they are the run's start values. A narrow pane leaves out heading parts or wraps the model; it never cuts them.
 
-For a run with `model: auto`, the model row ends with the tier and its share, for example `Model anthropic/claude-haiku-5-5 · medium · auto complex 71%`. When the classifier was unsure and the run used a higher tier, the row shows that tier without a share. When the classifier failed, the row ends with `auto failed`, and the top of the log shows the error. The top of the run's log shows the classifier's answer: the share of each tier, the chosen tier and its model, and the reasoning level with the thinking it set. This block scrolls with the log.
+For a run with `model: auto`, the model row ends with the tier and its share, for example `Model anthropic/claude-haiku-5-5 · medium · auto complex 71%`. When the classifier was unsure and the run used a higher tier, the row shows that tier without a share. A task rated high risk adds `high risk` to the row. When the classifier failed, the row ends with `auto failed`, and the top of the log shows the error. The top of the run's log shows the classifier's answer: the share of each tier, the chosen tier and its model, the high-risk probability with its threshold and any floor it set, and the rated thinking level. This block scrolls with the log.
 
 | Action                            | Keys                               |
 | --------------------------------- | ---------------------------------- |
@@ -250,11 +254,11 @@ With the Lune theme on, the report messages in the main transcript render as its
 
 Run `/lune-core-settings subagents` to open the Subagents section of Lune settings. It needs Lune Core's extension; settings are saved per scope, global or project, like other Lune settings.
 
-| Setting         | Meaning                                                                                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                       |
-| Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from your scope. A tier without a model uses the next tier up, then the main agent's model. |
-| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                      |
+| Setting         | Meaning                                                                                                                                                                                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                            |
+| Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from your scope. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
+| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                           |
 
 In **Custom agents**, Enter opens an agent, and its page edits the name, description, model, thinking level, tools and isolation. Each change is written to the definition file at once; comments and the body stay. Ctrl+R removes an optional field, so the run's default applies again. Renaming an agent renames a file named after it. Model, thinking, tools and isolation apply to the next run; the name and description reach the main agent after `/reload`, because its agent list stays fixed for the session. MCP tools are not listed in the tools menu, but selected MCP tools stay in the file. A file that does not load is listed with its problem and must be fixed by hand.
 

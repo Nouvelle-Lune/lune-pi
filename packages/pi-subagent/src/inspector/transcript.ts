@@ -9,7 +9,7 @@ import { displayLine, displayLines } from "../render/text.ts";
 import { isUserMessage, stripUserMarker } from "../run/guide.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import type { Run, RunningTool } from "../run/run.ts";
-import { AUTO_TIERS, type AutoModelChoice, type RunSnapshot } from "../run/types.ts";
+import { AUTO_TIERS, type AutoModelChoice, type AutoRisk, type RunSnapshot } from "../run/types.ts";
 import { formatDuration, formatPercent, ratingText } from "../tools/format.ts";
 import { pad } from "./layout.ts";
 import { headRows, LineWrapCache, tailRows } from "./wrap.ts";
@@ -163,7 +163,7 @@ export class TranscriptRenderer {
 
     /**
      * How `model: auto` resolved the run, above its first message: the classifier's share for
-     * each task tier, highest first, the tier and model the run got, and the reasoning rating.
+     * each task tier, highest first, the tier and model the run got, and the thinking rating.
      * The model row keeps only the short mark.
      */
     private autoRows(run: Run, width: number): string[] {
@@ -207,7 +207,7 @@ export class TranscriptRenderer {
         snapshot: RunSnapshot,
         width: number,
     ): string[] {
-        const { tier, reasoning } = auto;
+        const { tier, thinking, risk } = auto;
         const model =
             snapshot.model +
             (auto.modelFrom === tier.used
@@ -262,10 +262,6 @@ export class TranscriptRenderer {
                 ? ""
                 : ` It was unsure (${formatPercent(tier.confidence)} confidence), so the run ` +
                   `uses the ${tier.used} tier.`;
-        const thinking =
-            snapshot.sources.thinking === "auto"
-                ? ` → thinking ${snapshot.thinking}`
-                : `; the ${snapshot.sources.thinking} set thinking ${snapshot.thinking}`;
 
         return [
             ...this.wrap(
@@ -274,7 +270,9 @@ export class TranscriptRenderer {
                 "muted",
             ),
             ...rows,
-            ...this.wrap(`Reasoning: ${ratingText(reasoning)}${thinking}`, width, "muted"),
+            // A run that an earlier version started has no thinking or risk rating here.
+            ...(risk ? this.wrap(riskLine(risk), width, risk.high ? "warning" : "muted") : []),
+            ...(thinking ? this.wrap(`Thinking: ${ratingText(thinking)}`, width, "muted") : []),
         ];
     }
 
@@ -724,4 +722,14 @@ function diffOf(result: ToolResult | undefined): string | undefined {
     const diff = (result?.details as { diff?: unknown } | undefined)?.diff;
 
     return typeof diff === "string" && diff.trim() !== "" ? diff : undefined;
+}
+
+/** The high-risk answer, with the threshold it was judged at and the floor it set. */
+function riskLine(risk: AutoRisk): string {
+    const shares = `${formatPercent(risk.probability)}, threshold ${formatPercent(risk.threshold)}`;
+
+    return risk.high
+        ? `High risk (${shares})` +
+              (risk.floor ? `, so the model comes from at least the ${risk.floor} tier.` : ".")
+        : `Not high risk (${shares}).`;
 }

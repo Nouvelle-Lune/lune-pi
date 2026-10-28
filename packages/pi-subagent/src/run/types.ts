@@ -49,8 +49,6 @@ export const AUTO_TIERS = ["light", "standard", "complex", "deep"] as const;
 export type AutoTier = (typeof AUTO_TIERS)[number];
 
 /** How much an auto run's task must reason, from the least; it sets the thinking level. */
-export const AUTO_REASONING = ["none", "light", "moderate", "heavy"] as const;
-export type AutoReasoning = (typeof AUTO_REASONING)[number];
 
 export interface RunWorktree {
     repoRoot: string;
@@ -70,6 +68,17 @@ export interface AutoRating<T extends string> {
     probabilities: Partial<Record<T, number>>;
 }
 
+/** The high-risk answer of a rating. */
+export interface AutoRisk {
+    /** The classifier's probability that a mistake in the task could cause serious harm. */
+    probability: number;
+    /** The probability from which a task counts as high risk, from the settings. */
+    threshold: number;
+    high: boolean;
+    /** The high-risk floor, when it raised the tier that the model comes from. */
+    floor?: AutoTier;
+}
+
 /** How `model: auto` resolved the run's model and, unless the start set it, its thinking. */
 export type AutoModelChoice =
     | {
@@ -79,7 +88,10 @@ export type AutoModelChoice =
           tier: AutoRating<AutoTier>;
           /** The tier whose model the run got, or `main` for the main agent's model. */
           modelFrom: AutoTier | "main";
-          reasoning: AutoRating<AutoReasoning>;
+          /** Absent when the start set the thinking or the run's model supports one level. */
+          thinking?: AutoRating<ThinkingLevel>;
+          /** Absent for a run that an earlier version started. */
+          risk?: AutoRisk;
       }
     /** No classifier is selected, so the run got the main agent's model. */
     | { by: "no-classifier" }
