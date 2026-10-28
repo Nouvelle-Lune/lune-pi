@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import type { AutoModelSettings } from "../../src/auto-model.ts";
+import { DEFAULT_AUTO_MODEL_SETTINGS, type AutoModelSettings } from "../../src/auto-model.ts";
 import { startValueLines } from "../../src/tools/format.ts";
 import {
     createFixture,
@@ -28,7 +28,8 @@ function withClassifier(
     fx: Fixture,
     answer: {
         tier?: string;
-        reasoning?: string;
+        thinking?: string;
+        risk?: number;
         confidence?: number;
         probabilities?: Record<string, number>;
         stopReason?: string;
@@ -51,9 +52,17 @@ function withClassifier(
             return {
                 stopReason: answer.stopReason ?? "stop",
                 errorMessage: "quota",
+                // Only the asked questions are answered.
                 answers: {
-                    tier: rating(answer.tier, answer.probabilities),
-                    reasoning: rating(answer.reasoning ?? "moderate"),
+                    ...("tier" in (request as { questions: object }).questions
+                        ? { tier: rating(answer.tier, answer.probabilities) }
+                        : {}),
+                    ...("risk" in (request as { questions: object }).questions
+                        ? { risk: { type: "bool", probability: answer.risk ?? 0.05 } }
+                        : {}),
+                    ...("thinking" in (request as { questions: object }).questions
+                        ? { thinking: rating(answer.thinking ?? "medium") }
+                        : {}),
                 },
             };
         },
@@ -64,6 +73,10 @@ function withClassifier(
 
     return { ctx, seen };
 }
+
+const settingsOf = (
+    value: Pick<AutoModelSettings, "classifier" | "tiers"> & Partial<AutoModelSettings>,
+): AutoModelSettings => ({ ...DEFAULT_AUTO_MODEL_SETTINGS, ...value });
 
 const NO_TIERS = { light: null, standard: null, complex: null, deep: null };
 
@@ -147,7 +160,7 @@ test("auto from a definition with the thinking set and no tier model asks no cla
         ctx,
         definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
         params: { agent: "d" },
-        settings: { classifier: JUDGE, tiers: NO_TIERS },
+        settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
     });
 
     assert.deepEqual(seen, ["faux/faux-1"]);
@@ -166,7 +179,7 @@ test("auto with a classifier runs the rated tier's model and thinking and names 
     const fx = await createFixture(t);
     const { ctx, seen: classified } = withClassifier(fx, {
         tier: "complex",
-        reasoning: "heavy",
+        thinking: "high",
         probabilities: { complex: 0.71, deep: 0.2 },
     });
 
@@ -174,7 +187,7 @@ test("auto with a classifier runs the rated tier's model and thinking and names 
         ctx,
         definitions: [definition({ name: "d", description: "Reads code.", model: "auto" })],
         params: { agent: "d" },
-        settings: { classifier: JUDGE, tiers: { ...NO_TIERS, complex: SECOND } },
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, complex: SECOND } }),
     });
 
     assert.deepEqual(seen, ["faux/faux-2"]);
@@ -188,33 +201,35 @@ test("auto with a classifier runs the rated tier's model and thinking and names 
             probabilities: { complex: 0.71, deep: 0.2 },
         },
         modelFrom: "complex",
-        reasoning: {
-            rated: "heavy",
-            used: "heavy",
+        thinking: {
+            rated: "high",
+            used: "high",
             confidence: 0.9,
             probabilities: {},
         },
+        risk: { probability: 0.05, threshold: 0.4, high: false },
     });
     assert.equal(run.snapshot?.thinking, "high");
     assert.equal(run.snapshot?.sources.thinking, "auto");
     assert.deepEqual(startValueLines(run).slice(1, 3), [
-        "Model: faux/faux-2 (auto from definition: the classifier cls/judge rated the task complex (71%); the complex tier's model)",
-        "Thinking: high (auto: the classifier rated the reasoning heavy)",
+        "Model: faux/faux-2 (auto from definition: the classifier cls/judge rated the task complex (71%), not high risk (5%); the complex tier's model)",
+        "Thinking: high (auto: the classifier rated the thinking high)",
     ]);
     const request = classified.requests[0] as { state: { task: string; agent: { name: string } } };
 
     assert.equal(request.state.task, "work");
     assert.equal(request.state.agent.name, "d");
+    assert.equal(classified.requests.length, 1);
 });
 
 test("a tier without a model falls up to the main agent's model, which the start values say", async (t) => {
     const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "deep", reasoning: "none" });
+    const { ctx } = withClassifier(fx, { tier: "deep", thinking: "off" });
 
     const { run, seen } = await startAuto(fx, {
         ctx,
         model: "auto",
-        settings: { classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } },
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
     });
 
     assert.deepEqual(seen, ["faux/faux-1"]);
@@ -224,7 +239,7 @@ test("a tier without a model falls up to the main agent's model, which the start
     );
     assert.equal(
         startValueLines(run)[1],
-        "Model: faux/faux-1 (auto from call: the classifier cls/judge rated the task deep; no tier from deep up has a model, so the main agent's model)",
+        "Model: faux/faux-1 (auto from call: the classifier cls/judge rated the task deep, not high risk (5%); no tier from deep up has a model, so the main agent's model)",
     );
 });
 
@@ -232,7 +247,7 @@ test("an unsure rating moves up a tier and the start values say so", async (t) =
     const fx = await createFixture(t);
     const { ctx } = withClassifier(fx, {
         tier: "light",
-        reasoning: "none",
+        thinking: "off",
         confidence: 0.4,
         probabilities: { light: 0.4, standard: 0.35 },
     });
@@ -240,24 +255,56 @@ test("an unsure rating moves up a tier and the start values say so", async (t) =
     const { run, seen } = await startAuto(fx, {
         ctx,
         model: "auto",
-        settings: { classifier: JUDGE, tiers: { ...NO_TIERS, light: FIRST, standard: SECOND } },
+        settings: settingsOf({
+            classifier: JUDGE,
+            tiers: { ...NO_TIERS, light: FIRST, standard: SECOND },
+        }),
     });
 
     assert.deepEqual(seen, ["faux/faux-2"]);
     assert.equal(
         startValueLines(run)[1],
-        "Model: faux/faux-2 (auto from call: the classifier cls/judge rated the task light (40%), unsure at 40% confidence, so standard; the standard tier's model)",
+        "Model: faux/faux-2 (auto from call: the classifier cls/judge rated the task light (40%), unsure at 40% confidence, so standard, not high risk (5%); the standard tier's model)",
+    );
+    // The unsure thinking rating (off at 40%) moved to the next supported level, which the run uses.
+    assert.equal(run.snapshot?.thinking, "minimal");
+    assert.equal(run.snapshot?.sources.thinking, "auto");
+});
+
+test("a high-risk task runs the floor tier's model, keeps its rated tier and says so in the start values", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx } = withClassifier(fx, { tier: "light", risk: 0.8, thinking: "low" });
+
+    const { run, seen } = await startAuto(fx, {
+        ctx,
+        model: "auto",
+        settings: settingsOf({
+            classifier: JUDGE,
+            tiers: { ...NO_TIERS, light: FIRST, deep: SECOND },
+        }),
+    });
+
+    assert.deepEqual(seen, ["faux/faux-2"]);
+    assert.deepEqual(
+        run.snapshot?.autoModel?.by === "rating" ? run.snapshot.autoModel.risk : undefined,
+        { probability: 0.8, threshold: 0.4, high: true, floor: "deep" },
+    );
+    assert.equal(run.snapshot?.thinking, "low");
+    assert.equal(run.snapshot?.sources.thinking, "auto");
+    assert.equal(
+        startValueLines(run)[1],
+        "Model: faux/faux-2 (auto from call: the classifier cls/judge rated the task light, high risk (80%), so at least the deep tier; the deep tier's model)",
     );
 });
 
 test("a call's thinking beats the rated thinking while the tier still picks the model", async (t) => {
     const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "light", reasoning: "heavy" });
+    const { ctx } = withClassifier(fx, { tier: "light", thinking: "high" });
     const manager = fx.createManager(
         [],
         ctx,
         undefined,
-        settings({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+        settings(settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } })),
     );
 
     fx.faux.setResponses([() => reportResponse("done", "ok")]);
@@ -273,13 +320,13 @@ test("a call's thinking beats the rated thinking while the tier still picks the 
 
 test("a definition's thinking beats the rated thinking while the tier still picks the model", async (t) => {
     const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "light", reasoning: "heavy" });
+    const { ctx } = withClassifier(fx, { tier: "light", thinking: "high" });
 
     const { run, seen } = await startAuto(fx, {
         ctx,
         definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
         params: { agent: "d" },
-        settings: { classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } },
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
     });
 
     assert.deepEqual(seen, ["faux/faux-2"]);
@@ -304,7 +351,7 @@ test("a call's explicit model beats a definition's auto and asks no classifier",
         definitions: [definition({ name: "d", model: "auto" })],
         params: { agent: "d" },
         model: "faux/faux-2",
-        settings: { classifier: JUDGE, tiers: NO_TIERS },
+        settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
     });
 
     assert.deepEqual(seen, ["faux/faux-2"]);
@@ -319,7 +366,7 @@ test("a failing classifier starts the run with the main agent's model and thinki
     const { run, seen } = await startAuto(fx, {
         ctx,
         model: "auto",
-        settings: { classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } },
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
     });
 
     assert.deepEqual(seen, ["faux/faux-1"]);
@@ -340,7 +387,10 @@ test("a failing classifier starts the run with the main agent's model and thinki
 test("after a classifier failure the call's and the definition's thinking still apply", async (t) => {
     const fx = await createFixture(t);
     const { ctx } = withClassifier(fx, { tier: "light", stopReason: "error" });
-    const settingsValue = { classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } };
+    const settingsValue = settingsOf({
+        classifier: JUDGE,
+        tiers: { ...NO_TIERS, light: SECOND },
+    });
 
     const fromDefinition = await startAuto(fx, {
         ctx,
@@ -383,7 +433,7 @@ test("a start cancelled during the classification still fails and leaves no run 
         [],
         ctx,
         undefined,
-        settings({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+        settings(settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } })),
     );
 
     await assert.rejects(

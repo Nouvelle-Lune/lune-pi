@@ -1,5 +1,5 @@
 import type { Run } from "../run/run.ts";
-import type { AutoRating, RunSnapshot, RunUsage, TurnRecord } from "../run/types.ts";
+import type { AutoRating, AutoRisk, RunSnapshot, RunUsage, TurnRecord } from "../run/types.ts";
 
 /** How much of a summary or task a run list shows; one run shows all of it. */
 const PREVIEW_CHARS = 200;
@@ -52,15 +52,20 @@ function modelOrigin(snapshot: RunSnapshot): string {
 
     switch (auto.by) {
         case "rating": {
-            const { tier, modelFrom } = auto;
+            const { tier, modelFrom, risk } = auto;
+            const lowest = risk?.floor ?? tier.used;
             const model =
-                modelFrom === tier.used
-                    ? `the ${tier.used} tier's model`
+                modelFrom === lowest
+                    ? `the ${lowest} tier's model`
                     : modelFrom === "main"
-                      ? `no tier from ${tier.used} up has a model, so the main agent's model`
-                      : `the ${tier.used} tier has no model, so the ${modelFrom} tier's model`;
+                      ? `no tier from ${lowest} up has a model, so the main agent's model`
+                      : `the ${lowest} tier has no model, so the ${modelFrom} tier's model`;
 
-            return `${origin}: the classifier ${auto.classifier} rated the task ${ratingText(tier)}; ${model}`;
+            return (
+                `${origin}: the classifier ${auto.classifier} rated the task ${ratingText(tier)}` +
+                (risk ? `, ${riskText(risk)}` : "") +
+                `; ${model}`
+            );
         }
         case "no-classifier":
             return `${origin}: no classifier is selected, so the main agent's model`;
@@ -77,8 +82,8 @@ function modelOrigin(snapshot: RunSnapshot): string {
 function thinkingOrigin(snapshot: RunSnapshot): string {
     const auto = snapshot.autoModel;
 
-    return snapshot.sources.thinking === "auto" && auto?.by === "rating"
-        ? `auto: the classifier rated the reasoning ${ratingText(auto.reasoning)}`
+    return snapshot.sources.thinking === "auto" && auto?.by === "rating" && auto.thinking
+        ? `auto: the classifier rated the thinking ${ratingText(auto.thinking)}`
         : `from ${snapshot.sources.thinking}`;
 }
 
@@ -93,6 +98,14 @@ export function ratingText(rating: AutoRating<string>): string {
             ? ""
             : `, unsure at ${formatPercent(rating.confidence)} confidence, so ${rating.used}`)
     );
+}
+
+/** `high risk (72%), so at least the deep tier`, or `not high risk (12%)`. */
+export function riskText(risk: AutoRisk): string {
+    return risk.high
+        ? `high risk (${formatPercent(risk.probability)})` +
+              (risk.floor ? `, so at least the ${risk.floor} tier` : "")
+        : `not high risk (${formatPercent(risk.probability)})`;
 }
 
 /** One entry of a `tasks` call: the run it started, or why it did not start. */

@@ -561,11 +561,11 @@ const ratingChoice = (overrides: Record<string, unknown> = {}) => ({
         probabilities: { light: 0.04, standard: 0.12, complex: 0.71, deep: 0.13 },
     },
     modelFrom: "complex",
-    reasoning: {
-        rated: "moderate",
-        used: "moderate",
+    thinking: {
+        rated: "medium",
+        used: "medium",
         confidence: 0.8,
-        probabilities: { none: 0.03, light: 0.2, moderate: 0.64, heavy: 0.13 },
+        probabilities: { off: 0.03, low: 0.2, medium: 0.64, high: 0.13 },
     },
     ...overrides,
 });
@@ -595,7 +595,7 @@ function autoBlock(
     return rows.slice(0, rows.indexOf(""));
 }
 
-test("a rating is a block above the task: the verdict, the tiers by share with the chosen model, and the reasoning", (t) => {
+test("a rating is a block above the task: the verdict, the tiers by share with the chosen model, and the thinking rating", (t) => {
     const actual = autoBlock(t, ratingChoice());
 
     assert.deepEqual(actual, [
@@ -604,7 +604,7 @@ test("a rating is a block above the task: the verdict, the tiers by share with t
         "    deep       13%",
         "    standard   12%",
         "    light       4%",
-        "Reasoning: moderate (64%) → thinking medium",
+        "Thinking: medium (64%)",
     ]);
 });
 
@@ -638,29 +638,58 @@ test("a model from a higher tier says which tier it came from", (t) => {
     assert.equal(actual[1], "    complex    71%  chosen → p/x (deep tier)");
 });
 
-test("a reasoning rating that the start overrode says who set the thinking", (t) => {
-    const actual = autoBlock(t, ratingChoice(), { thinking: "call" });
+test("the thinking line shows the rating whichever source set the run's thinking", (t) => {
+    const auto = autoBlock(t, ratingChoice(), { thinking: "auto" });
+    const call = autoBlock(t, ratingChoice(), { thinking: "call" });
 
-    assert.equal(actual.at(-1), "Reasoning: moderate (64%); the call set thinking medium");
+    assert.equal(auto.at(-1), "Thinking: medium (64%)");
+    assert.equal(call.at(-1), "Thinking: medium (64%)");
 });
 
-test("an unsure reasoning rating shows the level used", (t) => {
+test("an unsure thinking rating shows the level used", (t) => {
     const actual = autoBlock(
         t,
         ratingChoice({
-            reasoning: {
-                rated: "light",
-                used: "moderate",
+            thinking: {
+                rated: "low",
+                used: "medium",
                 confidence: 0.3,
-                probabilities: { light: 0.4 },
+                probabilities: { low: 0.4 },
             },
         }),
     );
 
-    assert.equal(
-        actual.at(-1),
-        "Reasoning: light (40%), unsure at 30% confidence, so moderate → thinking medium",
-    );
+    assert.equal(actual.at(-1), "Thinking: low (40%), unsure at 30% confidence, so medium");
+});
+
+test("a rating without a thinking rating has no thinking line", (t) => {
+    const actual = autoBlock(t, ratingChoice({ thinking: undefined }));
+
+    assert.deepEqual(actual, [
+        "c/j rated the task complex.",
+        "    complex    71%  chosen → p/x",
+        "    deep       13%",
+        "    standard   12%",
+        "    light       4%",
+    ]);
+});
+
+test("a run saved with the earlier reasoning rating renders its tiers and no thinking line", (t) => {
+    const older = ratingChoice({
+        thinking: undefined,
+        reasoning: {
+            rated: "moderate",
+            used: "moderate",
+            confidence: 0.8,
+            probabilities: { moderate: 0.64 },
+        },
+    });
+
+    const actual = autoBlock(t, older);
+
+    assert.equal(actual[0], "c/j rated the task complex.");
+    assert.equal(actual.length, 5);
+    assert.ok(!actual.some((row) => /Thinking|Reasoning/.test(row)));
 });
 
 test("without shares the tiers keep their order and have no percent column", (t) => {
@@ -690,8 +719,7 @@ test("a narrow pane writes one wrapped entry per tier and no row is wider than t
         "    deep · 13%",
         "    standard · 12%",
         "    light · 4%",
-        "Reasoning: moderate (64%) →",
-        "thinking medium",
+        "Thinking: medium (64%)",
     ]);
     assert.ok(actual.every((row) => visibleWidth(row) <= width));
 });
@@ -766,4 +794,95 @@ test("a failed classifier's line wraps in a narrow pane, uses the warning color 
         block.map((row) => row.replace(/^<warning:|>$/g, "")).join(" "),
         "The auto classifier c/j failed: quota. The run uses the main agent's model and thinking.",
     );
+});
+
+test("a task rated high risk gets a warning line with the threshold and the floor tier", (t) => {
+    const risk = { probability: 0.72, threshold: 0.4, high: true, floor: "deep" };
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        snapshot: {
+            model: "p/x",
+            sources: { model: "call", thinking: "auto", tools: "settings", isolation: "default" },
+            autoModel: ratingChoice({ risk }),
+        } as AutoSnapshot,
+        messages: [userMessage("Task")],
+    });
+
+    const rows = [...new TranscriptRenderer(fakeTheme({ tag: true })).render(run, 100)];
+    const block = rows.slice(0, rows.indexOf(""));
+    const riskIndex = block.findIndex((row) => row.includes("High risk"));
+
+    assert.equal(
+        block[riskIndex],
+        "<warning:High risk (72%, threshold 40%), so the model comes from at least the deep tier.>",
+    );
+    // The line sits between the tier rows and the thinking line.
+    assert.ok(block[riskIndex - 1]!.includes("light"));
+    assert.ok(block[riskIndex + 1]!.includes("Thinking: medium"));
+});
+
+test("the risk line has three forms: high with a floor, high without one, and not high", (t) => {
+    const lineOf = (risk: Record<string, unknown>) =>
+        autoBlock(t, ratingChoice({ risk }), { width: 100 }).find((row) => /risk/i.test(row));
+
+    assert.equal(
+        lineOf({ probability: 0.72, threshold: 0.4, high: true, floor: "deep" }),
+        "High risk (72%, threshold 40%), so the model comes from at least the deep tier.",
+    );
+    assert.equal(
+        lineOf({ probability: 0.9, threshold: 0.4, high: true }),
+        "High risk (90%, threshold 40%).",
+    );
+    assert.equal(
+        lineOf({ probability: 0.12, threshold: 0.4, high: false }),
+        "Not high risk (12%, threshold 40%).",
+    );
+});
+
+test("a not high risk line is muted and a run saved without a risk rating has no risk line", (t) => {
+    const render_ = (autoModel: unknown, tag: boolean) => {
+        const run = restoredRun(tempAgentDir(t), "r1", {
+            snapshot: {
+                model: "p/x",
+                sources: {
+                    model: "call",
+                    thinking: "auto",
+                    tools: "settings",
+                    isolation: "default",
+                },
+                autoModel,
+            } as AutoSnapshot,
+            messages: [userMessage("Task")],
+        });
+
+        return [...new TranscriptRenderer(fakeTheme({ tag })).render(run, 100)];
+    };
+
+    const calm = render_(
+        ratingChoice({ risk: { probability: 0.12, threshold: 0.4, high: false } }),
+        true,
+    );
+    const older = render_(ratingChoice(), false);
+
+    assert.ok(calm.includes("<muted:Not high risk (12%, threshold 40%).>"));
+    assert.ok(!older.some((row) => /risk/i.test(row)));
+});
+
+test("a risk line wraps in a narrow pane and no row is wider than the pane", (t) => {
+    const width = 30;
+    const block = autoBlock(
+        t,
+        ratingChoice({
+            risk: { probability: 0.72, threshold: 0.4, high: true, floor: "deep" },
+        }),
+        { width },
+    );
+    const start = block.findIndex((row) => row.startsWith("High risk"));
+    const end = block.findIndex((row) => row.startsWith("Thinking"));
+
+    assert.ok(end - start >= 2);
+    assert.equal(
+        block.slice(start, end).join(" "),
+        "High risk (72%, threshold 40%), so the model comes from at least the deep tier.",
+    );
+    assert.ok(block.every((row) => visibleWidth(row) <= width));
 });

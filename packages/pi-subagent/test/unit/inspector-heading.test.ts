@@ -231,7 +231,7 @@ const tierRating = (overrides: Record<string, unknown> = {}) => ({
         ...overrides,
     },
     modelFrom: "complex",
-    reasoning: { rated: "heavy", used: "heavy", confidence: 0.9, probabilities: {} },
+    thinking: { rated: "high", used: "high", confidence: 0.9, probabilities: {} },
 });
 
 test("the model row of an auto run ends with the tier used and its share", (t) => {
@@ -323,4 +323,68 @@ test("the auto failed mark uses the warning color", (t) => {
     t.after(() => inspector.dispose());
 
     assert.match(inspector.render(140).join("\n"), /<warning:auto failed>/);
+});
+
+const riskyRating = (risk: Record<string, unknown>) => ({ ...tierRating(), risk });
+const HIGH = { probability: 0.72, threshold: 0.4, high: true, floor: "deep" };
+
+test("a task rated high risk adds a high risk part to the model row", (t) => {
+    const { right } = panel(t, autoRun(riskyRating(HIGH)));
+
+    assert.equal(
+        right(140)[1],
+        "Model anthropic/claude-opus-5-5 · high · auto complex 71% · high risk",
+    );
+});
+
+test("a task that is not high risk, or has no risk rating, has no high risk part", (t) => {
+    const calm = panel(t, autoRun(riskyRating({ probability: 0.1, threshold: 0.4, high: false })));
+    const older = panel(t, autoRun(tierRating()));
+
+    assert.equal(calm.right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto complex 71%");
+    assert.equal(older.right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto complex 71%");
+});
+
+test("the high risk part uses the warning color", (t) => {
+    const agentDir = tempAgentDir(t);
+    const session = parentSession(t, agentDir);
+
+    session.spawn("aaaa0001", autoRun(riskyRating(HIGH)));
+
+    const { ctx } = fakeCtx({
+        sessionManager: session.sessionManager,
+        theme: fakeTheme({ tag: true }),
+    });
+    const inspector = new SubagentInspector(
+        { ctx, manager: session.manager(), onSeen: () => undefined },
+        () => undefined,
+        () => undefined,
+        () => ROWS,
+    );
+
+    t.after(() => inspector.dispose());
+
+    assert.match(inspector.render(140).join("\n"), /<warning:high risk>/);
+});
+
+test("the settings stay on the model row while they fit, then go below it as whole parts", (t) => {
+    const model = "anthropic/claude-opus-5-5";
+    const { right } = panel(t, autoRun(riskyRating(HIGH)));
+
+    // The label is dropped first, then the settings move below the model together.
+    assert.equal(right(100)[1], `${model} · high · auto complex 71% · high risk`);
+    assert.deepEqual(right(90).slice(1, 3), [model, "high · auto complex 71% · high risk"]);
+    assert.deepEqual(right(70).slice(1, 3), [model, "high · auto complex 71% · high risk"]);
+});
+
+test("in a pane too narrow for all settings on one row the parts that do not fit go on the next row", (t) => {
+    const model = "anthropic/claude-opus-5-5";
+    const { right, rightWidth } = panel(t, autoRun(riskyRating(HIGH)));
+
+    for (const width of [60, 52]) {
+        const rows = right(width).slice(1, 4);
+
+        assert.deepEqual(rows, [model, "high · auto complex 71%", "high risk"], `${width}`);
+        assert.ok(rows.every((row) => visibleWidth(row) <= rightWidth(width) - 2));
+    }
 });

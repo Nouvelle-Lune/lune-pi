@@ -7,6 +7,7 @@ import {
 
 import { allowedModels, formatModelRef } from "../models.ts";
 import { AUTO_TIERS, type AutoTier } from "../run/types.ts";
+import { formatPercent } from "../tools/format.ts";
 import { agentsMenu, type AgentsMenuOptions } from "./agents-menu.ts";
 import { subagentSettings, type SubagentSettings } from "./schema.ts";
 
@@ -113,6 +114,47 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                     choiceSource: tierChoices(tier),
                 }),
             ),
+            field("autoRiskFloor", {
+                label: "High-risk floor",
+                description:
+                    "The lowest tier whose model a high-risk task may use. A task is high risk " +
+                    "when a mistake in it could seriously harm security, privacy, data, money or " +
+                    "production. The rated tier stays as it is; only the model rises. This is a " +
+                    "model choice only: it changes no tool permission or approval.",
+                inMenu: "tiers",
+                choices: [
+                    {
+                        value: "off",
+                        label: "Off",
+                        description: "High-risk tasks use the model of their rated tier.",
+                    },
+                    {
+                        value: "standard",
+                        label: "Standard",
+                        description: "High-risk tasks use at least the Standard model.",
+                    },
+                    {
+                        value: "complex",
+                        label: "Complex",
+                        description: "High-risk tasks use at least the Complex model.",
+                    },
+                    {
+                        value: "deep",
+                        label: "Deep",
+                        description:
+                            "High-risk tasks use the Deep model, else the main agent's model.",
+                    },
+                ],
+            }),
+            field("autoRiskThreshold", {
+                label: "High-risk threshold",
+                description:
+                    "The classifier's probability, from 0 to 1, from which a task counts as high " +
+                    "risk. A missed high-risk task usually costs more than a false alarm, so the " +
+                    "default 0.4 is below one half. Adjust it with your own tasks.",
+                inMenu: "tiers",
+                formatValue: (value) => formatPercent(value),
+            }),
         ],
         menus: [
             {
@@ -121,7 +163,8 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                 description:
                     "The model for each task tier of runs started with model auto, from Pi's " +
                     "scoped models. A tier without a model uses the next tier up that has one, " +
-                    "and the main agent's model is the last step.",
+                    "and the main agent's model is the last step. The high-risk floor raises the " +
+                    "model of tasks rated high risk.",
                 summary: ({ values }) => {
                     const set = AUTO_TIERS.filter((tier) => values.autoTiers[tier]).length;
 

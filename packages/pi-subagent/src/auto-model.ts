@@ -1,22 +1,25 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type {
-    ClassifierAnswer,
-    ClassifierApi,
-    ClassifierChoiceQuestion,
-    ClassifierContext,
-    ClassifierModel,
-    JsonObject,
+import {
+    getSupportedThinkingLevels,
+    type Api,
+    type ClassifierAnswer,
+    type ClassifierApi,
+    type ClassifierBoolQuestion,
+    type ClassifierChoiceQuestion,
+    type ClassifierContext,
+    type ClassifierModel,
+    type JsonObject,
+    type Model,
 } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { AgentDefinition } from "./definitions.ts";
-import { allowedModelRefs, formatModelRef, type ModelRef } from "./models.ts";
+import { allowedModels, formatModelRef, type ModelRef } from "./models.ts";
 import {
-    AUTO_REASONING,
     AUTO_TIERS,
     type AutoModelChoice,
     type AutoRating,
-    type AutoReasoning,
+    type AutoRisk,
     type AutoTier,
     type Isolation,
 } from "./run/types.ts";
@@ -27,19 +30,18 @@ export interface AutoModelSettings {
     classifier: ModelRef | null;
     /** The model of each tier; a task whose tier has none uses the next tier up that has one. */
     tiers: Readonly<Record<AutoTier, ModelRef | null>>;
+    /** The lowest tier whose model a high-risk task may use; null leaves the model as rated. */
+    riskFloor: AutoTier | null;
+    /** The high-risk probability from which a task counts as high risk. */
+    riskThreshold: number;
 }
 
 export const DEFAULT_AUTO_MODEL_SETTINGS: AutoModelSettings = {
     classifier: null,
     tiers: { light: null, standard: null, complex: null, deep: null },
-};
-
-/** The thinking level of each reasoning rating; Pi lowers one that the model does not support. */
-export const REASONING_THINKING: Readonly<Record<AutoReasoning, ThinkingLevel>> = {
-    none: "minimal",
-    light: "low",
-    moderate: "medium",
-    heavy: "high",
+    // A missed high-risk task costs more than a false alarm, so the default is below one half.
+    riskFloor: "deep",
+    riskThreshold: 0.4,
 };
 
 /** Below this confidence the classifier is unsure, and the run uses the next level up. */
@@ -61,54 +63,94 @@ const EDIT_TOOLS = new Set(["edit", "write"]);
 const COMMAND_TOOLS = new Set(["bash"]);
 
 // The classifier knows nothing about models, so it rates the task and the code picks the model.
-// Each criterion names traits that can be checked in the task and says what the option is not for.
+// Difficulty, reasoning and risk are separate questions; each criterion names traits that can be
+// checked in the task and says what the option is not for.
 const TIER_QUESTION = {
     type: "choice",
     instructions:
-        "Rate how demanding this delegated coding task is for the agent that will run it. The " +
-        "agent starts with only the task text, its role and its tools from the state. Judge the " +
-        "work that the task asks for, not the length of its text.",
+        "Rate the least model capability that this delegated coding task needs: how hard the " +
+        "thinking is for the agent that will run it. The agent starts with only the task text, " +
+        "its role and its tools from the state. Judge the difficulty, not the risk, the number " +
+        "of files or steps, or the length of the text.",
     criteria: {
         light:
-            "Find, read or run something, then report what it shows. The answer is in the code, " +
-            "the docs or command output, and nothing needs changing beyond trivial edits. " +
-            "Examples: search for usages, read a config, list files, run the tests and report " +
-            "the failures, summarize a module. Not for: changes that need judgment.",
+            "Mechanical, deterministic work with almost no inference of its own: lookups, " +
+            "extraction, running given checks and reporting the results, or exactly specified " +
+            "edits, also across many files. Not for: changes that need judgment.",
         standard:
-            "A clear, well-specified change or check with a known path, in one or a few places. " +
-            "Examples: add a test for a described behavior, rename a symbol, fix a named lint or " +
-            "type error, update docs to match the code, apply a described edit. Not for: unclear " +
-            "causes, open design choices, or work across many files.",
+            "Routine features, local fixes, ordinary tests and local reviews, where the " +
+            "requirements and the acceptance criteria are clear and the path is known. Not for: " +
+            "unclear causes, open design choices, or work across components.",
         complex:
-            "Several steps across files or sources toward a clear goal. Examples: implement a " +
-            "described feature, debug a failure that can be reproduced, trace a behavior through " +
-            "code, logs and tool output, update many call sites after an API change. Not for: open " +
-            "design questions, trade-offs, or reviews for subtle bugs.",
+            "Multi-step analysis, work across components, a non-trivial implementation, or " +
+            "finding the cause of a failure that can be reproduced. The goal is clear, and the " +
+            "approach and the way to check it are stable. Not for: unknown causes or open " +
+            "trade-offs.",
         deep:
-            "Judgment under uncertainty. Examples: design or architecture decisions, weighing " +
-            "trade-offs, unclear or intermittent failures, reviewing code for subtle bugs or " +
-            "security problems, large or risky refactors, ambiguous requirements. Not for: work " +
-            "that needs only care or many steps.",
+            "Uncertainty in the thinking: an unknown root cause, competing hypotheses, subtle " +
+            "concurrency or security defects, architectural trade-offs, complex invariants, or " +
+            "new solutions that need difficult judgment. Not for: work that is only large or has " +
+            "many steps.",
     } satisfies Record<AutoTier, string>,
 } satisfies ClassifierChoiceQuestion;
 
-const REASONING_QUESTION = {
-    type: "choice",
+const THINKING_INSTRUCTIONS =
+    "Rate the least reasoning that the agent must do, before and between its steps, to complete " +
+    "this task correctly. The options are thinking levels from least to most. Judge the " +
+    "reasoning, not the amount of work: many files or steps need no more thinking, and a subtle " +
+    "race condition in one function can need a lot.";
+
+// A model-routing signal only: it never grants or blocks a tool, an approval or a permission.
+const RISK_QUESTION = {
+    type: "bool",
     instructions:
-        "Rate how much step-by-step reasoning the agent must do to complete this task correctly.",
+        "Judge the task as the agent gets it, with normal, trusted execution and the intended use " +
+        "of its result. If the agent acts wrongly, writes wrong code, or gives a wrong conclusion " +
+        "that others rely on, can that seriously harm security, privacy, data integrity, money, " +
+        "production services or permission boundaries, or do other damage that is hard to undo? " +
+        "Weigh how far the harm reaches, where the work runs and how easily it is undone. Do not " +
+        "answer true only because of domain words, many files, much code, difficulty, or a worst " +
+        "case that is only possible in theory. Read-only work counts by what its result is used " +
+        "for. A missing detail is not by itself a risk.",
     criteria: {
-        none:
-            "Each step is obvious from the task, such as running a given command or reading " +
-            "named files.",
-        light: "Brief planning over a few dependent steps.",
-        moderate:
-            "Plan several dependent steps and check the results along the way, such as tracing " +
-            "a call path or fitting a change into existing code.",
-        heavy:
-            "Weigh alternatives, form and test hypotheses, or reason about correctness, such as " +
-            "finding a root cause or showing that a change is safe.",
-    } satisfies Record<AutoReasoning, string>,
-} satisfies ClassifierChoiceQuestion;
+        true:
+            "A mistake can do serious harm that is hard to undo. Examples: changes to " +
+            "authentication, authorization, credentials, keys or data isolation; a security audit " +
+            "that a release decision relies on; leaking, sending, deleting or opening access to " +
+            "personal data, keys or protected code; payment, balance, accounting, billing or tax " +
+            "logic; deployments, schema or data migrations, cloud permissions, network policies, " +
+            "backups or shared service configuration; deleting important data, rewriting history, " +
+            "or publishing what cannot be withdrawn.",
+        false:
+            "A mistake is found and undone at low cost. Examples: finding references or running " +
+            "existing tests and reporting the results; ordinary changes in a local sandbox or test " +
+            "code that can be rolled back and checked; renames, formatting or styles that do not " +
+            "change critical behavior, also in sensitive modules; local or experimental failures, " +
+            "even with an unknown cause; work that is only large, long or difficult.",
+    },
+} satisfies ClassifierBoolQuestion;
+
+/** Every Pi thinking level; a request offers only the levels that the run's model supports. */
+const THINKING_CRITERIA = {
+    off:
+        "No reasoning: each step is stated or obvious, such as running a given command, reading " +
+        "named files or applying an exact edit.",
+    minimal: "A quick look before acting; the steps follow directly from the task.",
+    low: "Brief planning over a few dependent steps, such as finding where a described change goes.",
+    medium:
+        "Plan several dependent steps and check the results along the way, such as tracing a " +
+        "call path, fitting a change into existing code or debugging a failure that can be " +
+        "reproduced.",
+    high:
+        "Weigh alternatives, form and test hypotheses, or reason about correctness, such as " +
+        "finding a root cause or showing that a change is safe.",
+    xhigh:
+        "Long chains of reasoning over many parts that affect each other, such as a concurrency " +
+        "or state bug, a security review or a design with competing constraints.",
+    max:
+        "The hardest reasoning, where a mistake is costly and every step needs checking, such as " +
+        "showing that an algorithm is correct or finding a subtle data-loss bug across systems.",
+} satisfies Record<ThinkingLevel, string>;
 
 export interface AutoModelInput {
     ctx: ExtensionContext;
@@ -132,89 +174,181 @@ export type AutoClassifier = Pick<
 export interface AutoModelResult {
     ref: ModelRef;
     choice: AutoModelChoice;
-    /** From the reasoning rating, when the start set no thinking level. */
+    /** From the thinking rating, when the start set no thinking level. */
     thinking?: ThinkingLevel;
 }
 
 /**
- * Resolve `model: auto`. The classifier rates the task's tier and reasoning in one request; the
+ * Resolve `model: auto`. The classifier rates the task's tier and whether it is high risk; the
  * tier's model, or the next tier up that has one, runs it, and the main agent's model is the
- * ceiling. When the classifier fails, the run gets the main agent's model and thinking, and the
- * choice records why. A tier model outside the allowed set is a settings error and fails the start.
+ * ceiling. A high-risk task gets at least the floor tier's model, but keeps its rated tier, so the
+ * difficulty and the risk stay apart. Unless the start set the
+ * thinking, the classifier also rates it among the levels that Pi says the run's model supports:
+ * in the same request when every model that the tier can lead to supports the same levels, else
+ * in a second request once the model is known. When the classifier fails, the run gets the main
+ * agent's model and thinking, and the choice records why. A tier model outside the allowed set is
+ * a settings error and fails the start.
  */
 export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelResult> {
     const { ctx, settings, signal } = input;
 
     if (!settings.classifier) {
-        return { ref: mainModel(ctx), choice: { by: "no-classifier" } };
+        return { ref: modelRef(mainModel(ctx)), choice: { by: "no-classifier" } };
     }
 
     // With no tier model, the rating could only set the thinking, and the start already did.
     if (input.thinkingSet && AUTO_TIERS.every((tier) => settings.tiers[tier] === null)) {
-        return { ref: mainModel(ctx), choice: { by: "nothing-to-rate" } };
+        return { ref: modelRef(mainModel(ctx)), choice: { by: "nothing-to-rate" } };
     }
 
     const classifierRef = formatModelRef(settings.classifier);
-    let tier: AutoRating<AutoTier>;
-    let reasoning: AutoRating<AutoReasoning>;
-
-    try {
-        ({ tier, reasoning } = await rateTask(input, settings.classifier));
-    } catch (error) {
+    const failed = (error: unknown): AutoModelResult => {
         // A cancelled start stops; any other failure leaves the run the main agent's settings.
         if (signal?.aborted) {
             throw error;
         }
 
         return {
-            ref: mainModel(ctx),
+            ref: modelRef(mainModel(ctx)),
             choice: {
                 by: "classifier-failed",
                 classifier: classifierRef,
                 error: error instanceof Error ? error.message : String(error),
             },
         };
+    };
+    // Undefined when the levels depend on the tier's model, so a second request asks for them.
+    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings);
+    let classifier: ClassifierModel<ClassifierApi>;
+    let tier: AutoRating<AutoTier>;
+    let thinking: AutoRating<ThinkingLevel> | undefined;
+    let risk: AutoRisk;
+
+    try {
+        classifier = await findClassifier(input, settings.classifier);
+
+        const answers = await classifyTask(input, classifier, {
+            tier: TIER_QUESTION,
+            risk: RISK_QUESTION,
+            ...(levels && levels.length > 1 ? { thinking: thinkingQuestion(levels) } : {}),
+        });
+
+        tier = rating(answers.tier, AUTO_TIERS, `${classifierRef} gave no valid tier`);
+        risk = riskRating(answers.risk, tier.used, settings, `${classifierRef} gave no valid risk`);
+        thinking =
+            levels && levels.length > 1
+                ? rating(answers.thinking, levels, `${classifierRef} gave no valid thinking level`)
+                : undefined;
+    } catch (error) {
+        return failed(error);
     }
 
     const modelFrom =
-        AUTO_TIERS.slice(AUTO_TIERS.indexOf(tier.used)).find(
+        AUTO_TIERS.slice(AUTO_TIERS.indexOf(risk.floor ?? tier.used)).find(
             (level) => settings.tiers[level] !== null,
         ) ?? "main";
+    const model =
+        modelFrom === "main"
+            ? mainModel(ctx)
+            : tierModel(ctx, modelFrom, settings.tiers[modelFrom]!);
+    const supported = getSupportedThinkingLevels(model);
+
+    if (!levels && supported.length > 1) {
+        try {
+            const answers = await classifyTask(input, classifier, {
+                thinking: thinkingQuestion(supported),
+            });
+
+            thinking = rating(
+                answers.thinking,
+                supported,
+                `${classifierRef} gave no valid thinking level`,
+            );
+        } catch (error) {
+            return failed(error);
+        }
+    }
 
     return {
-        ref:
-            modelFrom === "main"
-                ? mainModel(ctx)
-                : tierModel(ctx, modelFrom, settings.tiers[modelFrom]!),
-        choice: { by: "rating", classifier: classifierRef, tier, modelFrom, reasoning },
-        ...(input.thinkingSet ? {} : { thinking: REASONING_THINKING[reasoning.used] }),
+        ref: modelRef(model),
+        choice: {
+            by: "rating",
+            classifier: classifierRef,
+            tier,
+            modelFrom,
+            ...(thinking ? { thinking } : {}),
+            risk,
+        },
+        ...(thinking ? { thinking: thinking.used } : {}),
     };
 }
 
-/** One classifier request for the task's tier and reasoning; it throws when the classifier fails. */
-async function rateTask(
+/**
+ * The thinking levels that every model the tier can lead to supports, or undefined when they
+ * differ. The main agent's model is one of those models while the deep tier has none.
+ */
+function sharedLevels(
+    ctx: ExtensionContext,
+    settings: AutoModelSettings,
+): readonly ThinkingLevel[] | undefined {
+    const allowed = allowedModels(ctx);
+    // A model that the scope no longer allows fails the start if the tier leads to it.
+    const models = AUTO_TIERS.flatMap((tier) => {
+        const ref = settings.tiers[tier];
+        const model = ref && allowed.find((each) => sameModel(each, ref));
+
+        return model ? [model] : [];
+    });
+
+    if (settings.tiers.deep === null && ctx.model) {
+        models.push(ctx.model);
+    }
+
+    const [first, ...rest] = models.map((model) => getSupportedThinkingLevels(model));
+
+    return first && rest.every((levels) => levels.join() === first.join()) ? first : undefined;
+}
+
+function thinkingQuestion(levels: readonly ThinkingLevel[]): ClassifierChoiceQuestion {
+    return {
+        type: "choice",
+        instructions: THINKING_INSTRUCTIONS,
+        criteria: Object.fromEntries(levels.map((level) => [level, THINKING_CRITERIA[level]])),
+    };
+}
+
+async function findClassifier(
     input: AutoModelInput,
-    classifierRef: ModelRef,
-): Promise<{ tier: AutoRating<AutoTier>; reasoning: AutoRating<AutoReasoning> }> {
+    ref: ModelRef,
+): Promise<ClassifierModel<ClassifierApi>> {
     const { ctx, signal } = input;
-    const ref = formatModelRef(classifierRef);
 
     signal?.throwIfAborted();
 
     const classifier = (
         await ctx.modelRegistry.getAvailableOfType("classifier", undefined, { signal })
-    ).find((model) => model.provider === classifierRef.provider && model.id === classifierRef.id);
+    ).find((model) => sameModel(model, ref));
 
     if (!classifier) {
         throw new Error(
-            `The auto classifier ${ref} is unavailable. Configure its provider in Pi, or select ` +
-                "another classifier in the Subagents section of /lune-core-settings.",
+            `The auto classifier ${formatModelRef(ref)} is unavailable. Configure its provider in ` +
+                "Pi, or select another classifier in the Subagents section of /lune-core-settings.",
         );
     }
 
+    return classifier;
+}
+
+/** One classifier request about the task; it throws when the classifier fails. */
+async function classifyTask(
+    input: AutoModelInput,
+    classifier: ClassifierModel<ClassifierApi>,
+    questions: Record<string, ClassifierChoiceQuestion | ClassifierBoolQuestion>,
+): Promise<Record<string, ClassifierAnswer>> {
+    const { ctx, signal } = input;
     const result = await ctx.modelRegistry.classify(
         classifier,
-        autoModelRequest(input, classifier),
+        autoModelRequest(input, classifier, questions),
         { signal },
     );
 
@@ -222,18 +356,12 @@ async function rateTask(
 
     if (result.stopReason !== "stop") {
         throw new Error(
-            `The auto classifier ${ref} failed: ${result.errorMessage ?? result.stopReason}.`,
+            `The auto classifier ${formatModelRef(classifier)} failed: ` +
+                `${result.errorMessage ?? result.stopReason}.`,
         );
     }
 
-    return {
-        tier: rating(result.answers.tier, AUTO_TIERS, `${ref} gave no valid tier`),
-        reasoning: rating(
-            result.answers.reasoning,
-            AUTO_REASONING,
-            `${ref} gave no valid reasoning rating`,
-        ),
-    };
+    return result.answers;
 }
 
 /**
@@ -244,6 +372,7 @@ async function rateTask(
 export function autoModelRequest(
     input: Pick<AutoModelInput, "task" | "definition" | "tools" | "isolation">,
     classifier: AutoClassifier,
+    questions: Record<string, ClassifierChoiceQuestion | ClassifierBoolQuestion>,
 ): ClassifierContext {
     const state: JsonObject = { task: "" };
     const instructions = input.definition?.body ?? "";
@@ -267,7 +396,7 @@ export function autoModelRequest(
     state.workspace =
         input.isolation === "worktree" ? "its own Git worktree" : "the user's working directory";
 
-    const request = { state, questions: { tier: TIER_QUESTION, reasoning: REASONING_QUESTION } };
+    const request = { state, questions };
     const room = requestLimit(classifier) - Buffer.byteLength(JSON.stringify(request));
     const taskBytes = textBytes(input.task);
 
@@ -327,6 +456,28 @@ function access(tools: readonly string[]): string {
             : "read-only";
 }
 
+/** The high-risk answer, and the floor when it raises the tier that the model comes from. */
+function riskRating(
+    answer: ClassifierAnswer | undefined,
+    tier: AutoTier,
+    settings: AutoModelSettings,
+    invalid: string,
+): AutoRisk {
+    if (answer?.type !== "bool" || !Number.isFinite(answer.probability)) {
+        throw new Error(`The auto classifier ${invalid}.`);
+    }
+
+    const high = answer.probability >= settings.riskThreshold;
+    const floor = settings.riskFloor;
+
+    return {
+        probability: answer.probability,
+        threshold: settings.riskThreshold,
+        high,
+        ...(high && floor && AUTO_TIERS.indexOf(floor) > AUTO_TIERS.indexOf(tier) ? { floor } : {}),
+    };
+}
+
 /** One rating; an unsure answer moves up one level, since too little costs more than too much. */
 function rating<T extends string>(
     answer: ClassifierAnswer | undefined,
@@ -358,28 +509,38 @@ function rating<T extends string>(
     };
 }
 
-function mainModel(ctx: ExtensionContext): ModelRef {
+function mainModel(ctx: ExtensionContext): Model<Api> {
     if (!ctx.model) {
         throw new Error("The main agent has no current model for the auto run to use.");
     }
 
-    return { provider: ctx.model.provider, id: ctx.model.id };
+    return ctx.model;
 }
 
 /** A tier's model must still be one the parent allows; the scope can change after it was set. */
-function tierModel(ctx: ExtensionContext, tier: AutoTier, model: ModelRef): ModelRef {
-    const ref = formatModelRef(model);
-    const allowed = allowedModelRefs(ctx);
+function tierModel(ctx: ExtensionContext, tier: AutoTier, ref: ModelRef): Model<Api> {
+    const allowed = allowedModels(ctx);
+    const model = allowed.find((each) => sameModel(each, ref));
 
-    if (!allowed.includes(ref)) {
+    if (!model) {
+        const refs = allowed.map((each) => formatModelRef(each));
+
         throw new Error(
-            `The ${tier} auto tier uses ${ref}, which is not in the allowed set` +
-                (allowed.length > 0 ? `: ${allowed.join(", ")}.` : "; no models are available.") +
+            `The ${tier} auto tier uses ${formatModelRef(ref)}, which is not in the allowed set` +
+                (refs.length > 0 ? `: ${refs.join(", ")}.` : "; no models are available.") +
                 " Select another model under Auto tiers in the Subagents section of " +
                 "/lune-core-settings.",
         );
     }
 
+    return model;
+}
+
+function sameModel(model: ModelRef, ref: ModelRef): boolean {
+    return model.provider === ref.provider && model.id === ref.id;
+}
+
+function modelRef(model: ModelRef): ModelRef {
     return { provider: model.provider, id: model.id };
 }
 

@@ -1,7 +1,7 @@
 import { defineSettings, type DeepReadonly } from "@lune_99/pi-lune-extensions-core/settings";
 import Type, { type Static } from "typebox";
 
-import type { AutoModelSettings } from "../auto-model.ts";
+import { DEFAULT_AUTO_MODEL_SETTINGS, type AutoModelSettings } from "../auto-model.ts";
 import { AUTO_TIERS } from "../run/types.ts";
 
 const modelReference = () =>
@@ -22,6 +22,20 @@ export const subagentSchema = Type.Object(
                 default: { light: null, standard: null, complex: null, deep: null },
             },
         ),
+        autoRiskFloor: Type.Union(
+            [
+                Type.Literal("off"),
+                Type.Literal("standard"),
+                Type.Literal("complex"),
+                Type.Literal("deep"),
+            ],
+            { default: DEFAULT_AUTO_MODEL_SETTINGS.riskFloor ?? "off" },
+        ),
+        autoRiskThreshold: Type.Number({
+            minimum: 0,
+            maximum: 1,
+            default: DEFAULT_AUTO_MODEL_SETTINGS.riskThreshold,
+        }),
     },
     { additionalProperties: false },
 );
@@ -51,5 +65,7 @@ export function autoModelSettings(settings: DeepReadonly<SubagentSettings>): Aut
                 return [tier, model ? { ...model } : null];
             }),
         ) as AutoModelSettings["tiers"],
+        riskFloor: settings.autoRiskFloor === "off" ? null : settings.autoRiskFloor,
+        riskThreshold: settings.autoRiskThreshold,
     };
 }

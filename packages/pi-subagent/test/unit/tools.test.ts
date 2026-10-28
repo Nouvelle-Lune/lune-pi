@@ -10,6 +10,7 @@ import {
     formatDuration,
     formatPercent,
     ratingText,
+    riskText,
     formatRunList,
     formatRunStatus,
     formatStarted,
@@ -262,18 +263,18 @@ test("the model and thinking lines of an auto run say who chose them and what th
         tools: "settings" as const,
         isolation: "default" as const,
     });
-    const reasoning = {
-        rated: "heavy" as const,
-        used: "heavy" as const,
+    const thinking = {
+        rated: "high" as const,
+        used: "high" as const,
         confidence: 0.9,
-        probabilities: { heavy: 0.64 },
+        probabilities: { high: 0.64 },
     };
     const rating = (tier: object, modelFrom: string) => ({
         by: "rating",
         classifier: "c/j",
         tier,
         modelFrom,
-        reasoning,
+        thinking,
     });
     const cases: Array<[string, Partial<ReturnType<typeof snapshot>>, string, string]> = [
         [
@@ -293,7 +294,7 @@ test("the model and thinking lines of an auto run say who chose them and what th
                 ) as never,
             },
             "Model: p/x (auto from call: the classifier c/j rated the task complex (71%); the complex tier's model)",
-            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
+            "Thinking: high (auto: the classifier rated the thinking high (64%))",
         ],
         [
             "unsure",
@@ -312,7 +313,7 @@ test("the model and thinking lines of an auto run say who chose them and what th
                 ) as never,
             },
             "Model: p/x (auto from call: the classifier c/j rated the task light (40%), unsure at 40% confidence, so standard; the standard tier's model)",
-            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
+            "Thinking: high (auto: the classifier rated the thinking high (64%))",
         ],
         [
             "higher tier",
@@ -326,7 +327,7 @@ test("the model and thinking lines of an auto run say who chose them and what th
                 ) as never,
             },
             "Model: p/x (auto from definition: the classifier c/j rated the task light; the light tier has no model, so the deep tier's model)",
-            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
+            "Thinking: high (auto: the classifier rated the thinking high (64%))",
         ],
         [
             "main",
@@ -341,6 +342,112 @@ test("the model and thinking lines of an auto run say who chose them and what th
             },
             "Model: p/x (auto from call: the classifier c/j rated the task deep (90%); no tier from deep up has a model, so the main agent's model)",
             "Thinking: low (from call)",
+        ],
+        [
+            "high risk with a floor",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    modelFrom: "deep",
+                    risk: { probability: 0.72, threshold: 0.4, high: true, floor: "deep" },
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task light, high risk (72%), so at least the deep tier; the deep tier's model)",
+            "Thinking: low (from parent)",
+        ],
+        [
+            "high risk without a floor",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "deep", used: "deep", confidence: 0.9, probabilities: {} },
+                    modelFrom: "deep",
+                    risk: { probability: 0.9, threshold: 0.4, high: true },
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task deep, high risk (90%); the deep tier's model)",
+            "Thinking: low (from parent)",
+        ],
+        [
+            "not high risk",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    modelFrom: "light",
+                    risk: { probability: 0.12, threshold: 0.4, high: false },
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task light, not high risk (12%); the light tier's model)",
+            "Thinking: low (from parent)",
+        ],
+        [
+            "floor tier without a model goes to main",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    modelFrom: "main",
+                    risk: { probability: 0.72, threshold: 0.4, high: true, floor: "deep" },
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task light, high risk (72%), so at least the deep tier; no tier from deep up has a model, so the main agent's model)",
+            "Thinking: low (from parent)",
+        ],
+        [
+            "rating without a thinking rating",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    modelFrom: "light",
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task light; the light tier's model)",
+            "Thinking: low (from parent)",
+        ],
+        [
+            "run saved with the earlier reasoning rating",
+            {
+                model: "p/x",
+                thinking: "high",
+                sources: sources("call", "auto"),
+                autoModel: {
+                    by: "rating",
+                    classifier: "c/j",
+                    tier: { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    modelFrom: "light",
+                    reasoning: {
+                        rated: "heavy",
+                        used: "heavy",
+                        confidence: 0.9,
+                        probabilities: {},
+                    },
+                } as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task light; the light tier's model)",
+            "Thinking: high (from auto)",
         ],
         [
             "no classifier",
@@ -399,6 +506,18 @@ test("the model and thinking lines of an auto run say who chose them and what th
 
         assert.deepEqual([id, actual[1], actual[2]], [id, expectedModel, expectedThinking]);
     }
+});
+
+test("riskText names the probability, and the floor when it raised the tier", () => {
+    assert.equal(
+        riskText({ probability: 0.72, threshold: 0.4, high: true, floor: "deep" }),
+        "high risk (72%), so at least the deep tier",
+    );
+    assert.equal(riskText({ probability: 0.72, threshold: 0.4, high: true }), "high risk (72%)");
+    assert.equal(
+        riskText({ probability: 0.12, threshold: 0.4, high: false }),
+        "not high risk (12%)",
+    );
 });
 
 test("ratingText shows the rated level with its share, and the level used when the classifier was unsure", () => {

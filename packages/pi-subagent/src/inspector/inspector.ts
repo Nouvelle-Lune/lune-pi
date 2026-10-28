@@ -403,42 +403,69 @@ export class SubagentInspector implements Component {
 
         const label = `${this.theme.fg("muted", "Model")} `;
         const separator = this.theme.fg("dim", " · ");
-        const mark = this.autoMark(run);
-        const settings = `${thinking}${mark ? separator + mark : ""}`;
+        const parts = [thinking, ...this.autoMarks(run)];
+        const settings = parts.join(separator);
         const row = [
             `${label}${model}${separator}${settings}`,
             `${model}${separator}${settings}`,
         ].find((candidate) => visibleWidth(candidate) <= width);
 
-        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), settings];
+        if (row !== undefined) {
+            return [row];
+        }
+
+        // The settings go below the model, as many whole parts on a row as fit.
+        const rows = [...wrapTextWithAnsi(model, width)];
+        let current = "";
+
+        for (const part of parts) {
+            const joined = current === "" ? part : current + separator + part;
+
+            if (visibleWidth(joined) <= width) {
+                current = joined;
+                continue;
+            }
+
+            if (current !== "") {
+                rows.push(current);
+            }
+
+            current = part;
+        }
+
+        return [...rows, ...wrapTextWithAnsi(current, width)];
     }
 
     /**
      * `auto complex 71%`: `model: auto` rated the task complex with that share. An unsure rating
-     * moved up a tier shows the tier alone, and a run without a rating shows `auto`.
+     * moved up a tier shows the tier alone, and a run without a rating shows `auto`. A task rated
+     * high risk adds `high risk`.
      */
-    private autoMark(run: Run): string | undefined {
+    private autoMarks(run: Run): string[] {
         const auto = run.snapshot?.autoModel;
 
         if (!auto) {
-            return undefined;
+            return [];
         }
 
         if (auto.by === "classifier-failed") {
-            return this.theme.fg("warning", "auto failed");
+            return [this.theme.fg("warning", "auto failed")];
         }
 
         if (auto.by !== "rating") {
-            return this.theme.fg("accent", "auto");
+            return [this.theme.fg("accent", "auto")];
         }
 
-        const { tier } = auto;
+        const { tier, risk } = auto;
         const share = tier.used === tier.rated ? tier.probabilities[tier.used] : undefined;
 
-        return this.theme.fg(
-            "accent",
-            `auto ${tier.used}${share === undefined ? "" : ` ${formatPercent(share)}`}`,
-        );
+        return [
+            this.theme.fg(
+                "accent",
+                `auto ${tier.used}${share === undefined ? "" : ` ${formatPercent(share)}`}`,
+            ),
+            ...(risk?.high ? [this.theme.fg("warning", "high risk")] : []),
+        ];
     }
 
     private footer(width: number, entry: Entry | undefined): string {
