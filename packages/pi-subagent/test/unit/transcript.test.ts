@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 import { TranscriptRenderer } from "../../src/inspector/transcript.ts";
 import type { Run } from "../../src/run/run.ts";
@@ -544,4 +545,225 @@ test("the streamed message and the activity notice follow the live run on every 
     run.activity = undefined;
 
     assert.ok(!renderer.render(run, 60).includes("Compacting the context"));
+});
+
+// The auto model block
+
+type AutoSnapshot = NonNullable<Parameters<typeof restoredRun>[2]>["snapshot"];
+
+const ratingChoice = (overrides: Record<string, unknown> = {}) => ({
+    by: "rating",
+    classifier: "c/j",
+    tier: {
+        rated: "complex",
+        used: "complex",
+        confidence: 0.8,
+        probabilities: { light: 0.04, standard: 0.12, complex: 0.71, deep: 0.13 },
+    },
+    modelFrom: "complex",
+    reasoning: {
+        rated: "moderate",
+        used: "moderate",
+        confidence: 0.8,
+        probabilities: { none: 0.03, light: 0.2, moderate: 0.64, heavy: 0.13 },
+    },
+    ...overrides,
+});
+
+/** The rows above the task of a run that started with `model: auto`. */
+function autoBlock(
+    t: TestContext,
+    autoModel: unknown,
+    options: { thinking?: "auto" | "call" | "parent"; width?: number } = {},
+): string[] {
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        snapshot: {
+            model: "p/x",
+            thinking: "medium",
+            sources: {
+                model: "call",
+                thinking: options.thinking ?? "auto",
+                tools: "settings",
+                isolation: "default",
+            },
+            autoModel,
+        } as AutoSnapshot,
+        messages: [userMessage("Task")],
+    });
+    const rows = render(run, options.width ?? 80);
+
+    return rows.slice(0, rows.indexOf(""));
+}
+
+test("a rating is a block above the task: the verdict, the tiers by share with the chosen model, and the reasoning", (t) => {
+    const actual = autoBlock(t, ratingChoice());
+
+    assert.deepEqual(actual, [
+        "c/j rated the task complex.",
+        "    complex    71%  chosen → p/x",
+        "    deep       13%",
+        "    standard   12%",
+        "    light       4%",
+        "Reasoning: moderate (64%) → thinking medium",
+    ]);
+});
+
+test("an unsure rating names the tier used, marks the rated one and a main agent's model", (t) => {
+    const actual = autoBlock(
+        t,
+        ratingChoice({
+            tier: {
+                rated: "standard",
+                used: "complex",
+                confidence: 0.4,
+                probabilities: { light: 0.1, standard: 0.45, complex: 0.3, deep: 0.15 },
+            },
+            modelFrom: "main",
+        }),
+        { width: 100 },
+    );
+
+    assert.deepEqual(actual.slice(0, 5), [
+        "c/j rated the task standard. It was unsure (40% confidence), so the run uses the complex tier.",
+        "    standard   45%  rated",
+        "    complex    30%  chosen → p/x (main agent's model)",
+        "    deep       15%",
+        "    light      10%",
+    ]);
+});
+
+test("a model from a higher tier says which tier it came from", (t) => {
+    const actual = autoBlock(t, ratingChoice({ modelFrom: "deep" }));
+
+    assert.equal(actual[1], "    complex    71%  chosen → p/x (deep tier)");
+});
+
+test("a reasoning rating that the start overrode says who set the thinking", (t) => {
+    const actual = autoBlock(t, ratingChoice(), { thinking: "call" });
+
+    assert.equal(actual.at(-1), "Reasoning: moderate (64%); the call set thinking medium");
+});
+
+test("an unsure reasoning rating shows the level used", (t) => {
+    const actual = autoBlock(
+        t,
+        ratingChoice({
+            reasoning: {
+                rated: "light",
+                used: "moderate",
+                confidence: 0.3,
+                probabilities: { light: 0.4 },
+            },
+        }),
+    );
+
+    assert.equal(
+        actual.at(-1),
+        "Reasoning: light (40%), unsure at 30% confidence, so moderate → thinking medium",
+    );
+});
+
+test("without shares the tiers keep their order and have no percent column", (t) => {
+    const actual = autoBlock(
+        t,
+        ratingChoice({
+            tier: { rated: "complex", used: "complex", confidence: 0.8, probabilities: {} },
+        }),
+    ).map((row) => row.trimEnd());
+
+    assert.deepEqual(actual.slice(1, 5), [
+        "    light",
+        "    standard",
+        "    complex   chosen → p/x",
+        "    deep",
+    ]);
+});
+
+test("a narrow pane writes one wrapped entry per tier and no row is wider than the pane", (t) => {
+    const width = 30;
+    const actual = autoBlock(t, ratingChoice(), { width });
+
+    assert.deepEqual(actual, [
+        "c/j rated the task complex.",
+        "    complex · 71% · chosen →",
+        "    p/x",
+        "    deep · 13%",
+        "    standard · 12%",
+        "    light · 4%",
+        "Reasoning: moderate (64%) →",
+        "thinking medium",
+    ]);
+    assert.ok(actual.every((row) => visibleWidth(row) <= width));
+});
+
+test("a run without a classifier or with nothing to rate has one explanatory line", (t) => {
+    const none = autoBlock(t, { by: "no-classifier" }, { thinking: "parent" });
+    const nothing = autoBlock(t, { by: "nothing-to-rate" }, { thinking: "call", width: 120 });
+
+    assert.deepEqual(none, [
+        "No auto classifier is selected, so the run uses the main agent's model.",
+    ]);
+    assert.deepEqual(nothing, [
+        "No auto tier has a model and the thinking is set, so no classifier ran and the run uses the main agent's model.",
+    ]);
+});
+
+test("a run from an earlier version, with another auto shape, renders without an auto block", (t) => {
+    const older = { by: "classifier", classifier: "x/y", confidence: 0.7, candidates: ["p/x"] };
+    const run = (autoModel: unknown) =>
+        restoredRun(tempAgentDir(t), "r1", {
+            snapshot: { model: "p/x", autoModel } as AutoSnapshot,
+            messages: [userMessage("Task")],
+        });
+
+    const actual = render(run(older));
+    const expected = render(run(undefined));
+
+    assert.deepEqual(actual, expected);
+});
+
+test("a failed classifier is one warning line: the error, and the main agent's thinking when the thinking is the parent's", (t) => {
+    const failed = {
+        by: "classifier-failed",
+        classifier: "c/j",
+        error: "The auto classifier c/j is unavailable.",
+    };
+
+    const parent = autoBlock(t, failed, { thinking: "parent", width: 120 });
+    const call = autoBlock(t, failed, { thinking: "call", width: 120 });
+
+    assert.deepEqual(parent, [
+        "The auto classifier c/j is unavailable. The run uses the main agent's model and thinking.",
+    ]);
+    assert.deepEqual(call, [
+        "The auto classifier c/j is unavailable. The run uses the main agent's model.",
+    ]);
+});
+
+test("a failed classifier's line wraps in a narrow pane, uses the warning color and fits the width", (t) => {
+    const failed = {
+        by: "classifier-failed",
+        classifier: "c/j",
+        error: "The auto classifier c/j failed: quota.",
+    };
+    const width = 30;
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        snapshot: {
+            model: "p/x",
+            sources: { model: "call", thinking: "parent", tools: "settings", isolation: "default" },
+            autoModel: failed,
+        } as AutoSnapshot,
+        messages: [userMessage("Task")],
+    });
+
+    const rows = [...new TranscriptRenderer(fakeTheme({ tag: true })).render(run, width)];
+    const block = rows.slice(0, rows.indexOf(""));
+
+    assert.ok(block.length >= 2);
+    assert.ok(block.every((row) => row.startsWith("<warning:")));
+    assert.ok(block.every((row) => visibleWidth(row.replace(/<warning:|>$/g, "")) <= width));
+    assert.equal(
+        block.map((row) => row.replace(/^<warning:|>$/g, "")).join(" "),
+        "The auto classifier c/j failed: quota. The run uses the main agent's model and thinking.",
+    );
 });

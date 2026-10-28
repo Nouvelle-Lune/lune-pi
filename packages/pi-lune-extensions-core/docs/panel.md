@@ -137,6 +137,25 @@ defineSettingsPanel(settings, {
 `open({ values, scope, context })` returns a `SettingsMenu`: host-level `SettingsPanelField`
 objects, which the consumer builds with its own `inspect`, `set` and `reset`, and an optional
 `emptyMessage`. A menu ID must not repeat a field ID (a path, or a nested path as JSON).
+
+To move declared Settings fields onto a page, give the menu no `open` and name it in each
+field's `inMenu`. The page lists those fields in their declared order, with the usual editors,
+scopes and group rules, and the section no longer lists them:
+
+```ts
+defineSettingsPanel(settings, {
+    label: "Routing",
+    fields: (field) => [
+        field("enabled", { label: "Enabled" }),
+        field(["tiers", "fast"], { label: "Fast", inMenu: "tiers" }),
+        field(["tiers", "strong"], { label: "Strong", inMenu: "tiers" }),
+    ],
+    menus: [{ id: "tiers", label: "Tiers", summary: ({ values }) => describe(values.tiers) }],
+});
+```
+
+A menu needs either `open` or at least one field that names it, not both, and `inMenu` must
+name a menu of the same panel.
 `summary`, `visible` and `disabled` work like the matching field options. Custom hosts build a
 menu row with `createSettingsMenuField({ id, label, scopes, summary?, menu })`, and menu fields
 may be menu rows themselves, so menus nest.

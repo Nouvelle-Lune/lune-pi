@@ -37,7 +37,16 @@ export function createDefinedSettingsSection<T extends TObject>(
     const declarations =
         definition.fields ?? Object.keys(settings.snapshot()).map((path) => ({ path }));
     const menus = definition.menus ?? [];
-    assertSettingsGroups([...(declarations as readonly { group?: string }[]), ...menus]);
+    // A field that names a menu is listed on that menu's page, not in the section.
+    const placements = declarations.map(
+        (declaration) => (declaration as { inMenu?: string }).inMenu,
+    );
+    assertSettingsGroups([
+        ...(declarations as readonly { group?: string }[]).filter(
+            (_, index) => placements[index] === undefined,
+        ),
+        ...menus,
+    ]);
     const scoped = (context: ExtensionContext, scope: SettingsScope) => ({
         context,
         scope,
@@ -121,13 +130,15 @@ export function createDefinedSettingsSection<T extends TObject>(
             disabled: menu.disabled
                 ? (context, scope) => menu.disabled!(scoped(context, scope))
                 : undefined,
-            menu: (context, scope) => menu.open(scoped(context, scope)),
+            menu: menu.open
+                ? (context, scope) => menu.open!(scoped(context, scope))
+                : () => ({ fields: fields.filter((_, index) => placements[index] === menu.id) }),
         }),
     );
     return {
         id: definition.id ?? settings.id,
         label: definition.label,
-        fields: [...fields, ...menuFields],
+        fields: [...fields.filter((_, index) => placements[index] === undefined), ...menuFields],
         scopes: settings.scopes,
         subscribe: (listener) => settings.subscribe(listener),
         reload: () => settings.reload(),

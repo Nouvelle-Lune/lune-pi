@@ -8,6 +8,8 @@ import type { ToolCatalog } from "../../src/catalog.ts";
 import { SUBAGENT_TOOL_NAMES, createSubagentTools } from "../../src/tools/subagent-tools.ts";
 import {
     formatDuration,
+    formatPercent,
+    ratingText,
     formatRunList,
     formatRunStatus,
     formatStarted,
@@ -218,6 +220,15 @@ test("formatTokens, formatDuration and formatUsage use compact units", () => {
     );
 });
 
+test("formatPercent shows a share from 0 to 1 as a rounded whole percentage", () => {
+    assert.equal(formatPercent(0.82), "82%");
+    assert.equal(formatPercent(0), "0%");
+    assert.equal(formatPercent(1), "100%");
+    assert.equal(formatPercent(0.124), "12%");
+    assert.equal(formatPercent(0.126), "13%");
+    assert.equal(formatPercent(0.004), "0%");
+});
+
 test("start values name each value with where it came from, and the workspace lists a worktree", (t) => {
     const run = restoredRun(tempAgentDir(t), "r1", {
         snapshot: {
@@ -243,76 +254,167 @@ test("start values name each value with where it came from, and the workspace li
     ]);
 });
 
-test("the model line of an auto run says who chose it and what that was based on", (t) => {
+test("the model and thinking lines of an auto run say who chose them and what that was based on", (t) => {
     const agentDir = tempAgentDir(t);
-    const cases: Array<[string, Partial<ReturnType<typeof snapshot>>, string]> = [
+    const sources = (model: "call" | "definition", thinking: "auto" | "parent" | "call") => ({
+        model,
+        thinking,
+        tools: "settings" as const,
+        isolation: "default" as const,
+    });
+    const reasoning = {
+        rated: "heavy" as const,
+        used: "heavy" as const,
+        confidence: 0.9,
+        probabilities: { heavy: 0.64 },
+    };
+    const rating = (tier: object, modelFrom: string) => ({
+        by: "rating",
+        classifier: "c/j",
+        tier,
+        modelFrom,
+        reasoning,
+    });
+    const cases: Array<[string, Partial<ReturnType<typeof snapshot>>, string, string]> = [
         [
-            "classifier",
+            "rating",
             {
                 model: "p/x",
-                sources: {
-                    model: "call",
-                    thinking: "parent",
-                    tools: "settings",
-                    isolation: "default",
-                },
-                autoModel: {
-                    by: "classifier",
-                    classifier: "c/j",
-                    confidence: 0.82,
-                    candidates: ["p/x", "p/y", "p/z"],
-                },
+                thinking: "high",
+                sources: sources("call", "auto"),
+                autoModel: rating(
+                    {
+                        rated: "complex",
+                        used: "complex",
+                        confidence: 0.8,
+                        probabilities: { complex: 0.71 },
+                    },
+                    "complex",
+                ) as never,
             },
-            "Model: p/x (auto from call: the classifier c/j chose it from 3 candidates with 82% confidence)",
+            "Model: p/x (auto from call: the classifier c/j rated the task complex (71%); the complex tier's model)",
+            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
         ],
         [
-            "only",
+            "unsure",
             {
                 model: "p/x",
-                sources: {
-                    model: "definition",
-                    thinking: "parent",
-                    tools: "settings",
-                    isolation: "default",
-                },
-                autoModel: { by: "only-candidate", candidates: ["p/x"] },
+                thinking: "high",
+                sources: sources("call", "auto"),
+                autoModel: rating(
+                    {
+                        rated: "light",
+                        used: "standard",
+                        confidence: 0.4,
+                        probabilities: { light: 0.4 },
+                    },
+                    "standard",
+                ) as never,
             },
-            "Model: p/x (auto from definition: the only allowed candidate)",
+            "Model: p/x (auto from call: the classifier c/j rated the task light (40%), unsure at 40% confidence, so standard; the standard tier's model)",
+            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
         ],
         [
-            "none",
+            "higher tier",
             {
                 model: "p/x",
-                sources: {
-                    model: "call",
-                    thinking: "parent",
-                    tools: "settings",
-                    isolation: "default",
-                },
+                thinking: "high",
+                sources: sources("definition", "auto"),
+                autoModel: rating(
+                    { rated: "light", used: "light", confidence: 0.9, probabilities: {} },
+                    "deep",
+                ) as never,
+            },
+            "Model: p/x (auto from definition: the classifier c/j rated the task light; the light tier has no model, so the deep tier's model)",
+            "Thinking: high (auto: the classifier rated the reasoning heavy (64%))",
+        ],
+        [
+            "main",
+            {
+                model: "p/x",
+                thinking: "low",
+                sources: sources("call", "call"),
+                autoModel: rating(
+                    { rated: "deep", used: "deep", confidence: 0.9, probabilities: { deep: 0.9 } },
+                    "main",
+                ) as never,
+            },
+            "Model: p/x (auto from call: the classifier c/j rated the task deep (90%); no tier from deep up has a model, so the main agent's model)",
+            "Thinking: low (from call)",
+        ],
+        [
+            "no classifier",
+            {
+                model: "p/x",
+                sources: sources("call", "parent"),
                 autoModel: { by: "no-classifier" },
             },
             "Model: p/x (auto from call: no classifier is selected, so the main agent's model)",
+            "Thinking: off (from parent)",
+        ],
+        [
+            "nothing to rate",
+            {
+                model: "p/x",
+                sources: sources("call", "call"),
+                autoModel: { by: "nothing-to-rate" },
+            },
+            "Model: p/x (auto from call: no auto tier has a model and the thinking is set, so the main agent's model)",
+            "Thinking: off (from call)",
+        ],
+        [
+            "classifier failed",
+            {
+                model: "p/x",
+                sources: sources("call", "parent"),
+                autoModel: {
+                    by: "classifier-failed",
+                    classifier: "c/j",
+                    error: "The auto classifier c/j is unavailable.",
+                },
+            },
+            "Model: p/x (auto from call: the main agent's model. The auto classifier c/j is unavailable.)",
+            "Thinking: off (from parent)",
+        ],
+        [
+            "older run shape",
+            {
+                model: "p/x",
+                sources: sources("call", "parent"),
+                autoModel: { by: "classifier", classifier: "c/j", confidence: 0.8 } as never,
+            },
+            "Model: p/x (auto from call)",
+            "Thinking: off (from parent)",
         ],
         [
             "explicit",
-            {
-                model: "p/x",
-                sources: {
-                    model: "call",
-                    thinking: "parent",
-                    tools: "settings",
-                    isolation: "default",
-                },
-            },
+            { model: "p/x", sources: sources("call", "parent") },
             "Model: p/x (from call)",
+            "Thinking: off (from parent)",
         ],
     ];
 
-    for (const [id, overrides, expected] of cases) {
-        const actual = startValueLines(restoredRun(agentDir, id, { snapshot: overrides }))[1];
+    for (const [id, overrides, expectedModel, expectedThinking] of cases) {
+        const actual = startValueLines(restoredRun(agentDir, id, { snapshot: overrides }));
 
-        assert.equal(actual, expected);
+        assert.deepEqual([id, actual[1], actual[2]], [id, expectedModel, expectedThinking]);
     }
+});
+
+test("ratingText shows the rated level with its share, and the level used when the classifier was unsure", () => {
+    const share = {
+        rated: "complex",
+        used: "complex",
+        confidence: 0.8,
+        probabilities: { complex: 0.71 },
+    };
+
+    assert.equal(ratingText(share), "complex (71%)");
+    assert.equal(ratingText({ ...share, probabilities: {} }), "complex");
+    assert.equal(
+        ratingText({ ...share, used: "deep", confidence: 0.42 }),
+        "complex (71%), unsure at 42% confidence, so deep",
+    );
 });
 
 test("formatStarted reports the run ID, start values and that a message arrives later", (t) => {

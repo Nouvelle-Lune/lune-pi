@@ -41,8 +41,16 @@ export interface RunReport {
     question?: string;
 }
 
-/** Where a start value came from. */
-export type ValueSource = "call" | "definition" | "parent" | "settings" | "default";
+/** Where a start value came from; `auto` is the classifier of a `model: auto` run. */
+export type ValueSource = "call" | "definition" | "parent" | "settings" | "default" | "auto";
+
+/** How demanding an auto run's task is, from the least; each tier can have its own model. */
+export const AUTO_TIERS = ["light", "standard", "complex", "deep"] as const;
+export type AutoTier = (typeof AUTO_TIERS)[number];
+
+/** How much an auto run's task must reason, from the least; it sets the thinking level. */
+export const AUTO_REASONING = ["none", "light", "moderate", "heavy"] as const;
+export type AutoReasoning = (typeof AUTO_REASONING)[number];
 
 export interface RunWorktree {
     repoRoot: string;
@@ -50,19 +58,35 @@ export interface RunWorktree {
     baseCommit: string;
 }
 
-/** How `model: auto` was resolved. */
+/** The classifier's answer to one auto question, and the level the run used. */
+export interface AutoRating<T extends string> {
+    /** The option the classifier chose. */
+    rated: T;
+    /** `rated`, or the next level up when the classifier was unsure. */
+    used: T;
+    /** Pi's measure of how clear the choice was, from 0 (an even split) to 1. */
+    confidence: number;
+    /** Each option's share of the answer, from 0 to 1. */
+    probabilities: Partial<Record<T, number>>;
+}
+
+/** How `model: auto` resolved the run's model and, unless the start set it, its thinking. */
 export type AutoModelChoice =
     | {
-          by: "classifier";
+          by: "rating";
           /** `provider/id` of the classifier. */
           classifier: string;
-          /** The classifier's confidence in its choice, from 0 to 1. */
-          confidence: number;
-          candidates: string[];
+          tier: AutoRating<AutoTier>;
+          /** The tier whose model the run got, or `main` for the main agent's model. */
+          modelFrom: AutoTier | "main";
+          reasoning: AutoRating<AutoReasoning>;
       }
-    | { by: "only-candidate"; candidates: string[] }
     /** No classifier is selected, so the run got the main agent's model. */
-    | { by: "no-classifier" };
+    | { by: "no-classifier" }
+    /** No tier has a model and the start set the thinking, so no classifier ran. */
+    | { by: "nothing-to-rate" }
+    /** The classifier failed, so the run got the main agent's model, and thinking if unset. */
+    | { by: "classifier-failed"; classifier: string; error: string };
 
 /** The values a run started with. Later edits to its definition never change an existing run. */
 export interface RunSnapshot {

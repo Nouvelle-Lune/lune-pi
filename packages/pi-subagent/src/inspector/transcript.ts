@@ -9,12 +9,15 @@ import { displayLine, displayLines } from "../render/text.ts";
 import { isUserMessage, stripUserMarker } from "../run/guide.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import type { Run, RunningTool } from "../run/run.ts";
-import { formatDuration } from "../tools/format.ts";
+import { AUTO_TIERS, type AutoModelChoice, type RunSnapshot } from "../run/types.ts";
+import { formatDuration, formatPercent, ratingText } from "../tools/format.ts";
+import { pad } from "./layout.ts";
 import { headRows, LineWrapCache, tailRows } from "./wrap.ts";
 
 /** Rows of a failed call's error, a running call's output or a streamed thought; it is a log, not a pager. */
 const EXCERPT_ROWS = 3;
 const INDENT = "    ";
+const COLUMN_GAP = "  ";
 
 type ToolResult = Extract<AgentMessage, { role: "toolResult" }>;
 
@@ -116,7 +119,8 @@ export class TranscriptRenderer {
                 width,
                 count: 0,
                 last: undefined,
-                rows: [],
+                // The snapshot never changes, so the auto choice is drawn with the settled rows.
+                rows: this.autoRows(run, width),
                 results: new Map(),
                 read: 0,
             };
@@ -155,6 +159,123 @@ export class TranscriptRenderer {
         }
 
         return settled;
+    }
+
+    /**
+     * How `model: auto` resolved the run, above its first message: the classifier's share for
+     * each task tier, highest first, the tier and model the run got, and the reasoning rating.
+     * The model row keeps only the short mark.
+     */
+    private autoRows(run: Run, width: number): string[] {
+        const snapshot = run.snapshot;
+        const auto = snapshot?.autoModel;
+
+        switch (auto?.by) {
+            case undefined:
+                return [];
+            case "no-classifier":
+                return this.wrap(
+                    "No auto classifier is selected, so the run uses the main agent's model.",
+                    width,
+                    "muted",
+                );
+            case "nothing-to-rate":
+                return this.wrap(
+                    "No auto tier has a model and the thinking is set, so no classifier ran and " +
+                        "the run uses the main agent's model.",
+                    width,
+                    "muted",
+                );
+            case "classifier-failed":
+                return this.wrap(
+                    `${auto.error} The run uses the main agent's model` +
+                        (snapshot!.sources.thinking === "parent" ? " and thinking." : "."),
+                    width,
+                    "warning",
+                );
+            case "rating":
+                return this.ratingRows(auto, snapshot!, width);
+            default:
+                // A run that an earlier version started records its auto choice in another form.
+                return [];
+        }
+    }
+
+    /** Aligned tier rows, or one wrapped entry per tier when the columns do not fit. */
+    private ratingRows(
+        auto: Extract<AutoModelChoice, { by: "rating" }>,
+        snapshot: RunSnapshot,
+        width: number,
+    ): string[] {
+        const { tier, reasoning } = auto;
+        const model =
+            snapshot.model +
+            (auto.modelFrom === tier.used
+                ? ""
+                : auto.modelFrom === "main"
+                  ? " (main agent's model)"
+                  : ` (${auto.modelFrom} tier)`);
+        // The sort is stable, so equal or missing shares keep the tier order.
+        const ranked = AUTO_TIERS.map((level) => ({
+            level,
+            share: tier.probabilities[level],
+        })).sort((a, b) => (b.share ?? -1) - (a.share ?? -1));
+        const shares = ranked.some(({ share }) => share !== undefined);
+        const levelWidth = Math.max(...AUTO_TIERS.map((level) => level.length));
+        const entries = ranked.map(({ level, share }) => ({
+            level,
+            percent: share === undefined ? "" : formatPercent(share),
+            chosen: level === tier.used,
+            rated: level === tier.rated && tier.rated !== tier.used,
+        }));
+        const aligned = entries.map(({ level, percent, chosen, rated }) => {
+            const columns =
+                pad(level, levelWidth) + (shares ? COLUMN_GAP + percent.padStart(4) : "");
+            const mark = chosen
+                ? COLUMN_GAP +
+                  this.theme.fg("accent", "chosen") +
+                  this.theme.fg("text", ` → ${model}`)
+                : rated
+                  ? COLUMN_GAP + this.theme.fg("muted", "rated")
+                  : "";
+
+            // The columns are padded only for a mark after them, so no row ends in spaces.
+            return (
+                INDENT +
+                this.theme.fg(chosen ? "text" : "muted", mark ? columns : columns.trimEnd()) +
+                mark
+            );
+        });
+        const rows = aligned.every((row) => visibleWidth(row) <= width)
+            ? aligned
+            : entries.flatMap(({ level, percent, chosen, rated }) =>
+                  this.indented(
+                      [level, percent, chosen ? `chosen → ${model}` : rated ? "rated" : ""]
+                          .filter(Boolean)
+                          .join(" · "),
+                      width,
+                      chosen ? "text" : "muted",
+                  ),
+              );
+        const unsure =
+            tier.used === tier.rated
+                ? ""
+                : ` It was unsure (${formatPercent(tier.confidence)} confidence), so the run ` +
+                  `uses the ${tier.used} tier.`;
+        const thinking =
+            snapshot.sources.thinking === "auto"
+                ? ` → thinking ${snapshot.thinking}`
+                : `; the ${snapshot.sources.thinking} set thinking ${snapshot.thinking}`;
+
+        return [
+            ...this.wrap(
+                `${auto.classifier} rated the task ${tier.rated}.${unsure}`,
+                width,
+                "muted",
+            ),
+            ...rows,
+            ...this.wrap(`Reasoning: ${ratingText(reasoning)}${thinking}`, width, "muted"),
+        ];
     }
 
     /** A settled message's rows, kept per message so switching back to a run redraws nothing. */

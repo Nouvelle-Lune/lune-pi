@@ -271,15 +271,6 @@ export class RunManager implements RunHost {
         this.assertActive();
 
         const definition = this.resolveDefinition(params.agent);
-        const thinking = params.thinking ?? definition?.thinking ?? ctx.thinkingLevel;
-        const thinkingSource: ValueSource =
-            params.thinking !== undefined
-                ? "call"
-                : definition?.thinking !== undefined
-                  ? "definition"
-                  : ctx.thinkingLevel !== undefined
-                    ? "parent"
-                    : "settings";
         const taskTools = params.tools ?? definition?.tools;
         const toolsSource: ValueSource =
             params.tools !== undefined
@@ -294,11 +285,25 @@ export class RunManager implements RunHost {
                 : definition?.isolation !== undefined
                   ? "definition"
                   : "default";
+        const explicitThinking = params.thinking ?? definition?.thinking;
         const model = await this.resolveModel(params, definition, ctx, {
             tools: taskTools,
             isolation,
+            thinkingSet: explicitThinking !== undefined,
             options,
         });
+        // An auto run's rating sets the thinking only where the call and definition do not.
+        const thinking = explicitThinking ?? model.thinking ?? ctx.thinkingLevel;
+        const thinkingSource: ValueSource =
+            params.thinking !== undefined
+                ? "call"
+                : definition?.thinking !== undefined
+                  ? "definition"
+                  : model.thinking !== undefined
+                    ? "auto"
+                    : ctx.thinkingLevel !== undefined
+                      ? "parent"
+                      : "settings";
 
         this.assertActive();
 
@@ -721,11 +726,18 @@ export class RunManager implements RunHost {
         params: StartParams,
         definition: AgentDefinition | undefined,
         ctx: ExtensionContext,
-        run: { tools?: readonly string[]; isolation: Isolation; options: ProgressOptions },
+        run: {
+            tools?: readonly string[];
+            isolation: Isolation;
+            thinkingSet: boolean;
+            options: ProgressOptions;
+        },
     ): Promise<{
         ref: { provider: string; id: string };
         source: ValueSource;
         auto?: AutoModelChoice;
+        /** The auto rating's thinking level, when the start set none. */
+        thinking?: ThinkingLevel;
     }> {
         const requested = params.model ?? definition?.model;
 
@@ -742,17 +754,18 @@ export class RunManager implements RunHost {
         if (requested === AUTO_MODEL) {
             run.options.onProgress?.("Choosing a model");
 
-            const { ref, choice } = await chooseAutoModel({
+            const { ref, choice, thinking } = await chooseAutoModel({
                 ctx,
                 settings: await this.autoModelSettings(ctx),
                 task: params.task,
                 definition,
                 tools: run.tools,
                 isolation: run.isolation,
+                thinkingSet: run.thinkingSet,
                 signal: run.options.signal,
             });
 
-            return { ref, source, auto: choice };
+            return { ref, source, auto: choice, ...(thinking ? { thinking } : {}) };
         }
 
         const ref = parseModelRef(requested);

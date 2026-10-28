@@ -157,6 +157,11 @@ export type SettingsFieldOptions<T, TValues> = {
      */
     group?: string;
     /**
+     * ID of a menu of the same panel that lists the field on its page instead of in the
+     * section. That menu declares no open function; see SettingsMenuDefinition.
+     */
+    inMenu?: string;
+    /**
      * Hide the field while this returns false, e.g. options of a disabled feature.
      * Hidden fields keep their stored values. Runs on every refresh: keep it cheap and pure.
      */
