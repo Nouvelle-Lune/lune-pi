@@ -30,6 +30,11 @@ Comments explain **why**, not what.
 - TODO/FIXME must state the unresolved constraint and reference an issue when available.
 - Update expired comments promptly.
 
+## Review workflow
+
+- A change is not complete until it has runnable evidence: the command and its result. Docs-only edits may skip review; every other change gets a ledger from `node review-workflow/scripts/review-round.mjs`.
+- Start with `review-workflow/README.md`. `REVIEW.md` defines what a reviewer treats as failure, and `docs/process.md` describes the loop, the tiers, and what happens when the round cap is reached.
+
 ## Tests
 
 Do not create or modify tests unless the `test-writer` skill is triggered. Existing tests can be run without changing them. Never weaken valid assertions to make an implementation pass.

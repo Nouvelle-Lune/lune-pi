@@ -1,0 +1,24 @@
+{
+    "schemaVersion": 1,
+    "id": "case-collapsed-group-live-output",
+    "title": "A collapsed tool group rendered live partial output, shifting the pinned transcript",
+    "status": "open",
+    "layer": "review",
+    "class": "ui-instability",
+    "signal": "selfRework pair: fix d7be986f on the same file 68 minutes after 0f7f3dd9",
+    "observedAt": "2026-10-17",
+    "missed": {
+        "file": "packages/pi-core-theme/src/renderer/transcript.ts",
+        "line": 392,
+        "summary": "The group renderer showed a preview row whenever a partial result existed. Bash reports an empty partial result as it starts, so each running call added a blank row and removed it on completion, moving the bottom-pinned transcript twice per turn. The follow-up fix removed live output from collapsed groups entirely rather than filtering empty text."
+    },
+    "expected": {
+        "severity": "important",
+        "class": "ui-instability"
+    },
+    "diff": "diff --git a/packages/pi-core-theme/src/renderer/transcript.ts b/packages/pi-core-theme/src/renderer/transcript.ts\n--- a/packages/pi-core-theme/src/renderer/transcript.ts\n+++ b/packages/pi-core-theme/src/renderer/transcript.ts\n@@ -388,9 +389,15 @@ export function installTranscriptGroups(\n                         \"…\",\n                     ),\n                 );\n-                if (item.isPartial && item.result) {\n+                // Bash reports an empty partial result as it starts; a blank row here would grow\n+                // the group and shrink it moments later, shifting the bottom-pinned transcript.\n+                const output =\n+                    item.isPartial && item.result\n+                        ? sanitizeToolResultText(resultText(item.result))\n+                        : \"\";\n+                if (output.trim()) {\n                     const preview = outputPreview(\n-                        resultText(item.result),\n+                        output,\n                         Math.max(1, width - 7),\n",
+    "fix": {
+        "artifact": "review-workflow/REVIEW.md",
+        "change": "Reviewers must state what a collapsed or grouped row renders while a tool is still running, not only after it settles."
+    }
+}
