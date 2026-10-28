@@ -15,6 +15,7 @@ import { reportColor, stateColor } from "../notify/notification-box.ts";
 import { displayLine, fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
+import { formatPercent } from "../tools/format.ts";
 import { detailRows } from "./details.ts";
 import {
     assembleFrame,
@@ -388,8 +389,8 @@ export class SubagentInspector implements Component {
     }
 
     /**
-     * `Model provider/id · high`, from the live session when there is one. A narrow pane drops the
-     * `Model` label, then gives the model its own rows; nothing is cut.
+     * `Model provider/id · high · auto 82%`, from the live session when there is one. A narrow pane
+     * drops the `Model` label, then gives the model its own rows; nothing is cut.
      */
     private modelRows(run: Run, width: number): string[] {
         const model = run.model;
@@ -402,12 +403,42 @@ export class SubagentInspector implements Component {
 
         const label = `${this.theme.fg("muted", "Model")} `;
         const separator = this.theme.fg("dim", " · ");
+        const mark = this.autoMark(run);
+        const settings = `${thinking}${mark ? separator + mark : ""}`;
         const row = [
-            `${label}${model}${separator}${thinking}`,
-            `${model}${separator}${thinking}`,
+            `${label}${model}${separator}${settings}`,
+            `${model}${separator}${settings}`,
         ].find((candidate) => visibleWidth(candidate) <= width);
 
-        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), thinking];
+        return row !== undefined ? [row] : [...wrapTextWithAnsi(model, width), settings];
+    }
+
+    /**
+     * `auto complex 71%`: `model: auto` rated the task complex with that share. An unsure rating
+     * moved up a tier shows the tier alone, and a run without a rating shows `auto`.
+     */
+    private autoMark(run: Run): string | undefined {
+        const auto = run.snapshot?.autoModel;
+
+        if (!auto) {
+            return undefined;
+        }
+
+        if (auto.by === "classifier-failed") {
+            return this.theme.fg("warning", "auto failed");
+        }
+
+        if (auto.by !== "rating") {
+            return this.theme.fg("accent", "auto");
+        }
+
+        const { tier } = auto;
+        const share = tier.used === tier.rated ? tier.probabilities[tier.used] : undefined;
+
+        return this.theme.fg(
+            "accent",
+            `auto ${tier.used}${share === undefined ? "" : ` ${formatPercent(share)}`}`,
+        );
     }
 
     private footer(width: number, entry: Entry | undefined): string {

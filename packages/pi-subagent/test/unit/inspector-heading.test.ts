@@ -205,3 +205,122 @@ test("a narrow title keeps the newer-rows label after the id and the report are 
 
     assert.equal(right(72)[0], `${name} · idle · ↓ 1 newer · End`);
 });
+
+// The auto mark on the model row
+
+function autoRun(
+    autoModel: unknown,
+    model = "anthropic/claude-opus-5-5",
+    thinking = "high",
+): RunFileSpec {
+    return {
+        snapshot: { name: "security-reviewer", model, thinking, autoModel } as never,
+        messages: [userMessage("Review the diff."), assistantMessage("Looking now.")],
+        turns: [turn({ report: done })],
+    };
+}
+
+const tierRating = (overrides: Record<string, unknown> = {}) => ({
+    by: "rating",
+    classifier: "c/j",
+    tier: {
+        rated: "complex",
+        used: "complex",
+        confidence: 0.8,
+        probabilities: { light: 0.04, standard: 0.12, complex: 0.71, deep: 0.13 },
+        ...overrides,
+    },
+    modelFrom: "complex",
+    reasoning: { rated: "heavy", used: "heavy", confidence: 0.9, probabilities: {} },
+});
+
+test("the model row of an auto run ends with the tier used and its share", (t) => {
+    const { right } = panel(t, autoRun(tierRating()));
+
+    assert.equal(right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto complex 71%");
+});
+
+test("an unsure rating moved up shows the tier used without a share", (t) => {
+    const { right } = panel(
+        t,
+        autoRun(tierRating({ rated: "standard", used: "complex", confidence: 0.4 })),
+    );
+
+    assert.equal(right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto complex");
+});
+
+test("a rating without shares shows the tier used alone", (t) => {
+    const { right } = panel(t, autoRun(tierRating({ probabilities: {} })));
+
+    assert.equal(right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto complex");
+});
+
+test("an auto run without a rating shows a plain auto mark", (t) => {
+    for (const autoModel of [{ by: "no-classifier" }, { by: "nothing-to-rate" }]) {
+        const { right } = panel(t, autoRun(autoModel));
+
+        assert.equal(right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto");
+    }
+});
+
+test("a run without an auto choice has no auto mark", (t) => {
+    const { right } = panel(t, autoRun(undefined));
+
+    assert.equal(right(140)[1], "Model anthropic/claude-opus-5-5 · high");
+});
+
+test("the auto mark stays with the thinking: after the model, then on its own row, also under a long model", (t) => {
+    const narrow = panel(t, autoRun(tierRating()));
+    const model = "provider-with-a-long-name/model-with-an-extremely-long-identifier-v2-20260101";
+    const long = panel(t, autoRun(tierRating(), model));
+    const rows = long.right(72);
+    const wrapped = wrapTextWithAnsi(model, long.rightWidth(72) - 2);
+
+    assert.equal(narrow.right(80)[1], "anthropic/claude-opus-5-5 · high · auto complex 71%");
+    assert.deepEqual(narrow.right(70).slice(1, 3), [
+        "anthropic/claude-opus-5-5",
+        "high · auto complex 71%",
+    ]);
+    assert.deepEqual(rows.slice(1, 1 + wrapped.length), wrapped);
+    assert.equal(rows[1 + wrapped.length], "high · auto complex 71%");
+});
+
+const failedClassifier = {
+    by: "classifier-failed",
+    classifier: "c/j",
+    error: "The auto classifier c/j is unavailable.",
+};
+
+test("the model row of a run whose classifier failed ends with auto failed", (t) => {
+    const wide = panel(t, autoRun(failedClassifier));
+    const narrow = panel(t, autoRun(failedClassifier));
+
+    assert.equal(wide.right(140)[1], "Model anthropic/claude-opus-5-5 · high · auto failed");
+    assert.equal(narrow.right(76)[1], "anthropic/claude-opus-5-5 · high · auto failed");
+    assert.deepEqual(narrow.right(70).slice(1, 3), [
+        "anthropic/claude-opus-5-5",
+        "high · auto failed",
+    ]);
+});
+
+test("the auto failed mark uses the warning color", (t) => {
+    const agentDir = tempAgentDir(t);
+    const session = parentSession(t, agentDir);
+
+    session.spawn("aaaa0001", autoRun(failedClassifier));
+
+    const { ctx } = fakeCtx({
+        sessionManager: session.sessionManager,
+        theme: fakeTheme({ tag: true }),
+    });
+    const inspector = new SubagentInspector(
+        { ctx, manager: session.manager(), onSeen: () => undefined },
+        () => undefined,
+        () => undefined,
+        () => ROWS,
+    );
+
+    t.after(() => inspector.dispose());
+
+    assert.match(inspector.render(140).join("\n"), /<warning:auto failed>/);
+});

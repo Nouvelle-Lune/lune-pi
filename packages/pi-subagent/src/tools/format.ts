@@ -1,5 +1,5 @@
 import type { Run } from "../run/run.ts";
-import type { RunSnapshot, RunUsage, TurnRecord } from "../run/types.ts";
+import type { AutoRating, RunSnapshot, RunUsage, TurnRecord } from "../run/types.ts";
 
 /** How much of a summary or task a run list shows; one run shows all of it. */
 const PREVIEW_CHARS = 200;
@@ -36,7 +36,7 @@ export function startValueLines(run: Run): string[] {
     return [
         `Agent: ${snapshot.definition ? snapshot.definition.name : "inline"}`,
         `Model: ${snapshot.model} (${modelOrigin(snapshot)})`,
-        `Thinking: ${snapshot.thinking} (from ${snapshot.sources.thinking})`,
+        `Thinking: ${snapshot.thinking} (${thinkingOrigin(snapshot)})`,
         `Tools: ${snapshot.tools.join(", ")} (from ${snapshot.sources.tools})`,
     ];
 }
@@ -51,16 +51,48 @@ function modelOrigin(snapshot: RunSnapshot): string {
     const origin = `auto from ${snapshot.sources.model}`;
 
     switch (auto.by) {
-        case "classifier":
-            return (
-                `${origin}: the classifier ${auto.classifier} chose it from ` +
-                `${auto.candidates.length} candidates with ${Math.round(auto.confidence * 100)}% confidence`
-            );
-        case "only-candidate":
-            return `${origin}: the only allowed candidate`;
+        case "rating": {
+            const { tier, modelFrom } = auto;
+            const model =
+                modelFrom === tier.used
+                    ? `the ${tier.used} tier's model`
+                    : modelFrom === "main"
+                      ? `no tier from ${tier.used} up has a model, so the main agent's model`
+                      : `the ${tier.used} tier has no model, so the ${modelFrom} tier's model`;
+
+            return `${origin}: the classifier ${auto.classifier} rated the task ${ratingText(tier)}; ${model}`;
+        }
         case "no-classifier":
             return `${origin}: no classifier is selected, so the main agent's model`;
+        case "nothing-to-rate":
+            return `${origin}: no auto tier has a model and the thinking is set, so the main agent's model`;
+        case "classifier-failed":
+            return `${origin}: the main agent's model. ${auto.error}`;
+        default:
+            // A run that an earlier version started records its auto choice in another form.
+            return origin;
     }
+}
+
+function thinkingOrigin(snapshot: RunSnapshot): string {
+    const auto = snapshot.autoModel;
+
+    return snapshot.sources.thinking === "auto" && auto?.by === "rating"
+        ? `auto: the classifier rated the reasoning ${ratingText(auto.reasoning)}`
+        : `from ${snapshot.sources.thinking}`;
+}
+
+/** `complex (71%)`, and the level used instead when the classifier was unsure. */
+export function ratingText(rating: AutoRating<string>): string {
+    const share = rating.probabilities[rating.rated];
+
+    return (
+        rating.rated +
+        (share === undefined ? "" : ` (${formatPercent(share)})`) +
+        (rating.used === rating.rated
+            ? ""
+            : `, unsure at ${formatPercent(rating.confidence)} confidence, so ${rating.used}`)
+    );
 }
 
 /** One entry of a `tasks` call: the run it started, or why it did not start. */
@@ -206,6 +238,11 @@ export function formatDuration(ms: number): string {
     }
 
     return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** `82%`: a value from 0 to 1 as a whole percentage. */
+export function formatPercent(value: number): string {
+    return `${Math.round(value * 100)}%`;
 }
 
 function heading(run: Run): string {

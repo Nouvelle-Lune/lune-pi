@@ -67,7 +67,7 @@ test("the Subagents section lists the auto settings and the Custom agents menu a
 
     assert.deepEqual(
         section.fields.map((field) => field.id),
-        ["autoClassifier", "autoModels", "agents"],
+        ["autoClassifier", "tiers", "agents"],
     );
     assert.equal(menu.label, "Custom agents");
     assert.equal(menu.editor, "menu");

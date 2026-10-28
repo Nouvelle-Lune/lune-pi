@@ -39,7 +39,8 @@ All notable changes are documented here using
   nested page of fields, listed after the declared fields; custom hosts build such rows with
   `createSettingsMenuField`. Menus nest, Esc goes back one level and the title shows the path.
   A menu is built again on every refresh, so its fields can read and write data outside
-  Settings, such as files; see the [Panel guide](docs/panel.md#secondary-menus).
+  Settings, such as files. A declared field with `inMenu` moves onto a menu page instead; see
+  the [Panel guide](docs/panel.md#secondary-menus).
 - **Independent Settings and Panel definitions.** Immutable declarations separate
   persistence from presentation. Typed nested paths, dynamic/multiple choices and
   previews remain available without forcing Settings consumers to load a Panel.

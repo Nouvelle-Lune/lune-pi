@@ -6,6 +6,7 @@ import {
 } from "@lune_99/pi-lune-extensions-core/panel";
 
 import { allowedModels, formatModelRef } from "../models.ts";
+import { AUTO_TIERS, type AutoTier } from "../run/types.ts";
 import { agentsMenu, type AgentsMenuOptions } from "./agents-menu.ts";
 import { subagentSettings, type SubagentSettings } from "./schema.ts";
 
@@ -16,47 +17,72 @@ const classifierChoices: SettingsChoiceSource<ModelReference | null> = modelChoi
             value: null,
             label: "None · main session model",
             description: classifiers.length
-                ? "Runs started with model auto use the main session's model."
+                ? "Runs started with model auto use the main session's model and thinking."
                 : "No classifier is available. Configure a classifier provider in Pi with /login " +
                   "or its environment credentials, then press Ctrl+R to refresh.",
         },
     ],
 });
 
-/** The models runs may use, plus selected ones the scope no longer allows, so they can be unchecked. */
-const candidateChoices: SettingsChoiceSource<
-    SubagentSettings["autoModels"][number],
-    SubagentSettings
-> & {
-    multiple: true;
-} = {
-    multiple: true,
-    rowLayout: "inline",
-    emptyMessage: "No models are available. Configure a provider in Pi.",
-    load: ({ context, values }) => {
-        const models = allowedModels(context);
-        const allowed = new Set(models.map((model) => formatModelRef(model)));
-        const scoped = context.scopedModels.length > 0;
-
-        return [
-            ...models.map((model) => ({
-                value: { provider: model.provider, id: model.id },
-                label: model.id,
-                badge: model.provider,
-                searchText: `${formatModelRef(model)} ${model.name}`,
-                description: `${model.name} · ${scoped ? "in Pi's scoped models" : "available in Pi"}`,
-            })),
-            ...values.autoModels
-                .filter((model) => !allowed.has(formatModelRef(model)))
-                .map((model) => ({
-                    value: { provider: model.provider, id: model.id },
-                    label: model.id,
-                    badge: "Not allowed",
-                    description: `${formatModelRef(model)} is not in Pi's scoped models now, so auto runs skip it. Uncheck it to remove it.`,
-                })),
-        ];
+const TIERS: Record<AutoTier, { label: string; description: string }> = {
+    light: {
+        label: "Light",
+        description: "Tasks that find, read or run something and report what it shows.",
+    },
+    standard: {
+        label: "Standard",
+        description: "Clear, well-specified changes and checks with a known path.",
+    },
+    complex: {
+        label: "Complex",
+        description: "Several steps across files or sources toward a clear goal.",
+    },
+    deep: {
+        label: "Deep",
+        description: "Design decisions, trade-offs, unclear failures and reviews for subtle bugs.",
     },
 };
+
+/** The models runs may use, plus a selected one the scope no longer allows, so it can change. */
+function tierChoices(
+    tier: AutoTier,
+): SettingsChoiceSource<SubagentSettings["autoTiers"][AutoTier], SubagentSettings> {
+    return {
+        rowLayout: "inline",
+        load: ({ context, values }) => {
+            const models = allowedModels(context);
+            const allowed = new Set(models.map((model) => formatModelRef(model)));
+            const current = values.autoTiers[tier];
+
+            return [
+                { value: null, label: "None", description: emptyTier(tier) },
+                ...models.map((model) => ({
+                    value: { provider: model.provider, id: model.id },
+                    label: model.id,
+                    badge: model.provider,
+                    searchText: `${formatModelRef(model)} ${model.name}`,
+                    description: model.name,
+                })),
+                ...(current && !allowed.has(formatModelRef(current))
+                    ? [
+                          {
+                              value: { provider: current.provider, id: current.id },
+                              label: current.id,
+                              badge: "Not allowed",
+                              description: `${formatModelRef(current)} is not in Pi's scoped models now, so auto runs of this tier fail to start. Select another model.`,
+                          },
+                      ]
+                    : []),
+            ];
+        },
+    };
+}
+
+function emptyTier(tier: AutoTier): string {
+    return tier === "deep"
+        ? "These tasks use the main agent's model."
+        : "These tasks use the next tier up that has a model, else the main agent's model.";
+}
 
 export function createSubagentPanel(options: AgentsMenuOptions) {
     return defineSettingsPanel(subagentSettings, {
@@ -66,22 +92,45 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
             field("autoClassifier", {
                 label: "Auto classifier",
                 description:
-                    "A Pi classifier that chooses the model of each run started with model auto, " +
-                    "from its task. Without one, auto runs use the main session's model.",
+                    "A Pi classifier that rates each task of a run started with model auto; the " +
+                    "rating picks the tier's model and, unless the start sets it, the thinking " +
+                    "level. Without one, auto runs use the main session's model and thinking.",
                 formatValue: (value) =>
                     value ? `${value.provider}/${value.id}` : "None · main session model",
                 choiceSource: classifierChoices,
             }),
-            field("autoModels", {
-                label: "Auto candidates →",
-                description:
-                    "Models the classifier may choose, from Pi's scoped models (all available " +
-                    "models without a scope). With none selected, it may choose any allowed model.",
-                formatValue: (value) =>
-                    value.length > 0 ? `${value.length} selected` : "All allowed models",
-                choiceSource: candidateChoices,
-            }),
+            ...AUTO_TIERS.map((tier) =>
+                field(["autoTiers", tier], {
+                    label: TIERS[tier].label,
+                    description: `${TIERS[tier].description} Without a model: ${emptyTier(tier)}`,
+                    inMenu: "tiers",
+                    formatValue: (value) =>
+                        value
+                            ? `${value.provider}/${value.id}`
+                            : tier === "deep"
+                              ? "None · main agent's model"
+                              : "None · next tier up",
+                    choiceSource: tierChoices(tier),
+                }),
+            ),
         ],
-        menus: [agentsMenu(options)],
+        menus: [
+            {
+                id: "tiers",
+                label: "Auto tiers",
+                description:
+                    "The model for each task tier of runs started with model auto, from Pi's " +
+                    "scoped models. A tier without a model uses the next tier up that has one, " +
+                    "and the main agent's model is the last step.",
+                summary: ({ values }) => {
+                    const set = AUTO_TIERS.filter((tier) => values.autoTiers[tier]).length;
+
+                    return set === 0
+                        ? "none set · main agent's model"
+                        : `${set} of ${AUTO_TIERS.length} set`;
+                },
+            },
+            agentsMenu(options),
+        ],
     });
 }

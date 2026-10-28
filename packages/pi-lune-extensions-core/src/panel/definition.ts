@@ -34,8 +34,9 @@ export type SettingsFieldBuilder<T extends TObject> = <const P extends SettingsP
 ) => SettingsPanelFieldDefinition<T>;
 
 /**
- * A row that opens a secondary menu of fields the consumer builds, such as entries kept
- * outside this panel's Settings. Callbacks receive the panel's values at the viewed scope.
+ * A row that opens a secondary menu. Its page holds either fields the consumer builds in
+ * `open`, such as entries kept outside this panel's Settings, or the panel's declared fields
+ * whose `inMenu` names it. Callbacks receive the panel's values at the viewed scope.
  */
 export interface SettingsMenuDefinition<TValues> {
     /** Unique among the panel's menus and field IDs (a path, or a nested path as JSON). */
@@ -48,8 +49,11 @@ export interface SettingsMenuDefinition<TValues> {
     disabled?(context: SettingsChoiceContext<TValues>): string | undefined;
     /** Text beside the label, such as a count of the menu's entries. */
     summary?(context: SettingsChoiceContext<TValues>): string;
-    /** Build the page; called again on every refresh while the menu is open. */
-    open(context: SettingsChoiceContext<TValues>): SettingsMenu;
+    /**
+     * Build the page; called again on every refresh while the menu is open. Omit it when
+     * declared fields name the menu in `inMenu`.
+     */
+    open?(context: SettingsChoiceContext<TValues>): SettingsMenu;
 }
 
 /** Presentation only; omission of fields exposes all top-level schema keys in order. */
@@ -164,13 +168,28 @@ export function defineSettingsPanel<T extends TObject>(
             throw new TypeError("Settings menu id and label must not be empty");
         if (ids.has(menu.id)) throw new TypeError(`Duplicate settings panel id "${menu.id}"`);
         ids.add(menu.id);
-        if (typeof menu.open !== "function")
-            throw new TypeError(`Settings menu "${menu.id}" requires an open function`);
+        const listed = fields.filter(({ inMenu }) => inMenu === menu.id);
+        if (menu.open !== undefined && typeof menu.open !== "function")
+            throw new TypeError(`Settings open for menu "${menu.id}" must be a function`);
+        if (menu.open && listed.length > 0)
+            throw new TypeError(
+                `Settings menu "${menu.id}" has an open function and fields that name it; use one`,
+            );
+        if (!menu.open && listed.length === 0)
+            throw new TypeError(
+                `Settings menu "${menu.id}" requires an open function or fields that name it in inMenu`,
+            );
         for (const name of ["visible", "disabled", "summary"] as const)
             if (menu[name] !== undefined && typeof menu[name] !== "function")
                 throw new TypeError(`Settings ${name} for menu "${menu.id}" must be a function`);
+        assertSettingsGroups(listed);
     }
-    assertSettingsGroups([...fields, ...menus]);
+    for (const { path, inMenu } of fields)
+        if (inMenu !== undefined && !menus.some((menu) => menu.id === inMenu))
+            throw new TypeError(
+                `Settings field ${JSON.stringify(path)} names unknown menu "${inMenu}"`,
+            );
+    assertSettingsGroups([...fields.filter(({ inMenu }) => inMenu === undefined), ...menus]);
     return Object.freeze({
         settings,
         id,

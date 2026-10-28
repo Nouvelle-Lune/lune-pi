@@ -51,8 +51,10 @@ repeat the same information.
 - **Model:** Ask the user to choose an exact `provider/id`, **Auto**, or explicitly choose **Follow
   the main agent's model**. Use the current `subagent_start` tool schema's model choices rather than
   a hardcoded list. A fixed model must be available within the current model scope. Auto writes
-  `model: auto`: the classifier in the Subagents settings chooses a model per task, and without a
-  selected classifier the run uses the main agent's model. Following the main agent means omitting
+  `model: auto`: the classifier in the Subagents settings rates each task, and the run uses the
+  model set for the task's tier in those settings. A tier without a model uses the next tier up,
+  then the main agent's model; without a selected classifier the run uses the main agent's model.
+  Following the main agent means omitting
   `model`; explain that behavior instead of silently omitting the field.
 
 Runs load no extensions for models. A model supplied only by an extension, including the
@@ -82,8 +84,9 @@ unsupported recommendation.
 
 Recommend a supported level based on the reasoning required and the latency or cost tradeoff. Do
 not always recommend the highest level. If the user chose to follow the main model or Auto, analyze
-the current model or the auto candidates, and explain that changing models can change which levels
-are suitable. If capability
+the current model or the auto tier models, and explain that changing models can change which levels
+are suitable. For Auto, explain that omitting `thinking` lets the classifier set the level for each
+task, and that a set level replaces the classifier's choice. If capability
 information cannot be verified, say so and resolve that uncertainty with the user before finalizing
 the recommendation. Do not change the parent's model or thinking level merely to inspect it.
 

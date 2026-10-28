@@ -460,7 +460,11 @@ describe("menus in panel definitions", () => {
                     label: "P",
                     menus: [{ id: "a", label: "A" } as never],
                 }),
-            { name: "TypeError", message: 'Settings menu "a" requires an open function' },
+            {
+                name: "TypeError",
+                message:
+                    'Settings menu "a" requires an open function or fields that name it in inMenu',
+            },
         );
         for (const name of ["visible", "disabled", "summary"])
             assert.throws(
@@ -588,5 +592,167 @@ describe("menus in panel definitions", () => {
         assert.equal(row.visible, undefined);
         assert.equal(row.disabled, undefined);
         assert.equal(row.formatValue?.(undefined, ctx, "global"), "");
+    });
+});
+
+describe("fields listed in a menu with inMenu", () => {
+    const schema = Type.Object({
+        mode: Type.String({ default: "basic" }),
+        alpha: Type.String({ default: "a0" }),
+        beta: Type.String({ default: "b0" }),
+    });
+
+    async function views(t: TestContext) {
+        const sandbox = await createSettingsSandbox({ prefix: "lune-inmenu-" });
+        t.after(() => sandbox.dispose());
+        const definition = defineSettings({ id: "inmenu", schema });
+        const lease = await sandbox.acquire(definition, { projectTrusted: true });
+        return { definition, settings: lease.settings };
+    }
+
+    test("a menu with open and fields naming it is rejected", async (t) => {
+        const { definition } = await views(t);
+
+        assert.throws(
+            () =>
+                defineSettingsPanel(definition, {
+                    label: "P",
+                    fields: [{ path: "alpha", inMenu: "m" }],
+                    menus: [{ id: "m", label: "M", open: () => ({ fields: [] }) }],
+                }),
+            {
+                name: "TypeError",
+                message: 'Settings menu "m" has an open function and fields that name it; use one',
+            },
+        );
+    });
+
+    test("a menu without open needs at least one field that names it", async (t) => {
+        const { definition } = await views(t);
+
+        assert.throws(
+            () =>
+                defineSettingsPanel(definition, {
+                    label: "P",
+                    fields: [{ path: "alpha" }],
+                    menus: [{ id: "m", label: "M" }],
+                }),
+            {
+                name: "TypeError",
+                message:
+                    'Settings menu "m" requires an open function or fields that name it in inMenu',
+            },
+        );
+    });
+
+    test("a field that names an unknown menu is rejected", async (t) => {
+        const { definition } = await views(t);
+
+        assert.throws(
+            () =>
+                defineSettingsPanel(definition, {
+                    label: "P",
+                    fields: [{ path: "alpha", inMenu: "nope" }],
+                    menus: [{ id: "m", label: "M", open: () => ({ fields: [] }) }],
+                }),
+            { name: "TypeError", message: 'Settings field "alpha" names unknown menu "nope"' },
+        );
+    });
+
+    test("groups are checked on the menu's own fields and on the top level separately", async (t) => {
+        const { definition } = await views(t);
+
+        // Same group name inside the menu and at the top level is fine: they are separate lists.
+        assert.doesNotThrow(() =>
+            defineSettingsPanel(definition, {
+                label: "P",
+                fields: [
+                    { path: "mode", group: "G" },
+                    { path: "alpha", inMenu: "m", group: "G" },
+                ],
+                menus: [{ id: "m", label: "M", group: "G" }],
+            }),
+        );
+        // A menu's fields cannot split a group.
+        assert.throws(
+            () =>
+                defineSettingsPanel(definition, {
+                    label: "P",
+                    fields: [
+                        { path: "alpha", inMenu: "m", group: "G" },
+                        { path: "beta", inMenu: "m", group: "H" },
+                        { path: "mode", inMenu: "m", group: "G" },
+                    ],
+                    menus: [{ id: "m", label: "M" }],
+                }),
+            { name: "TypeError", message: 'Settings group "G" must list its fields together' },
+        );
+        // Fields in a menu do not count against the top-level group order.
+        assert.doesNotThrow(() =>
+            defineSettingsPanel(definition, {
+                label: "P",
+                fields: [
+                    { path: "mode", group: "G" },
+                    { path: "alpha", inMenu: "m" },
+                ],
+                menus: [{ id: "m", label: "M", group: "G" }],
+            }),
+        );
+    });
+
+    test("the section lists only the top-level fields and the menu row, and the menu page lists its fields", async (t) => {
+        const { definition, settings } = await views(t);
+        const panel = defineSettingsPanel(definition, {
+            label: "P",
+            fields: [
+                { path: "mode" },
+                { path: "alpha", inMenu: "m" },
+                { path: "beta", inMenu: "m" },
+            ],
+            menus: [{ id: "m", label: "M" }],
+        });
+        const mapped = createDefinedSettingsSection(settings, panel);
+        const ctx = { cwd: "/unused" } as unknown as ExtensionContext;
+
+        assert.deepEqual(
+            mapped.fields.map((field) => field.id),
+            ["mode", "m"],
+        );
+        const page = mapped.fields.at(-1)!.menu?.(ctx, "global");
+        assert.deepEqual(
+            page?.fields.map((field) => field.id),
+            ["alpha", "beta"],
+        );
+    });
+
+    test("opening the menu shows its fields, and an edit there saves to the settings", async (t) => {
+        const { definition, settings } = await views(t);
+        const panel = defineSettingsPanel(definition, {
+            label: "P",
+            fields: [
+                { path: "mode" },
+                { path: "alpha", inMenu: "m" },
+                { path: "beta", inMenu: "m" },
+            ],
+            menus: [{ id: "m", label: "M" }],
+        });
+        const ui = open(t, createDefinedSettingsSection(settings, panel));
+
+        assert.ok(ui.row("mode"));
+        assert.equal(ui.row("alpha"), undefined);
+        assert.equal(ui.row("beta"), undefined);
+
+        ui.press(keys.down, keys.enter);
+        assert.equal(ui.title(), "Lune settings › M · global");
+        assert.ok(ui.row("alpha"));
+        assert.ok(ui.row("beta"));
+        assert.equal(ui.row("mode"), undefined);
+
+        ui.press(keys.enter, ..."xyz", keys.enter);
+        for (let i = 0; i < 50 && settings.get("alpha") !== "a0xyz"; i++)
+            await new Promise((resolve) => setImmediate(resolve));
+        const actual = settings.get("alpha");
+        assert.ok(typeof actual === "string" && actual.includes("xyz"), `alpha was ${actual}`);
+        assert.equal(settings.get("beta"), "b0");
     });
 });

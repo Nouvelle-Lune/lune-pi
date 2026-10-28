@@ -311,15 +311,18 @@ function runOptions(options: SubagentToolsOptions, toolsText: string): Record<st
         properties.model = Type.Optional(
             stringEnum([AUTO_MODEL, ...options.models], {
                 description:
-                    `provider/id, or "${AUTO_MODEL}" to let a classifier choose a model for the ` +
-                    "task. Default: the agent's model, then your current model.",
+                    `provider/id, or "${AUTO_MODEL}" to let a classifier rate the task and use ` +
+                    "the model set for its tier; it also sets thinking when the call and the " +
+                    "agent do not. Default: the agent's model, then your current model.",
             }),
         );
     }
 
     properties.thinking = Type.Optional(
         stringEnum(THINKING_LEVELS, {
-            description: "Default: the agent's thinking level, then your current level.",
+            description:
+                "Default: the agent's thinking level, then the classifier's level for model " +
+                "auto, then your current level.",
         }),
     );
     properties.tools = Type.Optional(Type.Array(Type.String(), { description: toolsText }));
