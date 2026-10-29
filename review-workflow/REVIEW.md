@@ -21,6 +21,10 @@ the reviewer itself.
   workflow's own documents describing a process the repository no longer follows.
 - **A silent fallback.** Code that keeps going with a default when the real input is
   missing, unless the fallback is the documented contract.
+- **Live output in a collapsed row.** A collapsed card, group preview row, or pinned
+  footer must render only settled output. A partial result that adds rows while a tool
+  runs and removes them when it settles moves the bottom-pinned transcript; filtering
+  blank output is not a fix.
 
 ## Severity
 
@@ -37,6 +41,10 @@ Report only what this diff introduces. When the same defect already exists outsi
 diff, record it with `preExisting: true`, keep it out of the blocking count, and say so
 in the summary. Reviewers that re-litigate old code stall the loop; the metrics script
 exists to find that code separately.
+
+An incomplete fix is the one exception. When a change touches a row that moves while a
+tool runs, the rows that still appear are in scope and are not `preExisting`: the change
+is the place where the movement should have stopped.
 
 ## Evidence
 
