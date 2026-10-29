@@ -14,6 +14,7 @@ const tierModel = () => Type.Union([Type.Null(), modelReference()], { default: n
 
 export const subagentSchema = Type.Object(
     {
+        allowedModels: Type.Array(modelReference(), { default: [], uniqueItems: true }),
         autoClassifier: Type.Union([Type.Null(), modelReference()], { default: null }),
         autoTiers: Type.Object(
             { light: tierModel(), standard: tierModel(), complex: tierModel(), deep: tierModel() },
@@ -55,7 +56,9 @@ export const subagentSettings = defineSettings({
     ],
 });
 
-export function autoModelSettings(settings: DeepReadonly<SubagentSettings>): AutoModelSettings {
+export function autoModelSettings(
+    settings: DeepReadonly<Omit<SubagentSettings, "allowedModels">>,
+): AutoModelSettings {
     return {
         classifier: settings.autoClassifier ? { ...settings.autoClassifier } : null,
         tiers: Object.fromEntries(

@@ -94,6 +94,8 @@ export default function (pi: ExtensionAPI): void {
                 projectTrusted: ctx.isProjectTrusted(),
             });
 
+        const view = await settings.view(ctx);
+
         manager = new RunManager({
             pi,
             ctx,
@@ -102,20 +104,39 @@ export default function (pi: ExtensionAPI): void {
             extensionTools,
             autoModelSettings: async (startCtx) =>
                 autoModelSettings((await settings.view(startCtx)).snapshot()),
+            modelSelection: async (startCtx) =>
+                (await settings.view(startCtx)).get("allowedModels"),
         });
         manager.restore();
         toolCatalog = addExtensionTools(catalog, extensionTools());
 
-        // Built once per session: the declarations stay the same for every turn of it. Tools that
-        // other extensions register later are missing from the list, but runs can still select them.
-        for (const tool of createSubagentTools({
-            manager,
-            definitions,
-            models: allowedModelRefs(ctx),
-            catalog: toolCatalog,
-        })) {
-            pi.registerTool(tool);
-        }
+        const runManager = manager;
+        const sessionCatalog = toolCatalog;
+        let registeredModels: string[] | undefined;
+        const registerTools = (): void => {
+            const models = allowedModelRefs(ctx, view.get("allowedModels"));
+
+            if (registeredModels && JSON.stringify(models) === JSON.stringify(registeredModels)) {
+                return;
+            }
+
+            const tools = createSubagentTools({
+                manager: runManager,
+                definitions,
+                models,
+                catalog: sessionCatalog,
+            });
+
+            // Only an allowlist change replaces the start schema; unrelated settings keep it stable.
+            for (const tool of registeredModels ? tools.slice(0, 1) : tools) {
+                pi.registerTool(tool);
+            }
+
+            registeredModels = models;
+        };
+
+        registerTools();
+        resources.defer(view.subscribe(registerTools));
 
         roster = renderRoster(definitions);
         pi.events.emit(

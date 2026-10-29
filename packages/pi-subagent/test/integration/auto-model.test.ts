@@ -6,6 +6,7 @@ import { test } from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { DEFAULT_AUTO_MODEL_SETTINGS, type AutoModelSettings } from "../../src/auto-model.ts";
+import type { ModelRef } from "../../src/models.ts";
 import { startValueLines } from "../../src/tools/format.ts";
 import {
     createFixture,
@@ -88,6 +89,7 @@ async function startAuto(
         params?: { agent?: string };
         definitions?: Parameters<Fixture["createManager"]>[0];
         settings?: AutoModelSettings;
+        selection?: readonly ModelRef[];
         ctx?: ExtensionContext;
         model?: string;
         thinking?: "minimal";
@@ -99,6 +101,7 @@ async function startAuto(
         ctx,
         undefined,
         options.settings && settings(options.settings),
+        options.selection ? async () => options.selection! : undefined,
     );
     const seen: string[] = [];
     const progress: string[] = [];
@@ -220,6 +223,40 @@ test("auto with a classifier runs the rated tier's model and thinking and names 
     assert.equal(request.state.task, "work");
     assert.equal(request.state.agent.name, "d");
     assert.equal(classified.requests.length, 1);
+});
+
+test("auto tiers use the saved allowed-model selection instead of Pi's scope", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx } = withClassifier(fx, { tier: "complex", thinking: "low" });
+
+    fx.state.scopedModels = [{ model: fx.models.first }];
+
+    const { run, seen } = await startAuto(fx, {
+        ctx,
+        model: "auto",
+        selection: [SECOND],
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, complex: SECOND } }),
+    });
+
+    assert.deepEqual(seen, ["faux/faux-2"]);
+    assert.equal(run.snapshot?.model, "faux/faux-2");
+});
+
+test("an auto tier model in Pi's scope but outside the saved selection fails the start", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx } = withClassifier(fx, { tier: "light" });
+
+    fx.state.scopedModels = [{ model: fx.models.first }, { model: fx.models.second }];
+
+    await assert.rejects(
+        startAuto(fx, {
+            ctx,
+            model: "auto",
+            selection: [SECOND],
+            settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: FIRST } }),
+        }),
+        /The light auto tier uses faux\/faux-1, which is not in the allowed set: faux\/faux-2\./,
+    );
 });
 
 test("a tier without a model falls up to the main agent's model, which the start values say", async (t) => {

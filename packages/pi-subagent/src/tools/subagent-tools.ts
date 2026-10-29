@@ -62,7 +62,7 @@ export interface SubagentToolsOptions {
 
 /**
  * The main agent's four tools. Their descriptions are fixed; only the `subagent_start` schema
- * depends on the session, and it is built once at `session_start` and kept for the session.
+ * depends on the session. It is rebuilt only when the allowed model list changes.
  */
 export function createSubagentTools(options: SubagentToolsOptions): ToolDefinition[] {
     const { manager } = options;

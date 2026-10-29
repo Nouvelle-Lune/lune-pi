@@ -17,7 +17,14 @@ import {
 } from "../auto-model.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import type { ExtensionTool } from "../extension-tools.ts";
-import { AUTO_MODEL, allowedModelRefs, formatModelRef, parseModelRef } from "../models.ts";
+import {
+    AUTO_MODEL,
+    allowedModelRefs,
+    allowedModels,
+    formatModelRef,
+    parseModelRef,
+    type ModelRef,
+} from "../models.ts";
 import {
     RUN_NOTIFICATION_TYPE,
     RunNotifier,
@@ -79,6 +86,7 @@ export class RunManager implements RunHost {
     private readonly definitions: AgentDefinition[];
     private readonly listExtensionTools: () => readonly ExtensionTool[];
     private readonly autoModelSettings: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
+    private readonly modelSelection: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
     private readonly runs = new Map<string, Run>();
     /** Ended turns of runs on another branch; sent when their branch is active again. */
     private readonly deferred = new Map<string, RunNotice[]>();
@@ -97,6 +105,8 @@ export class RunManager implements RunHost {
         extensionTools?: () => readonly ExtensionTool[];
         /** Read at each `model: auto` start; the defaults when left out. */
         autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
+        /** A nonempty selection replaces the parent's scope for new runs. */
+        modelSelection?: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
         /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
         modelRuntime?: ModelRuntime;
     }) {
@@ -108,6 +118,7 @@ export class RunManager implements RunHost {
         this.listExtensionTools = options.extensionTools ?? (() => []);
         this.autoModelSettings =
             options.autoModelSettings ?? (async () => DEFAULT_AUTO_MODEL_SETTINGS);
+        this.modelSelection = options.modelSelection ?? (async () => []);
         this.sessionId = options.ctx.sessionManager.getSessionId();
         this.notifier = new RunNotifier(
             options.pi,
@@ -740,7 +751,7 @@ export class RunManager implements RunHost {
     }
 
     /**
-     * Requested models must be in the parent's allowed set. The parent's own current model is used
+     * Requested models must be in the subagent allowlist. The parent's own current model is used
      * as it is, since Pi lets a session's default model sit outside its scope.
      */
     private async resolveModel(
@@ -771,6 +782,7 @@ export class RunManager implements RunHost {
         }
 
         const source: ValueSource = params.model !== undefined ? "call" : "definition";
+        const selection = await this.modelSelection(ctx);
 
         if (requested === AUTO_MODEL) {
             run.options.onProgress?.("Choosing a model");
@@ -778,6 +790,7 @@ export class RunManager implements RunHost {
             const { ref, choice, thinking } = await chooseAutoModel({
                 ctx,
                 settings: await this.autoModelSettings(ctx),
+                models: allowedModels(ctx, selection),
                 task: params.task,
                 definition,
                 tools: run.tools,
@@ -795,7 +808,7 @@ export class RunManager implements RunHost {
             throw new Error(`Invalid model "${requested}": use provider/id.`);
         }
 
-        const allowed = allowedModelRefs(ctx);
+        const allowed = allowedModelRefs(ctx, selection);
 
         if (!allowed.includes(requested)) {
             throw new Error(

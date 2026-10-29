@@ -4,14 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createSettingsSandbox } from "@lune_99/pi-lune-extensions-core/testing";
+
 import extension from "../../src/index.ts";
 import { projectDefinitionsDir } from "../../src/paths.ts";
 import { RUN_NOTIFICATION_TYPE } from "../../src/notify/notifier.ts";
+import { subagentSettings } from "../../src/settings/schema.ts";
 import { SUBAGENT_TOOL_NAMES } from "../../src/tools/subagent-tools.ts";
 import { fakeCtx, fakePi, tempAgentDir, toolInfo, writeDefinition } from "./support.ts";
 
-function load(t: TestContext) {
-    const agentDir = tempAgentDir(t);
+function load(t: TestContext, agentDir = tempAgentDir(t)) {
     const pi = fakePi();
 
     extension(pi.api);
@@ -33,7 +36,7 @@ function load(t: TestContext) {
         return event.systemPromptOptions.sections;
     };
 
-    return { agentDir, pi, fire, beforeAgentStart };
+    return { agentDir, pi, fire, beforeAgentStart, reload: () => load(t, agentDir) };
 }
 
 test("loading registers the agents command, the notification renderer and the lifecycle handlers", (t) => {
@@ -91,21 +94,28 @@ test("session_start publishes the sorted loaded names and leaves out unusable de
     assert.deepEqual(published, expected);
 });
 
-test("shutdown publishes an empty list and a reload publishes the next session's names", async (t) => {
-    const { agentDir, pi, fire } = load(t);
+test("shutdown publishes an empty list and a reloaded extension publishes the next session's names", async (t) => {
+    const first = load(t);
     const { ctx } = fakeCtx();
     const published: unknown[] = [];
-    pi.events.on(AGENTS_CHANNEL, (names) => published.push(names));
-    writeDefinition(agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
 
-    await fire("session_start", {}, ctx);
-    await fire("session_shutdown", {}, ctx);
-    writeDefinition(agentDir, "b.md", "---\nname: beta\ndescription: Second.\n---\n");
-    await fire("session_start", {}, ctx);
-    t.after(() => fire("session_shutdown", {}, ctx));
+    first.pi.events.on(AGENTS_CHANNEL, (names) => published.push(names));
+    writeDefinition(first.agentDir, "a.md", "---\nname: alpha\ndescription: First.\n---\n");
+
+    await first.fire("session_start", {}, ctx);
+    await first.fire("session_shutdown", {}, ctx);
+
+    // Pi builds a new extension runtime after /reload; a disposed settings binding cannot restart.
+    const reloaded = first.reload();
+
+    reloaded.pi.events.on(AGENTS_CHANNEL, (names) => published.push(names));
+    writeDefinition(first.agentDir, "b.md", "---\nname: beta\ndescription: Second.\n---\n");
+    await reloaded.fire("session_start", {}, ctx);
+    t.after(() => reloaded.fire("session_shutdown", {}, ctx));
 
     const expected = [["alpha"], [], ["alpha", "beta"]];
     assert.deepEqual(published, expected);
+    assert.deepEqual([...reloaded.pi.tools.keys()], [...SUBAGENT_TOOL_NAMES]);
 });
 
 test("before_agent_start writes the roster into the subagents section", async (t) => {
@@ -270,4 +280,121 @@ test("the tools parameter of subagent_start lists the parent's extension tools, 
 
     assert.match(description, /^- ext_tool: The ext_tool tool\.$/m);
     assert.ok(!description.includes("hidden_tool"));
+});
+
+const FAUX_FIRST = { provider: "faux", id: "faux-1" };
+const FAUX_SECOND = { provider: "faux", id: "faux-2" };
+
+function fakeModels(ids: readonly string[]) {
+    return ids.map((id) => ({ provider: "faux", id, name: id }));
+}
+
+function modelsCtx(options: {
+    cwd: string;
+    scoped: readonly string[];
+    available?: readonly string[];
+}): ExtensionContext {
+    const { ctx } = fakeCtx({ cwd: options.cwd });
+
+    return {
+        ...ctx,
+        scopedModels: fakeModels(options.scoped).map((model) => ({ model })),
+        modelRegistry: {
+            getAvailable: () => fakeModels(options.available ?? options.scoped),
+        },
+    } as unknown as ExtensionContext;
+}
+
+async function startWithSettings(
+    t: TestContext,
+    options: {
+        stored?: Record<string, unknown>;
+        scoped?: readonly string[];
+        available?: readonly string[];
+    } = {},
+) {
+    const sandbox = await createSettingsSandbox({ prefix: "lune-subagent-tool-models-" });
+
+    if (options.stored) {
+        await sandbox.writeStored(subagentSettings, "global", options.stored);
+    }
+
+    const lease = await sandbox.acquire(subagentSettings);
+    const loaded = load(t, sandbox.agentDir);
+    const ctx = modelsCtx({
+        cwd: sandbox.cwd,
+        scoped: options.scoped ?? [],
+        ...(options.available ? { available: options.available } : {}),
+    });
+
+    t.after(async () => {
+        await loaded.fire("session_shutdown", {}, ctx);
+        await lease.release();
+        await sandbox.dispose();
+    });
+
+    await loaded.fire("session_start", {}, ctx);
+
+    return { ...loaded, sandbox, lease, ctx };
+}
+
+function modelEnums(pi: ReturnType<typeof fakePi>): {
+    top: readonly string[] | undefined;
+    batch: readonly string[] | undefined;
+} {
+    const start = pi.tools.get("subagent_start") as unknown as {
+        parameters: {
+            properties: {
+                model?: { enum: string[] };
+                tasks: { items: { properties: { model?: { enum: string[] } } } };
+            };
+        };
+    };
+    const properties = start.parameters.properties;
+
+    return {
+        top: properties.model?.enum,
+        batch: properties.tasks.items.properties.model?.enum,
+    };
+}
+
+test("session_start builds the model parameter from the saved allowed-model selection", async (t) => {
+    const { pi } = await startWithSettings(t, {
+        stored: { allowedModels: [FAUX_SECOND] },
+        scoped: ["faux-1"],
+        available: ["faux-1", "faux-2"],
+    });
+
+    const actual = modelEnums(pi);
+    const expected = {
+        top: ["auto", "faux/faux-2"],
+        batch: ["auto", "faux/faux-2"],
+    };
+
+    assert.deepEqual(actual, expected);
+});
+
+test("changing the allowed-model selection updates both model enums, and clearing it follows Pi's scope again", async (t) => {
+    const { pi, lease } = await startWithSettings(t, {
+        stored: { allowedModels: [FAUX_SECOND] },
+        scoped: ["faux-1", "faux-2"],
+    });
+
+    await lease.settings.set("allowedModels", [FAUX_FIRST], { scope: "global" });
+
+    const selected = modelEnums(pi);
+
+    assert.deepEqual(selected, {
+        top: ["auto", "faux/faux-1"],
+        batch: ["auto", "faux/faux-1"],
+    });
+
+    await lease.settings.set("allowedModels", [], { scope: "global" });
+
+    const cleared = modelEnums(pi);
+
+    assert.deepEqual(cleared, {
+        top: ["auto", "faux/faux-1", "faux/faux-2"],
+        batch: ["auto", "faux/faux-1", "faux/faux-2"],
+    });
 });

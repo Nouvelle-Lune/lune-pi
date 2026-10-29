@@ -10,13 +10,13 @@ import {
     type SettingsPanelField,
     type SettingsPanelSchema,
 } from "@lune_99/pi-lune-extensions-core/panel";
-import type { SettingsScope } from "@lune_99/pi-lune-extensions-core/settings";
+import type { DeepReadonly, SettingsScope } from "@lune_99/pi-lune-extensions-core/settings";
 import Type from "typebox";
 
 import type { ToolCatalog } from "../catalog.ts";
 import { editDefinitionFile, type DefinitionField } from "../definition-file.ts";
 import { loadDefinitions, type AgentDefinition, type LoadedDefinitions } from "../definitions.ts";
-import { AUTO_MODEL, allowedModels, formatModelRef } from "../models.ts";
+import { AUTO_MODEL, allowedModels, formatModelRef, type ModelRef } from "../models.ts";
 import { definitionsDir, projectDefinitionsDir } from "../paths.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import { ISOLATION_MODES, THINKING_LEVELS } from "../run/types.ts";
@@ -68,7 +68,7 @@ export function agentsMenu(options: AgentsMenuOptions): SettingsMenuDefinition<S
                 .filter(Boolean)
                 .join(" · ");
         },
-        open: ({ context, scope }): SettingsMenu => {
+        open: ({ context, scope, values }): SettingsMenu => {
             const loaded = loadScope(context, scope);
 
             return {
@@ -81,7 +81,14 @@ export function agentsMenu(options: AgentsMenuOptions): SettingsMenuDefinition<S
                             scopes: [scope],
                             summary: () => agentSummary(definition),
                             menu: () => ({
-                                fields: agentFields(definition, loaded, scope, options, edited),
+                                fields: agentFields(
+                                    definition,
+                                    loaded,
+                                    scope,
+                                    options,
+                                    edited,
+                                    values,
+                                ),
                             }),
                         }),
                     ),
@@ -128,6 +135,7 @@ function agentFields(
     scope: SettingsScope,
     options: AgentsMenuOptions,
     edited: (previousFile: string, definition: AgentDefinition) => void,
+    values: DeepReadonly<SubagentSettings>,
 ): SettingsPanelField[] {
     const field = <T>(spec: {
         id: DefinitionField;
@@ -214,12 +222,12 @@ function agentFields(
             id: "model",
             label: "Model",
             description:
-                "A model of Pi's scoped models, auto for the classifier's choice per task, or the " +
+                "A model of the subagent allowed set, auto for the classifier's choice per task, or the " +
                 "main agent's model. Ctrl+R removes the field.",
             schema: nullable(Type.String({ minLength: 1 })),
             editor: "select",
             value: definition.model,
-            choiceSource: modelChoices(definition.model),
+            choiceSource: modelChoices(definition.model, values.allowedModels),
             formatValue: (value) => value ?? "Main agent's model",
         }),
         field<string>({
@@ -277,11 +285,14 @@ function agentFields(
     ];
 }
 
-function modelChoices(current: string | undefined): SettingsChoiceSource<string | null> {
+function modelChoices(
+    current: string | undefined,
+    selection: readonly ModelRef[],
+): SettingsChoiceSource<string | null> {
     return {
         rowLayout: "inline",
         load: ({ context }) => {
-            const models = allowedModels(context);
+            const models = allowedModels(context, selection);
             const refs = models.map((model) => formatModelRef(model));
 
             return [
@@ -310,7 +321,7 @@ function modelChoices(current: string | undefined): SettingsChoiceSource<string 
                               label: current,
                               badge: "Not allowed",
                               description:
-                                  "Not in Pi's scoped models now, so runs of this agent fail to start.",
+                                  "Not in the subagent allowed set now, so runs of this agent fail to start.",
                           },
                       ]
                     : []),

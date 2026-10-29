@@ -107,7 +107,7 @@ the tests and report the commands, the results and the files you changed.
 | Tools     | The call, the definition, the `defaultTools` setting                                       |
 | Isolation | The call, the definition, `shared`                                                         |
 
-- The `model` parameter accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set, and `auto`.
+- The `model` parameter accepts the **Allowed models** selection in [settings](#settings), when nonempty, and `auto`. Otherwise, it accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set. The same allowed set checks explicit models in definitions and auto tiers; inheriting the main agent's current model remains allowed even outside that set.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
 - The optional `title` labels a run in the `/agents` inspector, the Dock and its end-of-turn notice. The inspector and Dock show the title in place of the name.
@@ -135,7 +135,7 @@ The tier and high-risk questions always go in the first request. The thinking op
 - **No classifier selected:** the run uses the main agent's model and thinking. This is the default.
 - **Nothing to rate:** when no tier has a model and the thinking is set, the run uses the main agent's model without a classifier request.
 
-When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that your scope no longer allows is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
+When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that the subagent allowed set no longer permits is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
 
 ### Extension tools
 
@@ -227,11 +227,20 @@ With the Lune theme on, the report messages in the main transcript render as its
 
 Run `/lune-core-settings subagents` to open the Subagents section of Lune settings. It needs Lune Core's extension; settings are saved per scope, global or project, like other Lune settings.
 
-| Setting         | Meaning                                                                                                                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                            |
-| Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from your scope. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
-| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                           |
+| Setting         | Meaning                                                                                                                                                                                                                                                                                |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Allowed models  | A multi-select list from Pi's scoped models. A nonempty selection replaces the session's default allowed list for new runs; an empty list follows Pi's scope.                                                                                                                          |
+| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                                          |
+| Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from the subagent allowed set. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
+| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                                         |
+
+In **Allowed models**, Space toggles a model and Enter saves. Changes update the `subagent_start`
+model options for both single and batched starts immediately. A saved selection replaces the
+session's list rather than intersecting it, so an available saved model remains allowed when a
+later session has a different scope. Saved models outside the current scope or no longer available
+stay listed for removal; unavailable models cannot start new runs, and a selection containing only
+unavailable models does not fall back to Pi's list. Clear the selection to restore Pi's default.
+The main agent's inherited model and the model of an existing or resumed run are unchanged.
 
 In **Custom agents**, Enter opens an agent, and its page edits the name, description, model, thinking level, tools and isolation. Each change is written to the definition file at once; comments and the body stay. Ctrl+R removes an optional field, so the run's default applies again. Renaming an agent renames a file named after it. Model, thinking, tools and isolation apply to the next run; the name and description reach the main agent after `/reload`, because its agent list stays fixed for the session. MCP tools are not listed in the tools menu, but selected MCP tools stay in the file. A file that does not load is listed with its problem and must be fixed by hand.
 

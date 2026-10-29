@@ -93,7 +93,7 @@ test("the Auto tiers menu lists the tier and high-risk fields on its page and no
     assert.equal(menu.label, "Auto tiers");
     assert.deepEqual(
         section.fields.map((field) => field.id),
-        ["autoClassifier", "tiers", "agents"],
+        ["allowedModels", "autoClassifier", "tiers", "agents"],
     );
 });
 
@@ -176,6 +176,43 @@ test("a tier's model that Pi's scope no longer allows stays listed with a Not al
     assert.deepEqual(
         standard.map((choice) => choice.label),
         ["None", "big"],
+    );
+});
+
+test("a saved allowed-model selection narrows the tier choices and flags a tier outside it", async (t) => {
+    const { menu, ctx, lease } = await setup(t, {
+        stored: { allowedModels: [BIG] },
+        scoped: ["small", "big"],
+    });
+    const load = () =>
+        menu.menu!(ctx, "global").fields[0]!.choiceSource!.load({
+            context: ctx,
+            scope: "global",
+            values: lease.settings.snapshot(),
+            signal: new AbortController().signal,
+        });
+
+    const offered = await load();
+
+    assert.deepEqual(
+        offered.map((choice) => [choice.value, choice.label, choice.badge]),
+        [
+            [null, "None", undefined],
+            [BIG, "big", "prov"],
+        ],
+    );
+
+    await lease.settings.set("autoTiers", { ...NO_TIERS, light: SMALL }, { scope: "global" });
+
+    const saved = await load();
+
+    assert.deepEqual(
+        saved.map((choice) => [choice.label, choice.badge]),
+        [
+            ["None", undefined],
+            ["big", "prov"],
+            ["small", "Not allowed"],
+        ],
     );
 });
 

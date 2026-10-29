@@ -25,6 +25,30 @@ const classifierChoices: SettingsChoiceSource<ModelReference | null> = modelChoi
     ],
 });
 
+const allowedModelChoices = {
+    ...modelChoices<"chat", ModelReference, SubagentSettings>({
+        scopes: ["scoped"],
+        emptyMessage: "No scoped models. Configure Pi's scoped models to select an override.",
+        specialChoices: ({ context, values }, models) => {
+            const scoped = new Set(models.map((model) => formatModelRef(model)));
+            const available = new Set(context.modelRegistry.getAvailable().map(formatModelRef));
+
+            return values.allowedModels
+                .filter((model) => !scoped.has(formatModelRef(model)))
+                .map((model) => ({
+                    value: { provider: model.provider, id: model.id },
+                    label: model.id,
+                    badge: available.has(formatModelRef(model)) ? "Outside scope" : "Unavailable",
+                    searchText: formatModelRef(model),
+                    description: available.has(formatModelRef(model))
+                        ? `${formatModelRef(model)} remains allowed by this saved override. Uncheck to remove it.`
+                        : `${formatModelRef(model)} is no longer available in Pi and cannot start a run. Uncheck to remove it.`,
+                }));
+        },
+    }),
+    multiple: true as const,
+};
+
 const TIERS: Record<AutoTier, { label: string; description: string }> = {
     light: {
         label: "Light",
@@ -51,7 +75,7 @@ function tierChoices(
     return {
         rowLayout: "inline",
         load: ({ context, values }) => {
-            const models = allowedModels(context);
+            const models = allowedModels(context, values.allowedModels);
             const allowed = new Set(models.map((model) => formatModelRef(model)));
             const current = values.autoTiers[tier];
 
@@ -70,7 +94,7 @@ function tierChoices(
                               value: { provider: current.provider, id: current.id },
                               label: current.id,
                               badge: "Not allowed",
-                              description: `${formatModelRef(current)} is not in Pi's scoped models now, so auto runs of this tier fail to start. Select another model.`,
+                              description: `${formatModelRef(current)} is not in the subagent allowed set now, so auto runs of this tier fail to start. Select another model.`,
                           },
                       ]
                     : []),
@@ -90,6 +114,17 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
         id: "subagents",
         label: "Subagents",
         fields: (field) => [
+            field("allowedModels", {
+                label: "Allowed models",
+                description:
+                    "Select models from Pi's scoped models. A nonempty selection replaces the " +
+                    "session's allowed model list for new subagent runs; clear it to follow Pi's " +
+                    "scope again. Space toggles, Enter saves. Inheriting the main agent's model " +
+                    "is unchanged, and existing runs keep their model.",
+                formatValue: (value) =>
+                    value.length > 0 ? `${value.length} selected` : "Default · Pi's model scope",
+                choiceSource: allowedModelChoices,
+            }),
             field("autoClassifier", {
                 label: "Auto classifier",
                 description:
@@ -161,8 +196,8 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                 id: "tiers",
                 label: "Auto tiers",
                 description:
-                    "The model for each task tier of runs started with model auto, from Pi's " +
-                    "scoped models. A tier without a model uses the next tier up that has one, " +
+                    "The model for each task tier of runs started with model auto, from the " +
+                    "subagent allowed set. A tier without a model uses the next tier up that has one, " +
                     "and the main agent's model is the last step. The high-risk floor raises the " +
                     "model of tasks rated high risk.",
                 summary: ({ values }) => {
