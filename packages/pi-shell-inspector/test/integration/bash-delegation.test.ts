@@ -23,8 +23,37 @@ import {
     requireResult,
     resultText,
     runBashCommand,
+    type BashToolResult,
     type ExtensionSession,
 } from "../harness.ts";
+
+/**
+ * Delegated and reference calls are separate executions, so their measured wall time is volatile.
+ * Validate that field on each side instead of requiring cross-call equality, and compare the rest
+ * of the result exactly.
+ */
+function comparableResult(result: BashToolResult, label: string) {
+    const structuredContent = result.structuredContent;
+
+    assert.ok(
+        structuredContent !== null &&
+            typeof structuredContent === "object" &&
+            !Array.isArray(structuredContent),
+        `${label} must carry structured content`,
+    );
+
+    const { wall_time_seconds: wallTimeSeconds, ...stableStructuredContent } =
+        structuredContent as Record<string, unknown>;
+
+    assert.ok(
+        typeof wallTimeSeconds === "number" &&
+            Number.isFinite(wallTimeSeconds) &&
+            wallTimeSeconds >= 0,
+        `${label} wall_time_seconds must be a finite non-negative number, got ${String(wallTimeSeconds)}`,
+    );
+
+    return { ...result, structuredContent: stableStructuredContent };
+}
 
 describe("pi-shell-inspector bash delegation", () => {
     let workDir: string;
@@ -40,10 +69,10 @@ describe("pi-shell-inspector bash delegation", () => {
         removeTempWorkDir(workDir);
     });
 
-    it("returns exactly what a direct call to the built-in bash tool returns", async () => {
+    it("returns the built-in result unchanged except for the separately measured wall time", async () => {
         // Contract: with the mode omitted the call is delegated unchanged, so the result object
         // (content blocks and details) equals the result of the same command run through
-        // createBashTool(cwd) directly.
+        // createBashTool(cwd) directly. Wall time is measured separately per execution.
         const command = "printf 'alpha\\nbeta\\n'";
         const delegated = await runBashCommand(session.tool, {
             command,
@@ -57,10 +86,12 @@ describe("pi-shell-inspector bash delegation", () => {
             false,
             `the reference call must succeed: ${reference.error?.message ?? ""}`,
         );
+        const expected = comparableResult(requireResult(reference), "reference");
+        const actual = comparableResult(requireResult(delegated), "delegated");
         assert.deepEqual(
-            delegated.result,
-            reference.result,
-            "the delegated result must equal a direct built-in call",
+            actual,
+            expected,
+            "the delegated result must equal a direct built-in call apart from elapsed wall time",
         );
         assert.equal(
             resultText(requireResult(delegated)),
@@ -86,10 +117,12 @@ describe("pi-shell-inspector bash delegation", () => {
         });
         const reference = await runBashCommand(createBuiltInBash(workDir), { command, ctx: null });
 
+        const expected = comparableResult(requireResult(reference), "reference");
+        const actual = comparableResult(requireResult(explicit), "explicit foreground");
         assert.deepEqual(
-            explicit.result,
-            reference.result,
-            "the explicit foreground mode must behave like the omitted one",
+            actual,
+            expected,
+            "the explicit foreground mode must behave like the omitted one apart from elapsed wall time",
         );
         assert.equal(
             resultText(requireResult(explicit)),

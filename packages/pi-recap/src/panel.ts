@@ -41,5 +41,11 @@ export const recapPanel = defineSettingsPanel(recapSettings, {
                 },
             },
         },
+        {
+            path: "maxRetries",
+            label: "Maximum retries",
+            description:
+                "Retries after the initial attempt, for temporary provider errors only. Intermediate failures stay silent. 0 disables retries.",
+        },
     ],
 });

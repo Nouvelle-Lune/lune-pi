@@ -37,7 +37,13 @@ const createRecapSection = (settings: RecapSettingsView) =>
 import { observeTerminalFocus } from "../src/focus.ts";
 import { RecapRuntime } from "../src/runtime.ts";
 import { collectRecapInput, fingerprintRecapInput, serializeRecapInput } from "../src/input.ts";
-import { generateRecap, normalizeRecap, withAbort } from "../src/generate.ts";
+import {
+    generateRecap,
+    normalizeRecap,
+    RecapGenerationError,
+    withAbort,
+    type RecapFailureDiagnostics,
+} from "../src/generate.ts";
 
 const model: Model<string> = {
     id: "recap-test",
@@ -73,6 +79,29 @@ function response(
         stopReason,
         timestamp: Date.now(),
     };
+}
+function transientFailure(message = "503 Service Unavailable"): AssistantMessage {
+    return { ...response("", "error"), errorMessage: message };
+}
+function failedStream(message: AssistantMessage): AssistantMessageEventStream {
+    const stream = createAssistantMessageEventStream();
+    if (message.stopReason === "error") {
+        stream.push({ type: "error", reason: "error", error: message });
+    } else if (
+        message.stopReason === "stop" ||
+        message.stopReason === "length" ||
+        message.stopReason === "toolUse" ||
+        message.stopReason === "deferred"
+    ) {
+        stream.push({ type: "done", reason: message.stopReason, message });
+    } else {
+        throw new Error(`Unsupported test stream stop reason: ${message.stopReason}`);
+    }
+    stream.end(message);
+    return stream;
+}
+function nextTurn(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
 }
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -334,18 +363,31 @@ describe("recap session lifecycle", { concurrency: false, timeout: 10000 }, () =
     });
     test("recap settings inherit, reset and reload without changing the session model or saved thinking", async (t) => {
         const f = await fixture(t);
+        assert.equal(f.manager.get("maxRetries"), 3);
         await f.manager.set("model", { provider: model.provider, id: model.id });
         await f.manager.set("thinkingLevel", "max");
+        await f.manager.set("maxRetries", 2);
         await f.manager.set("model", null, { scope: "project" });
         await f.manager.set("thinkingLevel", "high", { scope: "project" });
+        await f.manager.set("maxRetries", 0, { scope: "project" });
         assert.equal(f.manager.get("model"), null);
         await f.manager.reset("model", { scope: "project" });
         await f.manager.reset("thinkingLevel", { scope: "project" });
+        await f.manager.reset("maxRetries", { scope: "project" });
         await f.manager.reload();
         assert.deepEqual(f.manager.get("model"), {
             provider: model.provider,
             id: model.id,
         });
+        assert.equal(f.manager.get("maxRetries"), 2);
+        const retryField = createRecapSection(f.manager).fields.find(
+            (field) => field.id === "maxRetries",
+        )!;
+        assert.equal(retryField.inspect().value, 2);
+        await retryField.set(1, "project");
+        assert.equal(f.manager.get("maxRetries"), 1);
+        await retryField.reset("project");
+        assert.equal(f.manager.get("maxRetries"), 2);
         const field = createRecapSection(f.manager).fields.find(
             (field) => field.id === "thinkingLevel",
         )!;
@@ -464,26 +506,67 @@ describe("recap session lifecycle", { concurrency: false, timeout: 10000 }, () =
             0,
         );
     });
-    test("automatic failure warns once per snapshot and explicit manual retry is allowed", async (t) => {
+    test("automatic failure warns once per snapshot, stays suppressed after reload, and manual retry gets a fresh budget", async (t) => {
         const f = await fixture(t);
         t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000000 });
         await f.manager.set("enabled", true);
+        await f.manager.set("maxRetries", 2);
         f.addRound();
         f.addRound();
         f.addRound();
-        f.provider(async () => response("", "error"));
+        const written = f.nextRecapRecord();
+        const records = () =>
+            f.session
+                .getBranch()
+                .filter(
+                    (entry): entry is CustomEntry =>
+                        entry.type === "custom" && entry.customType === "pi-recap.v1",
+                );
+        f.streamSource(() => failedStream(transientFailure()));
         f.focus("\x1b[O");
         t.mock.timers.tick(180000);
-        await f.runtime.manual(f.ctx);
+        await nextTurn();
         assert.equal(f.calls.length, 1);
+        assert.deepEqual(f.notices, []);
+        assert.deepEqual(records(), []);
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        assert.equal(f.calls.length, 2);
+        assert.deepEqual(f.notices, []);
+        t.mock.timers.tick(4000);
+        await nextTurn();
+        await written;
+        assert.equal(f.calls.length, 3);
         assert.equal(f.notices.length, 1);
+        assert.match(f.notices[0]!, /^Recap failed after 3 attempts:/);
+        assert.equal(records().length, 1);
         f.focus("\x1b[I");
         f.focus("\x1b[O");
-        assert.equal(f.calls.length, 1);
-        f.provider(async () => response());
-        await f.runtime.manual(f.ctx);
-        assert.equal(f.calls.length, 2);
-        assert.ok(f.widget());
+        assert.equal(f.calls.length, 3);
+
+        // Automatic suppression survives a reload of the unchanged branch.
+        f.reload();
+        f.focus("\x1b[O");
+        await nextTurn();
+        assert.equal(f.calls.length, 3);
+        assert.equal(records().length, 1);
+
+        // Manual recap starts a fresh retry budget for the same failed snapshot.
+        let manualAttempts = 0;
+        f.streamSource(() => {
+            manualAttempts++;
+            return failedStream(manualAttempts === 1 ? transientFailure() : response());
+        });
+        const manual = f.runtime.manual(f.ctx);
+        await nextTurn();
+        assert.equal(f.calls.length, 4);
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        await manual;
+        assert.equal(f.calls.length, 5);
+        assert.equal(f.runtime.diagnostics?.attempts, 2);
+        assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
+        assert.equal(f.notices.length, 1);
     });
     test("settings changes and branch changes cancel requests, and another branch cannot reuse a cached recap", async (t) => {
         const f = await fixture(t);
@@ -648,6 +731,7 @@ describe("recap host HTTP idle timeout", { concurrency: false, timeout: 10000 },
         await withHttpIdleTimeout(t, async (baseUrl) => {
             const f = await fixture(t);
             await f.manager.set("enabled", true);
+            await f.manager.set("maxRetries", 0);
 
             let userId = "";
             for (const text of ["First task", "Second task", "Third task"]) {
@@ -696,7 +780,7 @@ describe("recap host HTTP idle timeout", { concurrency: false, timeout: 10000 },
             assert.equal(requests[0]!.options!.timeoutMs, undefined);
             assert.equal(f.widget(), undefined);
             assert.equal(f.notices.length, 1);
-            assert.match(f.notices[0]!, /^Recap failed: Recap error: /);
+            assert.match(f.notices[0]!, /^Recap failed after 1 attempt/);
 
             const records = f.session
                 .getBranch()
@@ -957,6 +1041,362 @@ describe("recap model candidates", () => {
     });
 });
 
+describe("recap retry policy", { concurrency: false, timeout: 10000 }, () => {
+    test("default retry budget retries transient SDK-classified errors and succeeds on the fourth call", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+        let attempts = 0;
+        f.streamSource(() => {
+            attempts++;
+            return failedStream(attempts < 4 ? transientFailure() : response());
+        });
+
+        const request = f.runtime.manual(f.ctx);
+        await nextTurn();
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        t.mock.timers.tick(4000);
+        await nextTurn();
+        t.mock.timers.tick(8000);
+        await nextTurn();
+        await request;
+
+        assert.equal(f.calls.length, 4);
+        assert.equal(f.runtime.diagnostics?.attempts, 4);
+        assert.deepEqual(f.runtime.diagnostics?.usage, usage);
+        assert.equal(f.calls[0]!.options!.maxTokens, 1024);
+        assert.ok(f.calls.every((call) => call.options?.maxRetries === 0));
+        assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
+        assert.deepEqual(f.notices, []);
+    });
+
+    test("retry exhaustion hides intermediate failures and records one final warning with actual attempts", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+        const written = f.nextRecapRecord();
+        f.streamSource(() => failedStream(transientFailure()));
+
+        const request = f.runtime.manual(f.ctx);
+        await nextTurn();
+        assert.equal(f.calls.length, 1);
+        assert.deepEqual(f.notices, []);
+        assert.equal(
+            f.session
+                .getBranch()
+                .some((entry) => entry.type === "custom" && entry.customType === "pi-recap.v1"),
+            false,
+        );
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        assert.equal(f.calls.length, 2);
+        assert.deepEqual(f.notices, []);
+        t.mock.timers.tick(4000);
+        await nextTurn();
+        assert.equal(f.calls.length, 3);
+        assert.deepEqual(f.notices, []);
+        t.mock.timers.tick(8000);
+        await nextTurn();
+        await request;
+        await written;
+
+        assert.equal(f.calls.length, 4);
+        assert.equal(f.notices.length, 1);
+        assert.match(f.notices[0]!, /^Recap failed after 4 attempts:/);
+        const records = f.session
+            .getBranch()
+            .filter(
+                (entry): entry is CustomEntry =>
+                    entry.type === "custom" && entry.customType === "pi-recap.v1",
+            );
+        assert.equal(records.length, 1);
+        const data = records[0]!.data as {
+            failed?: boolean;
+            failure?: {
+                attempts?: number;
+                maxRetries?: number;
+                failedAt?: number;
+                message?: string;
+            };
+        };
+        assert.equal(data.failed, true);
+        assert.equal(data.failure?.attempts, 4);
+        assert.equal(data.failure?.maxRetries, 3);
+        assert.equal(typeof data.failure?.failedAt, "number");
+        assert.ok(data.failure?.message);
+    });
+
+    test("zero retries makes one stream call and records only the final failure", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.manager.set("maxRetries", 0);
+        const written = f.nextRecapRecord();
+        f.session.appendMessage({
+            ...response("PRIVATE_THINKING"),
+            content: [
+                { type: "thinking", thinking: "PRIVATE_THINKING" },
+                { type: "text", text: "PRIVATE_PROMPT_CONTEXT" },
+                {
+                    type: "toolCall",
+                    id: "private-call",
+                    name: "bash",
+                    arguments: { token: "PRIVATE_TOOL_ARGUMENT" },
+                },
+            ],
+        });
+        f.streamSource(() =>
+            failedStream(
+                transientFailure(
+                    '503 Service Unavailable {"error":"PRIVATE_PROVIDER_BODY","prompt":"PRIVATE_PROMPT_CONTEXT","Authorization":"Bearer recap-secret-token"}',
+                ),
+            ),
+        );
+
+        await f.runtime.manual(f.ctx);
+        await written;
+
+        assert.equal(f.calls.length, 1);
+        assert.equal(f.notices.length, 1);
+        assert.match(f.notices[0]!, /^Recap failed after 1 attempt/);
+        assert.doesNotMatch(f.notices[0]!, /recap-secret-token/);
+        assert.equal(f.widget(), undefined);
+        const records = f.session
+            .getBranch()
+            .filter(
+                (entry): entry is CustomEntry =>
+                    entry.type === "custom" && entry.customType === "pi-recap.v1",
+            );
+        assert.equal(records.length, 1);
+        const data = records[0]!.data as {
+            failed?: boolean;
+            failure?: {
+                attempts?: number;
+                maxRetries?: number;
+                failedAt?: number;
+                message?: string;
+            };
+        };
+        assert.equal(data.failed, true);
+        assert.equal(data.failure?.attempts, 1);
+        assert.equal(data.failure?.maxRetries, 0);
+        assert.equal(typeof data.failure?.failedAt, "number");
+        assert.ok(data.failure?.message);
+        const serialized = JSON.stringify(data);
+        for (const privateValue of [
+            "recap-secret-token",
+            "PRIVATE_PROVIDER_BODY",
+            "PRIVATE_PROMPT_CONTEXT",
+            "PRIVATE_THINKING",
+            "PRIVATE_TOOL_ARGUMENT",
+        ]) {
+            assert.doesNotMatch(serialized, new RegExp(privateValue));
+        }
+    });
+
+    test("a non-retryable SDK error is terminal despite the configured retry budget", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.manager.set("maxRetries", 2);
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+        // 429 looks transient, but the SDK classifies quota exhaustion as non-retryable.
+        f.streamSource(() => failedStream(transientFailure("429 insufficient_quota")));
+
+        const request = f.runtime.manual(f.ctx);
+        await nextTurn();
+        // Drain any backoff schedule so a wrongly retried call becomes observable.
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        t.mock.timers.tick(4000);
+        await nextTurn();
+        await request;
+
+        assert.equal(f.calls.length, 1);
+        assert.equal(f.notices.length, 1);
+        assert.match(f.notices[0]!, /^Recap failed after 1 attempt/);
+    });
+
+    test("cancellation during SDK backoff prevents another call, warning, and persisted result", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+        f.streamSource(() => failedStream(transientFailure()));
+
+        const request = f.runtime.manual(f.ctx);
+        await nextTurn();
+        assert.equal(f.calls.length, 1);
+        const signal = f.calls[0]!.options!.signal!;
+        f.runtime.input(f.ctx);
+        assert.equal(signal.aborted, true);
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        await request;
+
+        assert.equal(f.calls.length, 1);
+        assert.deepEqual(f.notices, []);
+        assert.equal(
+            f.session
+                .getBranch()
+                .some((entry) => entry.type === "custom" && entry.customType === "pi-recap.v1"),
+            false,
+        );
+    });
+
+    test("overlapping requests for the same snapshot share one provider call", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        const pending = deferred<AssistantMessage>();
+        f.provider(() => pending.promise);
+
+        const first = f.runtime.manual(f.ctx);
+        const second = f.runtime.manual(f.ctx);
+
+        assert.equal(f.calls.length, 1);
+        pending.resolve(response());
+        await Promise.all([first, second]);
+
+        assert.equal(f.calls.length, 1);
+        assert.ok(f.widget());
+        assert.deepEqual(f.notices, []);
+    });
+
+    test("changing only maxRetries preserves the successful cached recap", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.runtime.manual(f.ctx);
+        assert.equal(f.calls.length, 1);
+
+        await f.manager.set("maxRetries", 0);
+        await f.runtime.manual(f.ctx);
+
+        assert.equal(f.calls.length, 1);
+        assert.match(f.widget()!.render(80).join("\n"), /recap · done/);
+    });
+});
+
+describe("recap failure diagnostics", { concurrency: false, timeout: 10000 }, () => {
+    test("a final provider failure persists bounded protocol metadata without response content", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.manager.set("maxRetries", 1);
+        t.mock.timers.enable({ apis: ["setTimeout"] });
+        const failureResponse: AssistantMessage = {
+            ...transientFailure("503 Service Unavailable"),
+            content: [
+                { type: "thinking", thinking: "PRIVATE_THINKING" },
+                { type: "text", text: "PRIVATE_RESPONSE_TEXT" },
+                {
+                    type: "toolCall",
+                    id: "private-call",
+                    name: "bash",
+                    arguments: { token: "PRIVATE_TOOL_ARGUMENT" },
+                },
+            ],
+            rawStopReason: "overloaded",
+            responseId: "resp-private-123",
+            usage: {
+                input: 11,
+                output: 22,
+                cacheRead: 3,
+                cacheWrite: 4,
+                totalTokens: 40,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+        };
+        f.streamSource(() => failedStream(failureResponse));
+
+        const request = f.runtime.manual(f.ctx);
+        await nextTurn();
+        t.mock.timers.tick(2000);
+        await nextTurn();
+        await request;
+
+        assert.equal(f.calls.length, 2);
+        assert.equal(f.notices.length, 1);
+        assert.match(f.notices[0]!, /^Recap failed after 2 attempts:/);
+        assert.match(f.notices[0]!, /503 Service Unavailable/);
+        const records = f.session
+            .getBranch()
+            .filter(
+                (entry): entry is CustomEntry =>
+                    entry.type === "custom" && entry.customType === "pi-recap.v1",
+            );
+        assert.equal(records.length, 1);
+        const data = records[0]!.data as {
+            text?: string;
+            failed?: boolean;
+            failure?: RecapFailureDiagnostics;
+        };
+        assert.equal(data.failed, true);
+        assert.equal(data.text, undefined);
+        const failure = data.failure;
+        assert.ok(failure);
+        const expected = {
+            kind: "provider",
+            attempts: 2,
+            maxRetries: 1,
+            message: "Recap error: generation did not complete",
+            stopReason: "error",
+            rawStopReason: "overloaded",
+            responseId: "resp-private-123",
+            contentTypes: ["thinking", "text", "toolCall"],
+            usage: { input: 11, output: 22, cacheRead: 3, cacheWrite: 4, totalTokens: 40 },
+        };
+        const actual = {
+            kind: failure.kind,
+            attempts: failure.attempts,
+            maxRetries: failure.maxRetries,
+            message: failure.message,
+            stopReason: failure.stopReason,
+            rawStopReason: failure.rawStopReason,
+            responseId: failure.responseId,
+            contentTypes: failure.contentTypes,
+            usage: failure.usage,
+        };
+        assert.deepEqual(actual, expected);
+        assert.equal(typeof failure.failedAt, "number");
+        const serialized = JSON.stringify(data);
+        for (const responseContent of [
+            "PRIVATE_THINKING",
+            "PRIVATE_RESPONSE_TEXT",
+            "PRIVATE_TOOL_ARGUMENT",
+            "private-call",
+        ]) {
+            assert.doesNotMatch(serialized, new RegExp(responseContent));
+        }
+    });
+
+    test("model resolution failure records an attempt-free failure with the resolution warning", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        await f.manager.set("model", { provider: "missing", id: "missing" });
+
+        await f.runtime.manual(f.ctx);
+
+        assert.equal(f.calls.length, 0);
+        assert.deepEqual(f.notices, ["Recap model missing/missing is not registered"]);
+        const records = f.session
+            .getBranch()
+            .filter(
+                (entry): entry is CustomEntry =>
+                    entry.type === "custom" && entry.customType === "pi-recap.v1",
+            );
+        assert.equal(records.length, 1);
+        const data = records[0]!.data as {
+            failed?: boolean;
+            failure?: RecapFailureDiagnostics;
+        };
+        assert.equal(data.failed, true);
+        const failure = data.failure;
+        assert.ok(failure);
+        assert.equal(failure.kind, "model");
+        assert.equal(failure.attempts, 0);
+        assert.equal(failure.maxRetries, 3);
+        assert.equal(failure.message, "Recap model missing/missing is not registered");
+        assert.equal(typeof failure.failedAt, "number");
+    });
+});
+
 describe("recap input and provider validation", { concurrency: false, timeout: 10000 }, () => {
     test("compacted and edited projection preserves the projected summary while excluding hidden context", async (t) => {
         const f = await fixture(t);
@@ -1026,9 +1466,36 @@ describe("recap input and provider validation", { concurrency: false, timeout: 1
             throw new Error("provider offline");
         });
         await assert.rejects(
-            generateRecap(f.ctx, input, model, "off", new AbortController().signal),
-            /provider offline/,
+            generateRecap(f.ctx, input, model, "off", new AbortController().signal, 3),
+            (error) => {
+                assert.ok(error instanceof RecapGenerationError);
+                assert.equal(error.failure.kind, "provider");
+                assert.equal(error.failure.attempts, 1);
+                assert.match(error.message, /provider offline/);
+                return true;
+            },
         );
+    });
+    test("a thrown request failure is terminal and records its own kind", async (t) => {
+        const f = await fixture(t);
+        f.addRound();
+        const input = collectRecapInput(f.ctx);
+        f.streamSource(() => {
+            throw new Error("transport exploded");
+        });
+        await assert.rejects(
+            generateRecap(f.ctx, input, model, "off", new AbortController().signal, 3),
+            (error) => {
+                assert.ok(error instanceof RecapGenerationError);
+                assert.equal(error.failure.kind, "request");
+                assert.equal(error.failure.attempts, 1);
+                assert.equal(error.failure.maxRetries, 3);
+                assert.equal(error.failure.message, "Recap request failed");
+                assert.match(error.message, /transport exploded/);
+                return true;
+            },
+        );
+        assert.equal(f.calls.length, 1);
     });
     test("empty recap output fails", async (t) => {
         const f = await fixture(t);
@@ -1036,19 +1503,78 @@ describe("recap input and provider validation", { concurrency: false, timeout: 1
         const input = collectRecapInput(f.ctx);
         f.provider(async () => response(""));
         await assert.rejects(
-            generateRecap(f.ctx, input, model, "off", new AbortController().signal),
-            /empty/,
+            generateRecap(f.ctx, input, model, "off", new AbortController().signal, 3),
+            (error) => {
+                assert.ok(error instanceof RecapGenerationError);
+                assert.equal(error.failure.kind, "empty");
+                assert.equal(error.failure.attempts, 1);
+                return true;
+            },
         );
+        assert.equal(f.calls.length, 1);
     });
+    const terminalCompletions: {
+        name: string;
+        kind: "incomplete" | "tool-call";
+        output: AssistantMessage;
+    }[] = [
+        {
+            name: "toolUse completion without a tool call",
+            kind: "incomplete",
+            output: response("partial", "toolUse"),
+        },
+        {
+            name: "toolUse completion with a tool call",
+            kind: "incomplete",
+            output: {
+                ...response("partial", "toolUse"),
+                content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: {} }],
+            },
+        },
+        {
+            name: "stop completion with a tool call",
+            kind: "tool-call",
+            output: {
+                ...response("partial", "stop"),
+                content: [{ type: "toolCall", id: "tool-1", name: "bash", arguments: {} }],
+            },
+        },
+    ];
+    for (const { name, kind, output } of terminalCompletions)
+        test(`${name} fails without a retry`, async (t) => {
+            const f = await fixture(t);
+            f.addRound();
+            const input = collectRecapInput(f.ctx);
+            f.streamSource(() => failedStream(output));
+
+            await assert.rejects(
+                generateRecap(f.ctx, input, model, "off", new AbortController().signal, 3),
+                (error) => {
+                    assert.ok(error instanceof RecapGenerationError);
+                    assert.equal(error.failure.kind, kind);
+                    assert.equal(error.failure.attempts, 1);
+                    return true;
+                },
+            );
+            assert.equal(f.calls.length, 1);
+        });
+
     test("non-stop completion fails", async (t) => {
         const f = await fixture(t);
         f.addRound();
         const input = collectRecapInput(f.ctx);
         f.provider(async () => response("partial", "length"));
         await assert.rejects(
-            generateRecap(f.ctx, input, model, "off", new AbortController().signal),
-            /length/,
+            generateRecap(f.ctx, input, model, "off", new AbortController().signal, 3),
+            (error) => {
+                assert.ok(error instanceof RecapGenerationError);
+                assert.equal(error.failure.kind, "incomplete");
+                assert.equal(error.failure.stopReason, "length");
+                assert.equal(error.failure.attempts, 1);
+                return true;
+            },
         );
+        assert.equal(f.calls.length, 1);
     });
     test("virtual models are delegated to the model registry", async (t) => {
         const f = await fixture(t);
@@ -1061,6 +1587,7 @@ describe("recap input and provider validation", { concurrency: false, timeout: 1
             virtual,
             "high",
             new AbortController().signal,
+            3,
         );
         assert.equal(f.calls.length, 1);
         assert.equal(f.calls[0]!.model.api, "pi-virtual");
@@ -1078,8 +1605,9 @@ describe("recap input and provider validation", { concurrency: false, timeout: 1
             unknown,
             "off",
             new AbortController().signal,
+            3,
         );
-        assert.ok(f.calls[0]!.options!.maxTokens! > 0);
+        assert.equal(f.calls[0]!.options!.maxTokens, 1024);
         assert.equal(result.text, "done/");
     });
     test("an already aborted signal rejects without a provider call", async (t) => {
@@ -1089,7 +1617,7 @@ describe("recap input and provider validation", { concurrency: false, timeout: 1
         const controller = new AbortController();
         controller.abort(new Error("cancelled upstream"));
         await assert.rejects(
-            generateRecap(f.ctx, input, model, "off", controller.signal),
+            generateRecap(f.ctx, input, model, "off", controller.signal, 3),
             /cancelled upstream/,
         );
         assert.equal(f.calls.length, 0);

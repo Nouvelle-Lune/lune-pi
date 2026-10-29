@@ -1,0 +1,39 @@
+{
+    "schemaVersion": 1,
+    "change": "recap-silent-retries",
+    "createdAt": "2026-10-29T08:11:00.961Z",
+    "intent": "Add Recap maxRetries (default 3, zero disables), retry only SDK-classified transient failures with one budget (retryAssistantCall plus streamSimple maxRetries:0), and keep toolUse/length/empty output terminal. Keep intermediate failures silent, notify once on final failure with actual attempts, and persist bounded safe protocol diagnostics without arbitrary provider error text or response content. Preserve registry routing, cancellation, automatic failure suppression and successful cache identity. Also repair the approved shell-inspector assertion by validating elapsed duration per execution while comparing every other result field. npm run check passed on the integrated checkout (2445 tests, exit 0); focused offline regression and PTY smoke checks passed.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "bcbd7e686ec850d1dd245fc3a3295977d214dfc9",
+    "headRev": "242f464faead7ba59ffde5794353c2bbdf264174",
+    "files": [
+        "packages/pi-recap/CHANGELOG.md",
+        "packages/pi-recap/README.md",
+        "packages/pi-recap/src/generate.ts",
+        "packages/pi-recap/src/panel.ts",
+        "packages/pi-recap/src/runtime.ts",
+        "packages/pi-recap/src/settings.ts",
+        "packages/pi-recap/test/recap-extension.test.ts",
+        "packages/pi-recap/test/recap.test.ts",
+        "packages/pi-shell-inspector/test/integration/bash-delegation.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T08:11:01.388Z",
+            "scope": "full",
+            "base": "bcbd7e686ec850d1dd245fc3a3295977d214dfc9",
+            "head": "242f464faead7ba59ffde5794353c2bbdf264174",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-29T08:16:17.755Z"
+}

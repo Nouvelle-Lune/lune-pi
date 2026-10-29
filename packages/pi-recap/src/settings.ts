@@ -4,6 +4,7 @@ import { defineSettings, type SettingsView } from "@lune_99/pi-lune-extensions-c
 
 export const recapSchema = Type.Object({
     enabled: Type.Boolean({ default: false }),
+    maxRetries: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER, default: 3 }),
     model: Type.Union(
         [
             Type.Null(),
