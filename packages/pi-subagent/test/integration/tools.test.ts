@@ -58,13 +58,20 @@ test("the four tools drive a run from start to report, steering and status", asy
     fx.faux.setResponses([reportResponse("needs_input", "Stuck.", { question: "Which file?" })]);
     const started = await call("subagent_start", {
         task: "Review a.ts",
+        title: "Review a.ts",
         agent: "reviewer",
         isolation: "shared",
     });
     const [run] = manager.branchRuns();
 
     assert.ok(run);
-    assert.match(started.text, new RegExp(`Started run reviewer \\(${run.id}\\)`));
+    assert.match(
+        started.text,
+        new RegExp(
+            `^Started run ${run.id}: running\\.\\nTitle: Review a\\.ts\\nAgent: reviewer$`,
+            "m",
+        ),
+    );
     assert.match(started.text, /Isolation: shared/);
     assert.ok(started.updates.length > 0, "start reported no progress");
 
@@ -79,7 +86,14 @@ test("the four tools drive a run from start to report, steering and status", asy
     const sent = await call("subagent_send", { runId: run.id, message: "a.ts" });
     await waitForTurns(manager, run, 2);
 
-    assert.match(sent.text, /started a new turn/);
+    assert.match(
+        sent.text,
+        new RegExp(
+            `^Run ${run.id} started a new turn with your message\\. A message arrives when ` +
+                `the turn ends\\.$`,
+            "m",
+        ),
+    );
 
     const list = await call("subagent_status", {});
 
@@ -95,9 +109,12 @@ test("subagent_stop interrupts a running run and says so; a second stop reports 
     const stopped = await call("subagent_stop", { runId: run.id });
     const again = await call("subagent_stop", { runId: run.id });
 
-    assert.match(stopped.text, new RegExp(`Stopped run ${run.name} \\(${run.id}\\)`));
+    assert.match(stopped.text, new RegExp(`^Stopped run ${run.id}\\.$`, "m"));
     assert.equal(run.state, "interrupted");
-    assert.match(again.text, /is not running; its state is interrupted/);
+    assert.match(
+        again.text,
+        new RegExp(`^Run ${run.id} is not running; its state is interrupted\\.$`, "m"),
+    );
 });
 
 test("subagent_send steers a running run and tells the main agent so", async (t) => {
@@ -108,7 +125,10 @@ test("subagent_send steers a running run and tells the main agent so", async (t)
     fx.faux.appendResponses([reportResponse("done", "ok")]);
     const sent = await call("subagent_send", { runId: run.id, message: "also B" });
 
-    assert.match(sent.text, /steers its current turn/);
+    assert.match(
+        sent.text,
+        new RegExp(`^Run ${run.id} is running; your message steers its current turn\\.$`, "m"),
+    );
 
     gate.open();
     await waitForTurns(manager, run, 1);

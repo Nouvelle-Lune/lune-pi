@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import Type, { type TSchema } from "typebox";
 
 import type { ToolCatalog } from "../catalog.ts";
@@ -32,6 +32,7 @@ const CATALOG_DESCRIPTION_CHARS = 100;
 /** One run's start values: the top level of `subagent_start`, or one entry of its `tasks`. */
 interface RunInput {
     task: string;
+    title?: string;
     agent?: string;
     model?: string;
     thinking?: ThinkingLevel;
@@ -44,7 +45,7 @@ interface StartInput extends Partial<RunInput> {
 }
 
 /** The start values that a `tasks` call takes in each entry, not at the top level. */
-const RUN_FIELDS = ["agent", "model", "thinking", "tools", "isolation"] as const;
+const RUN_FIELDS = ["title", "agent", "model", "thinking", "tools", "isolation"] as const;
 
 const TASK_DESCRIPTION =
     "The run's first message; it does not inherit your conversation. Give the goal, relevant " +
@@ -81,9 +82,11 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "report arrives as a message.",
         promptSnippet: "Delegate bounded work to a background session and receive its report.",
         promptGuidelines: [
+            "Give a run a brief title so the user can identify it in the /agents inspector and Dock.",
             "Keep your work distinct from delegated work unless overlap is intentional verification. Coordinate shared-file edits so writers do not overlap.",
             "Reports arrive when turns end; do not poll subagent_status. Continue other useful work, or end your turn if none remains.",
             "When a run reports needs_input, answer with subagent_send if you can. Ask the user only when only the user can answer.",
+            "Pass a run's ID, never its name or title, to subagent_send, subagent_status and subagent_stop.",
             "Validate findings and changes you rely on. Worktree changes stay there until explicitly reviewed and integrated; nothing merges automatically.",
         ],
         parameters: Type.Object(startProperties(options)),
@@ -129,7 +132,7 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
                             },
                         });
 
-                        steps[index] = `Started run ${run.name} (${run.id})`;
+                        steps[index] = `Started run ${run.id}`;
 
                         return { run };
                     } catch (error) {
@@ -177,7 +180,11 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "accepted the message; a message arrives when the turn ends.",
         promptSnippet: "Answer, steer or continue a subagent run.",
         parameters: Type.Object({
-            runId: Type.String({ description: "The run ID that subagent_start returned." }),
+            runId: Type.String({
+                description:
+                    "The run ID that subagent_start returned, such as 8416992c. Pass the ID, not " +
+                    "the run's name or title.",
+            }),
             message: Type.String({ description: "The message for the run." }),
         }),
 
@@ -190,7 +197,7 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             });
 
             return {
-                content: [{ type: "text", text: sendText(run.name, run.id, outcome) }],
+                content: [{ type: "text", text: sendText(run.id, outcome) }],
                 details: undefined,
             };
         },
@@ -211,7 +218,13 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "with a preview of its report; with runId it returns that run's whole report.",
         promptSnippet: "Read the state and last report of subagent runs.",
         parameters: Type.Object({
-            runId: Type.Optional(Type.String({ description: "One run ID. Default: every run." })),
+            runId: Type.Optional(
+                Type.String({
+                    description:
+                        "One run ID, such as 8416992c. Default: every run. Pass the ID, not the " +
+                        "run's name or title.",
+                }),
+            ),
         }),
 
         async execute(_toolCallId, params) {
@@ -239,15 +252,19 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "no turn-end message for a run you stop; this result holds its state.",
         promptSnippet: "Stop a running subagent run.",
         parameters: Type.Object({
-            runId: Type.String({ description: "The run ID that subagent_start returned." }),
+            runId: Type.String({
+                description:
+                    "The run ID that subagent_start returned, such as 8416992c. Pass the ID, not " +
+                    "the run's name or title.",
+            }),
         }),
 
         async execute(_toolCallId, params) {
             const run = manager.branchRun(params.runId);
             const stopped = await manager.stop(run, "main-agent");
             const text = stopped
-                ? `Stopped run ${run.name} (${run.id}).\n\n${formatRunStatus(run)}`
-                : `Run ${run.name} (${run.id}) is not running; its state is ${run.state}.`;
+                ? `Stopped run ${run.id}.\n\n${formatRunStatus(run)}`
+                : `Run ${run.id} is not running; its state is ${run.state}.`;
 
             return { content: [{ type: "text", text }], details: undefined };
         },
@@ -282,9 +299,9 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
                 }),
                 {
                     description:
-                        "Independent runs started together instead of task. Set agent, model, " +
-                        "thinking, tools and isolation per entry, not at the top level. A failed " +
-                        "start does not stop the other runs.",
+                        "Independent runs started together instead of task. Set title, agent, " +
+                        "model, thinking, tools and isolation per entry, not at the top level. A " +
+                        "failed start does not stop the other runs.",
                 },
             ),
         ),
@@ -293,7 +310,15 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
 
 /** The optional start values of one run, at the top level and in each `tasks` entry. */
 function runOptions(options: SubagentToolsOptions, toolsText: string): Record<string, TSchema> {
-    const properties: Record<string, TSchema> = {};
+    const properties: Record<string, TSchema> = {
+        title: Type.Optional(
+            Type.String({
+                description:
+                    "A brief one-line title for this run, shown in the /agents inspector, Dock and " +
+                    "run notifications. The subagent tools take a run's ID, never its title.",
+            }),
+        ),
+    };
     const agents = options.definitions.map((definition) => definition.name);
 
     if (agents.length > 0) {
@@ -361,6 +386,7 @@ function firstSentence(text: string): string {
 function startParams(task: string, values: Omit<RunInput, "task">): StartParams {
     return {
         task,
+        title: values.title,
         agent: values.agent,
         model: values.model,
         thinking: values.thinking,
@@ -395,14 +421,14 @@ function batchProgress(steps: readonly string[]): string {
     ].join("\n");
 }
 
-function sendText(name: string, runId: string, outcome: SendOutcome): string {
+function sendText(runId: string, outcome: SendOutcome): string {
     switch (outcome) {
         case "started":
-            return `Run ${name} (${runId}) started a new turn with your message. A message arrives when the turn ends.`;
+            return `Run ${runId} started a new turn with your message. A message arrives when the turn ends.`;
         case "steered":
-            return `Run ${name} (${runId}) is running; your message steers its current turn.`;
+            return `Run ${runId} is running; your message steers its current turn.`;
         case "deferred":
-            return `Run ${name} (${runId}) is ending its turn; your message starts the next turn after it.`;
+            return `Run ${runId} is ending its turn; your message starts the next turn after it.`;
     }
 }
 
@@ -425,7 +451,7 @@ function batchCall(theme: Theme, entries: readonly unknown[]): Text {
         const run = (typeof entry === "object" && entry !== null ? entry : {}) as Partial<RunInput>;
         const parts = shownParts([
             typeof run.agent === "string" ? run.agent : "inline",
-            preview(run.task),
+            preview(run.title) || preview(run.task),
         ]);
 
         return `  ${theme.fg("muted", parts.join(" · "))}`;
@@ -445,7 +471,7 @@ function preview(text: unknown): string | undefined {
         return undefined;
     }
 
-    const line = text.replace(/\s+/g, " ").trim();
+    const line = stripTerminalSequences(text).replace(/\s+/g, " ").trim();
 
     return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }

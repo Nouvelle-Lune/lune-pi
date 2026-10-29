@@ -21,6 +21,8 @@ const SECTION_SEPARATOR = "\n\n---\n\n";
 export interface RunNotice {
     runId: string;
     name: string;
+    /** The user-facing title; the model-facing text names the run by its ID only. */
+    title?: string;
     record: TurnRecord;
     /** The user copied it from the inspector; the run belongs to another branch. */
     copied?: boolean;
@@ -75,7 +77,7 @@ export function buildRunNotification(batch: readonly RunNotice[]): {
     let content = "";
     const runs: RunNotificationRun[] = [];
 
-    for (const { runId, name, record, copied } of batch) {
+    for (const { runId, name, title, record, copied } of batch) {
         if (content !== "") {
             content += SECTION_SEPARATOR;
         }
@@ -86,14 +88,18 @@ export function buildRunNotification(batch: readonly RunNotice[]): {
 
         if (copied) {
             section.line(
-                `The user copied the last turn of subagent run ${name} (${runId}) from another ` +
-                    `branch. It ended: ${record.state}.`,
+                `The user copied the last turn of subagent run ${runId} from another branch. ` +
+                    `It ended: ${record.state}.`,
             );
             section.line(
                 "The run belongs to that branch, so the subagent tools cannot reach it from here.",
             );
         } else {
-            section.line(`Subagent run ${name} (${runId}) ended its turn: ${record.state}.`);
+            section.line(`Subagent run ${runId} ended its turn: ${record.state}.`);
+        }
+
+        if (title !== undefined) {
+            section.line(`Title: ${title}`);
         }
 
         if (record.stoppedBy === "user") {
@@ -149,7 +155,7 @@ export function buildRunNotification(batch: readonly RunNotice[]): {
         content += section.content;
         runs.push({
             runId,
-            name,
+            name: title ?? name,
             ...(copied ? { copied } : {}),
             endedAt: record.endedAt,
             state: record.state,

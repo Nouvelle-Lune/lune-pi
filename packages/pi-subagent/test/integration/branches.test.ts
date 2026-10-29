@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     createFixture,
+    definition,
     reportResponse,
     startGated,
     treeEvent,
@@ -38,11 +39,38 @@ test("a run from another branch is unreachable; the error lists this branch's ru
     assert.throws(
         () => manager.branchRun(away.id),
         (error: Error) =>
-            error.message.includes(`No subagent run "${away.id}" on the current branch.`) &&
-            error.message.includes(`${here.id} (${here.name})`) &&
-            !error.message.includes(`${away.id} (`),
+            error.message ===
+            `No subagent run "${away.id}" on the current branch. Runs here: ${here.id}.`,
     );
     assert.equal(manager.branchRun(here.id), here);
+});
+
+test("an unknown runId that matches a run's name or title gets that run's ID", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "reviewer" })]);
+
+    fx.faux.setResponses([reportResponse("done", "a"), reportResponse("done", "b")]);
+    const named = await manager.start({ task: "named", agent: "reviewer" }, fx.ctx);
+    const titled = await manager.start({ task: "titled", title: "Review the diff" }, fx.ctx);
+    const known = manager
+        .branchRuns()
+        .map((run) => run.id)
+        .join(", ");
+
+    assert.throws(
+        () => manager.branchRun("reviewer"),
+        (error: Error) =>
+            error.message ===
+            `No subagent run "reviewer" on the current branch. "reviewer" is a run name, ` +
+                `not an ID; pass ${named.id}. Runs here: ${known}.`,
+    );
+    assert.throws(
+        () => manager.branchRun("Review the diff"),
+        (error: Error) =>
+            error.message ===
+            `No subagent run "Review the diff" on the current branch. "Review the diff" is a ` +
+                `run title, not an ID; pass ${titled.id}. Runs here: ${known}.`,
+    );
 });
 
 test("on a branch without runs, the error says there are none", async (t) => {

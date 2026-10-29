@@ -198,7 +198,7 @@ test("subagent_status without a runId lists the runs of the branch", async (t) =
 
     const result = await status.execute("c", {});
 
-    assert.match(result.content[0]!.text, /Run reviewer \(r1\): idle/);
+    assert.match(result.content[0]!.text, /^Run r1: idle/m);
 });
 
 test("formatTokens, formatDuration and formatUsage use compact units", () => {
@@ -541,8 +541,20 @@ test("formatStarted reports the run ID, start values and that a message arrives 
 
     const text = formatStarted(run);
 
-    assert.match(text, /^Started run r1 \(r1\): idle\.\nAgent: inline/);
+    assert.match(text, /^Started run r1: idle\.\nAgent: inline/);
     assert.match(text, /A message arrives when its turn ends\.$/);
+});
+
+test("a run's title follows its ID in the started, status and list text", (t) => {
+    const run = restoredRun(tempAgentDir(t), "r1", { snapshot: { title: "Review the diff" } });
+
+    const started = formatStarted(run);
+    const status = formatRunStatus(run);
+    const list = formatRunList([run], 0);
+
+    assert.match(started, /^Started run r1: idle\.\nTitle: Review the diff\nAgent: inline\n/);
+    assert.match(status, /^Run r1: idle\nTitle: Review the diff\nAgent: inline\n/);
+    assert.match(list, /^Run r1: idle\nTitle: Review the diff\nAgent: inline\n/);
 });
 
 test("formatRunStatus gives the whole report; formatRunList only a clipped preview", (t) => {
@@ -600,7 +612,7 @@ test("a run whose file cannot be read shows the load error and nothing else", (t
 
     assert.equal(
         formatRunStatus(run),
-        "Run r1 (r1): idle\nThe run file could not be read: The run file is missing: /x",
+        "Run r1: idle\nThe run file could not be read: The run file is missing: /x",
     );
     assert.equal(snapshot("x").runId, "x");
 });

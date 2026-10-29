@@ -63,7 +63,7 @@ test("the snapshot entry is the first entry of the file", (t) => {
 test("readRunFile restores snapshot, last turn, turn count and usage", (t) => {
     const agentDir = tempAgentDir(t);
     const file = writeRunFile(agentDir, "parent-1", "run-1", {
-        snapshot: { name: "reviewer" },
+        snapshot: { name: "reviewer", title: "Security review" },
         messages: [
             userMessage("task"),
             assistantMessage("done", { input: 10, output: 5, cost: 0.5 }),
@@ -77,6 +77,7 @@ test("readRunFile restores snapshot, last turn, turn count and usage", (t) => {
     const state = readRunFile(file);
 
     assert.equal(state.snapshot.name, "reviewer");
+    assert.equal(state.snapshot.title, "Security review");
     assert.equal(state.turns, 2);
     assert.deepEqual(state.lastTurn?.report, { status: "done", summary: "ok" });
     assert.equal(state.unfinishedTurn, false);

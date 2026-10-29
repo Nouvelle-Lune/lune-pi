@@ -79,16 +79,13 @@ test("tasks starts every entry as its own run, named run-1, run-2 in entry order
     const runs = manager.branchRuns();
 
     assert.equal(runs.length, 3);
-    const names = runs.map((run) => run.name).sort();
-
-    assert.deepEqual(names, ["run-1", "run-2", "run-3"]);
-    assert.equal(
-        text.split("\n\n")[0],
-        `Started 3 runs: ${["run-1", "run-2", "run-3"]
-            .map((name) => `${name} (${runs.find((run) => run.name === name)!.id})`)
-            .join(", ")}.`,
+    const ids = ["run-1", "run-2", "run-3"].map(
+        (name) => runs.find((run) => run.name === name)!.id,
     );
-    assert.match(text, /^tasks\[2\]: Started run run-3 \(/m);
+
+    assert.deepEqual(runs.map((run) => run.name).sort(), ["run-1", "run-2", "run-3"]);
+    assert.equal(text.split("\n\n")[0], `Started 3 runs: ${ids.join(", ")}.`);
+    assert.match(text, new RegExp(`^tasks\\[2\\]: Started run ${ids[2]}: `, "m"));
     assert.match(
         text,
         /The runs work in the background\. A message arrives when each run's turn ends\.$/,
@@ -96,7 +93,7 @@ test("tasks starts every entry as its own run, named run-1, run-2 in entry order
     assert.ok(updates[0]!.startsWith("Starting 3 runs\ntasks[0]: "));
     assert.match(
         updates.at(-1)!,
-        /^Starting 3 runs\ntasks\[0\]: Started run run-\d \(.+\)\ntasks\[1\]: Started run/,
+        /^Starting 3 runs\ntasks\[0\]: Started run [0-9a-f]{8}\ntasks\[1\]: Started run/,
     );
 
     for (const run of runs) {
@@ -118,16 +115,13 @@ test("an entry with an unknown agent fails alone; the others stay started and no
     const [run] = manager.branchRuns();
 
     assert.equal(manager.branchRuns().length, 1);
-    assert.equal(
-        text.split("\n\n")[0],
-        `Started 1 of 2 runs: reviewer (${run!.id}). Failed: tasks[0].`,
-    );
+    assert.equal(text.split("\n\n")[0], `Started 1 of 2 runs: ${run!.id}. Failed: tasks[0].`);
     assert.match(
         text,
         /^tasks\[0\] failed: No subagent definition named "ghost"\. Loaded: reviewer\.$/m,
     );
-    assert.match(text, new RegExp(`^tasks\\[1\\]: Started run reviewer \\(${run!.id}\\)`, "m"));
-    assert.match(updates.at(-1)!, /tasks\[0\]: Failed\ntasks\[1\]: Started run reviewer/);
+    assert.match(text, new RegExp(`^tasks\\[1\\]: Started run ${run!.id}`, "m"));
+    assert.match(updates.at(-1)!, /tasks\[0\]: Failed\ntasks\[1\]: Started run [0-9a-f]{8}/);
     assert.equal(spawnEntryCount(fx), 1);
     assert.deepEqual(runFiles(fx), [`${run!.id}.jsonl`]);
 

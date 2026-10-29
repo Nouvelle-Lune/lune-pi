@@ -177,6 +177,31 @@ test("the display name is the definition name, or run-1, run-2 per parent sessio
     assert.equal(first.snapshot?.definition, undefined);
 });
 
+test("a title is normalized to one line in the snapshot; a blank title is dropped", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([reportResponse("done", "one"), reportResponse("done", "two")]);
+    const titled = await manager.start(
+        // These control characters outlive sequence stripping; displayLine must drop them.
+        { task: "a", title: "  Review\u001b[31m the\u0007\b \u001b \u009b\n  diff \t" },
+        fx.ctx,
+    );
+    const blank = await manager.start({ task: "b", title: " \n\t " }, fx.ctx);
+
+    assert.equal(titled.title, "Review the diff");
+    assert.equal(titled.snapshot?.title, "Review the diff");
+    assert.equal(blank.title, blank.name);
+    assert.equal(blank.snapshot?.title, undefined);
+
+    const record = readJsonl(titled.file).find((line) => line["customType"] === RUN_ENTRY_TYPE);
+
+    assert.equal((record!["data"] as { title?: string }).title, "Review the diff");
+
+    await waitForTurns(manager, titled, 1);
+    await waitForTurns(manager, blank, 1);
+});
+
 test("an unknown agent fails the start with the loaded names and leaves no run file or entry", async (t) => {
     const fx = await createFixture(t);
     const manager = fx.createManager([definition({ name: "reviewer" })]);
