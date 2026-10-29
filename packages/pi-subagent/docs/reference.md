@@ -110,6 +110,7 @@ the tests and report the commands, the results and the files you changed.
 - The `model` parameter accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set, and `auto`.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
+- The optional `title` labels a run in the `/agents` inspector, the Dock and its end-of-turn notice. The inspector and Dock show the title in place of the name.
 - The task is the run's first message, unchanged. The run's system prompt is Pi's own, then the definition body, then a short fixed guide for subagents.
 
 ### Auto model
@@ -164,12 +165,14 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 ## Tools
 
-| Tool              | Parameters                                                                     | Effect                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task` or `tasks`; optional `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
-| `subagent_send`   | `runId`, `message`                                                             | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
-| `subagent_status` | optional `runId`                                                               | Reads one run, or every run on the current branch, with token usage and the last report.      |
-| `subagent_stop`   | `runId`                                                                        | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
+Every tool that takes a run addresses it by the ID that `subagent_start` returned: eight hexadecimal characters, such as `8416992c`. A run's title and name identify it only in the inspector, the Dock and notices; a tool given either one fails, and the error lists the branch's run IDs.
+
+| Tool              | Parameters                                                                              | Effect                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `subagent_start`  | `task` or `tasks`; optional `title`, `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
+| `subagent_send`   | `runId`, `message`                                                                      | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
+| `subagent_status` | optional `runId`                                                                        | Reads one run, or every run on the current branch, with token usage and the last report.      |
+| `subagent_stop`   | `runId`                                                                                 | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
 
 ## Reports and states
 

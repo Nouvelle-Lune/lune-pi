@@ -10,6 +10,7 @@ import type {
     SessionBeforeTreeResult,
     Theme,
 } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
 import {
     chooseAutoModel,
@@ -47,6 +48,7 @@ import { createRunWorktree, removeRunWorktree, type CreatedWorktree } from "./wo
 
 export interface StartParams {
     task: string;
+    title?: string;
     agent?: string;
     model?: string;
     thinking?: ThinkingLevel;
@@ -157,7 +159,12 @@ export class RunManager implements RunHost {
             return;
         }
 
-        const notice: RunNotice = { runId: run.id, name: run.name, record };
+        const notice: RunNotice = {
+            runId: run.id,
+            name: run.name,
+            title: run.snapshot?.title,
+            record,
+        };
 
         // The notifier checks the branch again when the batch goes out.
         if (this.isOnBranch(run)) {
@@ -251,12 +258,20 @@ export class RunManager implements RunHost {
             return run;
         }
 
-        const known = this.branchRuns().map((other) => `${other.id} (${other.name})`);
+        const known = this.branchRuns();
+        // A model that read a name or title as the handle gets that run's ID spelled out, never aliased.
+        const matches = known.filter(
+            (other) => other.name === runId || other.snapshot?.title === runId,
+        );
+        const hint =
+            matches.length === 1
+                ? ` "${runId}" is a run ${matches[0]!.name === runId ? "name" : "title"}, not an ID; pass ${matches[0]!.id}.`
+                : "";
 
         throw new Error(
-            `No subagent run "${runId}" on the current branch.` +
+            `No subagent run "${runId}" on the current branch.${hint}` +
                 (known.length > 0
-                    ? ` Runs here: ${known.join(", ")}.`
+                    ? ` Runs here: ${known.map((other) => other.id).join(", ")}.`
                     : " There are no runs here."),
         );
     }
@@ -309,6 +324,10 @@ export class RunManager implements RunHost {
 
         const runId = this.reserveRunId();
         const name = definition?.name ?? `run-${++this.inlineCount}`;
+        const title =
+            typeof params.title === "string"
+                ? stripTerminalSequences(params.title).replace(/\s+/g, " ").trim()
+                : undefined;
         const file = runSessionFile(this.sessionId, runId, this.agentDir);
         let worktree: CreatedWorktree | undefined;
         let fileCreated = false;
@@ -410,6 +429,7 @@ export class RunManager implements RunHost {
         const snapshot: RunSnapshot = {
             runId,
             name,
+            ...(title ? { title } : {}),
             ...(definition
                 ? {
                       definition: {
@@ -468,10 +488,9 @@ export class RunManager implements RunHost {
             this.reservedIds.delete(runId);
             this.emit("state", this.runs.get(runId));
 
-            throw new Error(
-                `Run ${name} (${runId}) could not record its snapshot: ${message(error)}`,
-                { cause: error },
-            );
+            throw new Error(`Run ${runId} could not record its snapshot: ${message(error)}`, {
+                cause: error,
+            });
         }
 
         const run = Run.started(identity, snapshot, live, sink, this);
@@ -484,7 +503,7 @@ export class RunManager implements RunHost {
             await run.startTask(params.task);
         } catch (error) {
             throw new Error(
-                `Run ${name} (${runId}) could not start its task: ${message(error)}\n` +
+                `Run ${runId} could not start its task: ${message(error)}\n` +
                     "The run is kept as failed; continue it with subagent_send once the cause is fixed.",
                 { cause: error },
             );
@@ -517,16 +536,22 @@ export class RunManager implements RunHost {
     copyReport(run: Run): void {
         if (this.isOnBranch(run)) {
             throw new Error(
-                `Run ${run.name} is on this branch; its turns reach the main agent already.`,
+                `Run ${run.id} is on this branch; its turns reach the main agent already.`,
             );
         }
 
         if (!run.lastTurn) {
-            throw new Error(`Run ${run.name} has no ended turn to copy.`);
+            throw new Error(`Run ${run.id} has no ended turn to copy.`);
         }
 
         const { content, details } = buildRunNotification([
-            { runId: run.id, name: run.name, record: run.lastTurn, copied: true },
+            {
+                runId: run.id,
+                name: run.name,
+                title: run.snapshot?.title,
+                record: run.lastTurn,
+                copied: true,
+            },
         ]);
 
         this.pi.sendMessage({ customType: RUN_NOTIFICATION_TYPE, content, display: true, details });
@@ -548,7 +573,7 @@ export class RunManager implements RunHost {
             const stop = "Stop them";
             const choice = await ctx.ui.select(
                 `${running.length} subagent run${running.length === 1 ? " is" : "s are"} still ` +
-                    `running on the branch you are leaving: ${running.map((run) => run.name).join(", ")}.`,
+                    `running on the branch you are leaving: ${running.map((run) => run.title).join(", ")}.`,
                 [keep, stop],
                 { signal: event.signal },
             );

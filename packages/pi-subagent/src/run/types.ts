@@ -105,6 +105,7 @@ export interface RunSnapshot {
     runId: string;
     /** The definition name, or `run-<n>` for an inline run. */
     name: string;
+    title?: string;
     /** Only for a run started from a definition. */
     definition?: { name: string; body: string; file: string };
     task: string;

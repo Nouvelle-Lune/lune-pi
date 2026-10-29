@@ -86,10 +86,12 @@ const propertiesOf = (tool: ToolShape) =>
 test("subagent_start takes an optional task and an optional tasks array of run entries", (t) => {
     const { byName } = stubbed(t, () => Promise.reject(new Error("unused")));
     const schema = byName("subagent_start").parameters as { required?: string[] };
-    const tasks = propertiesOf(byName("subagent_start"))["tasks"]!;
+    const properties = propertiesOf(byName("subagent_start"));
+    const tasks = properties["tasks"]!;
     const entry = tasks.items as { properties: Properties; required: string[] };
 
     assert.equal(schema.required, undefined);
+    assert.ok(properties["title"], "the top-level title is offered");
     assert.deepEqual(entry.required, ["task"]);
     assert.deepEqual(Object.keys(entry.properties).sort(), [
         "agent",
@@ -97,6 +99,7 @@ test("subagent_start takes an optional task and an optional tasks array of run e
         "model",
         "task",
         "thinking",
+        "title",
         "tools",
     ]);
     assert.deepEqual(entry.properties["agent"]!.enum, ["reviewer"]);
@@ -167,6 +170,10 @@ test("tasks with top-level start values names them and starts nothing", async (t
         execute({ tasks: [{ task: "b" }], model: "a/one", thinking: "low", tools: ["read"] }),
         /With tasks, set model, thinking, tools in each entry/,
     );
+    await assert.rejects(
+        execute({ tasks: [{ task: "b" }], title: "A title" }),
+        /With tasks, set title in each entry instead of at the top level\./,
+    );
     assert.equal(calls.length, 0);
 });
 
@@ -188,7 +195,7 @@ test("every entry starts before any of them settles, each with its own values", 
     });
     const pending = execute({
         tasks: [
-            { task: "one", agent: "reviewer" },
+            { task: "one", agent: "reviewer", title: "First" },
             {
                 task: "two",
                 model: "a/one",
@@ -204,6 +211,7 @@ test("every entry starts before any of them settles, each with its own values", 
     assert.equal(calls.length, 2);
     assert.deepEqual(calls[0]!.params, {
         task: "one",
+        title: "First",
         agent: "reviewer",
         model: undefined,
         thinking: undefined,
@@ -212,6 +220,7 @@ test("every entry starts before any of them settles, each with its own values", 
     });
     assert.deepEqual(calls[1]!.params, {
         task: "two",
+        title: undefined,
         agent: undefined,
         model: "a/one",
         thinking: "low",
@@ -234,10 +243,10 @@ test("a failing entry does not stop the others and the result lists both outcome
 
     const { text } = await execute({ tasks: [{ task: "a" }, { task: "bad" }, { task: "c" }] });
 
-    assert.equal(text.split("\n\n")[0], "Started 2 of 3 runs: a (a), c (c). Failed: tasks[1].");
-    assert.match(text, /^tasks\[0\]: Started run a \(a\): idle\.$/m);
+    assert.equal(text.split("\n\n")[0], "Started 2 of 3 runs: a, c. Failed: tasks[1].");
+    assert.match(text, /^tasks\[0\]: Started run a: idle\.$/m);
     assert.match(text, /^tasks\[1\] failed: No subagent definition named "ghost"\.$/m);
-    assert.match(text, /^tasks\[2\]: Started run c \(c\): idle\.$/m);
+    assert.match(text, /^tasks\[2\]: Started run c: idle\.$/m);
 });
 
 test("when every entry fails the call throws with the entry blocks", async (t) => {
@@ -279,10 +288,7 @@ test("progress starts with the run count and one line per entry, updated as entr
     assert.ok(
         updates.includes("Starting 2 runs\ntasks[0]: Creating the session\ntasks[1]: Starting"),
     );
-    assert.equal(
-        updates.at(-1),
-        "Starting 2 runs\ntasks[0]: Started run run-1 (r0)\ntasks[1]: Failed",
-    );
+    assert.equal(updates.at(-1), "Starting 2 runs\ntasks[0]: Started run r0\ntasks[1]: Failed");
 });
 
 test("progress for a single entry says run in the singular", async (t) => {
@@ -298,12 +304,26 @@ test("a single task is passed to the manager as before and reported with formatS
     const { calls, run, execute } = stubbed(t, async () => started);
     const started = run("r1");
 
-    const { text } = await execute({ task: "solo", agent: "reviewer" });
+    const { text } = await execute({ task: "solo", title: "Solo run", agent: "reviewer" });
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.params.task, "solo");
+    assert.equal(calls[0]!.params.title, "Solo run");
     assert.equal(calls[0]!.params.agent, "reviewer");
     assert.equal(text, formatStarted(started));
+});
+
+test("formatStartedBatch adds an entry's title after its heading", (t) => {
+    const agentDir = tempAgentDir(t);
+    const run = restoredRun(agentDir, "a", { snapshot: { title: "Review the diff" } });
+
+    const text = formatStartedBatch([{ run }]);
+    const blocks = text.split("\n\n");
+
+    assert.match(
+        blocks[1]!,
+        /^tasks\[0\]: Started run a: idle\.\nTitle: Review the diff\nAgent: inline\n/,
+    );
 });
 
 // renderCall
@@ -352,9 +372,9 @@ test("formatStartedBatch with every entry started summarizes, details each and c
     const text = formatStartedBatch(runs.map((run) => ({ run })));
     const blocks = text.split("\n\n");
 
-    assert.equal(blocks[0], "Started 3 runs: n-a (a), n-b (b), n-c (c).");
-    assert.match(blocks[1]!, /^tasks\[0\]: Started run n-a \(a\): idle\.\nAgent: inline\n/);
-    assert.match(blocks[3]!, /^tasks\[2\]: Started run n-c \(c\): idle\./);
+    assert.equal(blocks[0], "Started 3 runs: a, b, c.");
+    assert.match(blocks[1]!, /^tasks\[0\]: Started run a: idle\.\nAgent: inline\n/);
+    assert.match(blocks[3]!, /^tasks\[2\]: Started run c: idle\./);
     assert.equal(
         blocks.at(-1),
         "The runs work in the background. A message arrives when each run's turn ends.",
@@ -368,9 +388,9 @@ test("formatStartedBatch with a failure names the failed indices and keeps the s
     const text = formatStartedBatch([{ error: "Bad agent." }, { run }]);
     const blocks = text.split("\n\n");
 
-    assert.equal(blocks[0], "Started 1 of 2 runs: n-b (b). Failed: tasks[0].");
+    assert.equal(blocks[0], "Started 1 of 2 runs: b. Failed: tasks[0].");
     assert.equal(blocks[1], "tasks[0] failed: Bad agent.");
-    assert.match(blocks[2]!, /^tasks\[1\]: Started run n-b \(b\): idle\./);
+    assert.match(blocks[2]!, /^tasks\[1\]: Started run b: idle\./);
     assert.equal(
         blocks.at(-1),
         "The run works in the background. A message arrives when its turn ends.",

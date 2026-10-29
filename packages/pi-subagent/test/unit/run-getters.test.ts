@@ -15,6 +15,17 @@ test("a restored run reports the model and thinking level of its snapshot", (t) 
     assert.equal(run.thinkingLevel, "high");
 });
 
+test("a restored run keeps the title of its snapshot and falls back to its name without one", (t) => {
+    const agentDir = tempAgentDir(t);
+    const titled = restoredRun(agentDir, "r1", {
+        snapshot: { name: "reviewer", title: "Security review" },
+    });
+    const untitled = restoredRun(agentDir, "r2", { snapshot: { name: "reviewer" } });
+
+    assert.equal(titled.title, "Security review");
+    assert.equal(untitled.title, "reviewer");
+});
+
 test("a run whose file cannot be read has neither model nor thinking level", (t) => {
     const agentDir = tempAgentDir(t);
     const file = writeRunFile(agentDir, "parent", "r1");

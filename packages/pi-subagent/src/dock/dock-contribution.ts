@@ -205,7 +205,7 @@ export class SubagentDockContribution {
         return latest
             ? [
                   {
-                      text: theme.fg("muted", `latest: ${latest.name} ${dockStatus(latest)}`),
+                      text: theme.fg("muted", `latest: ${latest.title} ${dockStatus(latest)}`),
                       rank: LATEST_RANK,
                   },
               ]

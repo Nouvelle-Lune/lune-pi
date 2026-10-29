@@ -34,6 +34,8 @@ directly.
 
 - **Work in parallel.** Start one run or several in one tool call. Each gets its own conversation
   and only the task you delegate; reports arrive when turns end, without status polling.
+- **Give each run a title.** A short title such as `Review retry policy` labels the run in
+  `/agents`, the Dock and its end-of-turn notice. The agent still addresses runs by ID.
 - **Keep control of a run.** Read its live transcript, steer it while it works, or continue it after
   a completed, failed or interrupted turn. Questions return to the main agent for coordination.
 - **Choose where changes happen.** Share the current working directory or give a run a detached
