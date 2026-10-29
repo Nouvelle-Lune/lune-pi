@@ -45,8 +45,8 @@ const LATEST_RANK = 1;
 const HINT_RANK = 0;
 
 /**
- * The Dock item of the runs on the current branch, and of runs on other branches whose ended turn
- * waits for that branch. Its lines count the runs by status and never cut a part: a narrow cell
+ * The Dock item of the runs on the current branch, and of runs on other branches that still work
+ * or whose ended turn waits for that branch. Its lines count the runs by status and never cut a part: a narrow cell
  * leaves out whole parts, then the title. A failed or blocked turn turns the marker red for a short
  * time, or until the user sees the run in the inspector; a later failure turns it red again.
  */
@@ -94,7 +94,10 @@ export class SubagentDockContribution {
         }
     }
 
-    /** This branch's runs, and the runs of other branches whose ended turn waits for that branch. */
+    /**
+     * This branch's runs, and the runs of other branches that still work, such as runs kept running
+     * on a tree navigation, or whose ended turn waits for their branch.
+     */
     private runs(): { here: Run[]; elsewhere: Run[] } {
         const manager = this.manager;
 
@@ -104,7 +107,12 @@ export class SubagentDockContribution {
 
         const { here, elsewhere } = manager.runsByBranch();
 
-        return { here, elsewhere: elsewhere.filter((run) => manager.hasDeferred(run)) };
+        return {
+            here,
+            elsewhere: elsewhere.filter(
+                (run) => run.state === "running" || manager.hasDeferred(run),
+            ),
+        };
     }
 
     private alarming(run: Run): boolean {
