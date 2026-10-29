@@ -398,3 +398,32 @@ test("changing the allowed-model selection updates both model enums, and clearin
         batch: ["auto", "faux/faux-1", "faux/faux-2"],
     });
 });
+
+test("toggling Auto mode only re-registers subagent_start without and with model, and other settings keep it", async (t) => {
+    const { pi, lease } = await startWithSettings(t, { scoped: ["faux-1"] });
+    const first = pi.tools.get("subagent_start");
+
+    assert.deepEqual(modelEnums(pi), {
+        top: ["auto", "faux/faux-1"],
+        batch: ["auto", "faux/faux-1"],
+    });
+
+    await lease.settings.set("autoOnly", true, { scope: "global" });
+
+    const on = pi.tools.get("subagent_start");
+
+    assert.notEqual(on, first);
+    assert.deepEqual(modelEnums(pi), { top: undefined, batch: undefined });
+
+    await lease.settings.set("autoClassifier", FAUX_FIRST, { scope: "global" });
+
+    assert.equal(pi.tools.get("subagent_start"), on);
+
+    await lease.settings.set("autoOnly", false, { scope: "global" });
+
+    assert.notEqual(pi.tools.get("subagent_start"), on);
+    assert.deepEqual(modelEnums(pi), {
+        top: ["auto", "faux/faux-1"],
+        batch: ["auto", "faux/faux-1"],
+    });
+});

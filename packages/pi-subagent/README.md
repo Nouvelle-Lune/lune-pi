@@ -122,7 +122,8 @@ models remain allowed outside a later session's scope while available in Pi. Exi
 their model, and inheriting the main agent's model is unchanged.
 
 **Custom agents** edits saved definitions; **Auto classifier** and **Auto tiers** configure runs
-started with `model: auto`. Model choices in Custom agents and Auto tiers follow the subagent
+started with `model: auto`. **Auto mode only** removes the `model` parameter from
+`subagent_start`, so every inline run uses `model: auto`; custom agents keep their own model. Model choices in Custom agents and Auto tiers follow the subagent
 allowed list.
 
 | Tier     | Intended work                                      |

@@ -100,11 +100,13 @@ the tests and report the commands, the results and the files you changed.
 
 `subagent_start` takes the task, an optional title, and either an agent or the settings of an inline run. A call that names an agent gives only `task` and `title`: the agent runs with the model, thinking, tools and isolation of its definition, and the main agent cannot change them. A call that names an agent and sets `model`, `thinking`, `tools` or `isolation` starts nothing. To change a role's settings, edit its definition.
 
+With **Auto mode only** on in [settings](#settings), the schema has no `model` parameter and every inline run uses `model: auto`. An inline call that still sets another model starts nothing, and in a `tasks` call no entry starts. Agent runs keep the model of their definition.
+
 Each value comes from the first source that sets it:
 
 | Value     | Agent run                                                                        | Inline run                                                                 |
 | --------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Model     | The definition, the main agent's current model                                   | The call, the main agent's current model                                   |
+| Model     | The definition, the main agent's current model                                   | The call, `auto` with Auto mode only, the main agent's current model       |
 | Thinking  | The definition, the classifier for `model: auto`, the main agent's current level | The call, the classifier for `model: auto`, the main agent's current level |
 | Tools     | The definition, the `defaultTools` setting                                       | The call, the `defaultTools` setting                                       |
 | Isolation | The definition, `shared`                                                         | The call, `shared`                                                         |
@@ -169,12 +171,12 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 Every tool that takes a run addresses it by the ID that `subagent_start` returned: eight hexadecimal characters, such as `8416992c`. A run's title and name identify it only in the inspector, the Dock and notices; a tool given either one fails, and the error lists the branch's run IDs.
 
-| Tool              | Parameters                                                                                              | Effect                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task` or `tasks`; optional `agent`, `title`; for inline runs `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
-| `subagent_send`   | `runId`, `message`                                                                                      | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
-| `subagent_status` | optional `runId`                                                                                        | Reads one run, or every run on the current branch, with token usage and the last report.      |
-| `subagent_stop`   | `runId`                                                                                                 | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
+| Tool              | Parameters                                                                                                                        | Effect                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `subagent_start`  | `task` or `tasks`; optional `agent`, `title`; for inline runs `model` (not with Auto mode only), `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
+| `subagent_send`   | `runId`, `message`                                                                                                                | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
+| `subagent_status` | optional `runId`                                                                                                                  | Reads one run, or every run on the current branch, with token usage and the last report.      |
+| `subagent_stop`   | `runId`                                                                                                                           | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
 
 ## Reports and states
 
@@ -233,6 +235,7 @@ Run `/lune-core-settings subagents` to open the Subagents section of Lune settin
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Allowed models  | A multi-select list from Pi's scoped models. A nonempty selection replaces the session's default allowed list for new runs; an empty list follows Pi's scope.                                                                                                                          |
 | Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                                          |
+| Auto mode only  | Off by default. On: `subagent_start` has no `model` parameter, and inline runs always use `model: auto`. Custom agents keep their definition's model.                                                                                                                                  |
 | Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from the subagent allowed set. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
 | Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                                         |
 

@@ -87,7 +87,7 @@ test("the Subagents section lists the auto settings and the Custom agents menu a
 
     assert.deepEqual(
         section.fields.map((field) => field.id),
-        ["allowedModels", "autoClassifier", "tiers", "agents"],
+        ["allowedModels", "autoClassifier", "autoOnly", "tiers", "agents"],
     );
     assert.equal(menu.label, "Custom agents");
     assert.equal(menu.editor, "menu");
@@ -287,4 +287,11 @@ test("a rename to a name another agent uses is refused", async (t) => {
         byId(page(reviewer, "global"), "name").set("other", "global"),
         /already uses/,
     );
+});
+
+test("the Auto mode only row follows Auto classifier as a plain on/off setting", async (t) => {
+    const { section } = await setup(t);
+    const field = section.fields.find((candidate) => candidate.id === "autoOnly")!;
+
+    assert.equal(field.label, "Auto mode only");
 });

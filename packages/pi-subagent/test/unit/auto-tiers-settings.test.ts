@@ -93,7 +93,7 @@ test("the Auto tiers menu lists the tier and high-risk fields on its page and no
     assert.equal(menu.label, "Auto tiers");
     assert.deepEqual(
         section.fields.map((field) => field.id),
-        ["allowedModels", "autoClassifier", "tiers", "agents"],
+        ["allowedModels", "autoClassifier", "autoOnly", "tiers", "agents"],
     );
 });
 
