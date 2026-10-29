@@ -243,7 +243,7 @@ function agentFields(
             schema: nullable(Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)))),
             editor: "select",
             value: definition.thinking,
-            choiceSource: thinkingChoices(definition.model, values),
+            choiceSource: thinkingChoices(definition.model, values, definition.thinking),
             formatValue: (value) => value ?? defaultThinkingChoice(definition.model, values).label,
         }),
         field<string[]>({

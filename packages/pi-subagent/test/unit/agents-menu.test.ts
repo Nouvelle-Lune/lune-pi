@@ -609,7 +609,7 @@ test("without a current main model the load fails instead of guessing levels", a
     assert.throws(() => load(thinking("auto")), /main agent/i);
 });
 
-test("a saved level the model does not support stays inspectable and resettable", async (t) => {
+test("a saved unsupported level stays visible as a disabled choice and can be reset", async (t) => {
     const { write, open, page, load } = await setup(t, {
         models: MODELS,
         available: ["small"],
@@ -624,11 +624,18 @@ test("a saved level the model does not support stays inspectable and resettable"
     const fields = page(open("global").fields[0]!, "global");
     const thinking = byId(fields, "thinking");
 
+    const choices = await load(thinking);
+    const saved = choices.find((choice) => choice.value === "max");
+
     assert.equal(thinking.inspect().value, "max");
     assert.deepEqual(
-        (await load(thinking)).map((choice) => choice.value),
+        choices.filter((choice) => !choice.disabled).map((choice) => choice.value),
         [null, "off"],
     );
+    assert.ok(saved);
+    assert.match(saved.label, /saved.*unsupported/i);
+    assert.match(saved.disabled!, /not supported/i);
+    assert.match(readFileSync(file, "utf8"), /^thinking: max$/m);
 
     await thinking.reset("global");
 

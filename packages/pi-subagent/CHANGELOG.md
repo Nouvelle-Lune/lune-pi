@@ -22,7 +22,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ### Fixed
 
-- **Supported thinking choices.** Custom agents now offer only thinking levels supported by the selected model, or by the current main model when inherited. With a classifier and `model: auto`, explicit choices are limited to levels shared by the tier models and the main model, and the default is labeled automatic thinking. Missing or disallowed models report a configuration error instead of offering unsupported levels.
+- **Supported thinking choices.** Custom agents limit selectable levels to the chosen or inherited model's support; with an auto classifier, levels must be shared by the tier models and the main model. The automatic default is labeled correctly, invalid model selections report errors, and unsupported saved levels stay visible as disabled entries.
 
 ### Changed
 

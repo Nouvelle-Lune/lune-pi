@@ -252,10 +252,11 @@ In **Custom agents**, Enter opens an agent, and its page edits the name, descrip
 The **Thinking** selector offers only levels supported by the agent's model. When the model is
 inherited, it follows the current main model. With `model: auto` and a configured classifier,
 explicit levels must be supported by every configured tier model and the main model, which a
-failed classifier can use. If those models share no level, only **Automatic thinking** is offered;
+failed classifier can use. If those models share no level, only **Automatic thinking** is selectable;
 leaving the field out lets the classifier choose a supported level per task. Without a classifier,
 `auto` follows the main model and thinking. An unavailable or disallowed model must be corrected
-before loading thinking choices. Existing saved thinking values remain intact when changing models.
+before loading thinking choices. Existing saved thinking values remain intact when changing models;
+a saved unsupported level stays visible as a disabled entry until replaced or reset.
 
 ## Sessions and branches
 

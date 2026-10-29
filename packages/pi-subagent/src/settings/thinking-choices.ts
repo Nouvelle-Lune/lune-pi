@@ -31,6 +31,7 @@ export function defaultThinkingChoice(
 export function thinkingChoices(
     model: string | undefined,
     values: DeepReadonly<SubagentSettings>,
+    current?: ThinkingLevel,
 ): SettingsChoiceSource<ThinkingLevel | null> {
     return {
         load: ({ context }) => {
@@ -49,6 +50,17 @@ export function thinkingChoices(
                               "each task uses a supported level.",
                       },
                 ...levels.map((level) => ({ value: level, label: level })),
+                ...(current !== undefined && !levels.includes(current)
+                    ? [
+                          {
+                              value: current,
+                              label: `${current} · saved, unsupported`,
+                              disabled:
+                                  "This saved level is not supported by the current model selection. " +
+                                  "Choose another level or remove the override.",
+                          },
+                      ]
+                    : []),
             ];
         },
     };
