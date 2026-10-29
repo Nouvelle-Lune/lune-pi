@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { getDockRegistry } from "@lune_99/pi-lune-extensions-core/dock/host";
+
+import {
+    SUBAGENT_CONTRIBUTION_ID,
+    SubagentDockContribution,
+} from "../../src/dock/dock-contribution.ts";
 import {
     createFixture,
     definition,
@@ -189,6 +195,45 @@ test("beforeTree keeps the runs running when asked to", async (t) => {
 
     assert.equal(result, undefined);
     assert.equal(run.state, "running");
+});
+
+test("a run kept running on a tree navigation shows in the Dock as running on another branch", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+    const base = baseEntry(fx);
+    const { run, gate } = await startGated(fx, manager, { task: "one" });
+
+    t.after(() => gate.open());
+    fx.state.selectAnswer = "Keep them running";
+    await manager.beforeTree(
+        treeEvent({ oldLeafId: fx.parent.getLeafId(), commonAncestorId: base }),
+        fx.ctx,
+    );
+    fx.parent.branch(base);
+
+    // The Dock only joins a shared host in a TUI context.
+    const ui = { ...fx.ctx.ui, setWidget: () => undefined };
+    const ctx = Object.create(fx.ctx, {
+        mode: { value: "tui" },
+        ui: { value: ui },
+    }) as typeof fx.ctx;
+    const dock = new SubagentDockContribution(async () => undefined);
+    const release = getDockRegistry().attachHost(ctx.ui, { invalidate() {} });
+
+    dock.attach(ctx, manager);
+    t.after(() => {
+        dock.detach({ retired: true });
+        release();
+    });
+
+    const mounted = getDockRegistry()
+        .getContributions(ctx.ui)
+        .find((entry) => entry.id === SUBAGENT_CONTRIBUTION_ID)!;
+    const detail = (mounted.snapshot.detail ?? mounted.snapshot.base).render(200)[0]!;
+
+    assert.equal(run.state, "running");
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(detail, "◐ Agents · 1 running · 1 on another branch");
 });
 
 test("beforeTree cancels the navigation when the dialog is cancelled", async (t) => {

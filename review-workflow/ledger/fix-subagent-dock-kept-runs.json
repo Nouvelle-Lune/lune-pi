@@ -1,0 +1,35 @@
+{
+    "schemaVersion": 1,
+    "change": "fix-subagent-dock-kept-runs",
+    "createdAt": "2026-10-29T10:00:37.385Z",
+    "intent": "The Dock counts a run of another branch while it still runs, so a run kept running by a tree navigation stays visible. An idle run of another branch without a waiting report stays hidden.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "312dee598f544bc5f8f9d549c0ba298912fac836",
+    "headRev": "edc464e13302976b90bb76ed428f9fec7a563796",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/dock/dock-contribution.ts",
+        "packages/pi-subagent/test/integration/branches.test.ts",
+        "packages/pi-subagent/test/unit/dock.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T10:00:38.195Z",
+            "scope": "full",
+            "base": "312dee598f544bc5f8f9d549c0ba298912fac836",
+            "head": "edc464e13302976b90bb76ed428f9fec7a563796",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-29T10:04:00.068Z"
+}

@@ -261,6 +261,26 @@ test("a run on another branch shows only once its ended turn waits for that bran
     assert.match(text("detail"), / · 2 on other branches$/);
 });
 
+test("a running run on another branch shows with the running marker and counts, an idle one stays hidden", (t) => {
+    const { dock, manager, text, sessionManager } = fixture(t, { a: {}, b: {} });
+
+    // An empty leaf puts every run on another branch.
+    sessionManager.resetLeaf();
+    dock.refresh();
+
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(text("detail"), "○ Agents");
+
+    manager.otherBranchRuns()[0]!.state = "running";
+    dock.refresh();
+
+    assert.equal(text("base"), "◐ Agents");
+    assert.equal(text("detail"), "◐ Agents · 1 running · 1 on another branch");
+
+    // The idle run without a deferred turn adds nothing.
+    assert.equal(manager.hasDeferred(manager.otherBranchRuns()[1]!), false);
+});
+
 // A failed, a running and a done run: the full line has every rank-driven part below.
 function widthFixture(t: TestContext, options: { mode?: string } = {}) {
     const fx = fixture(

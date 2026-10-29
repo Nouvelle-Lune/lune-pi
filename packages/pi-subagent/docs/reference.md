@@ -198,7 +198,7 @@ The run state describes the session, not the task: `running`, `idle`, `failed` (
 
 ## Dock and `/agents`
 
-The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while its report waits for that branch, and the line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
+The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
 
 The Dock never cuts its line. When the cell is too narrow, it leaves out complete parts, the least urgent first, so the `failed`, `blocked` and `needs input` counts stay longest. Then only `◐ Agents` shows, then only the marker.
 
