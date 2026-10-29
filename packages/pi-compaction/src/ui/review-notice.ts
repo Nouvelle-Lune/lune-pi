@@ -333,12 +333,29 @@ class ReviewNoticeComponent implements Component {
     }
 }
 
+/** RPC has no width to measure against; 80 keeps all three rows inside a typical client pane. */
+const RPC_NOTICE_WIDTH = 80;
+
+/** RPC renders the string form of a widget, so nothing resolves a theme. */
+const unstyledTheme = { fg: (_color: string, text: string) => text } as unknown as Theme;
+
 /** Pins the latest review above the editor, outside the transcript that Pi rebuilds after a compaction. */
 export function createReviewNotice(): CompactionRunListener {
     let mounted: { component: ReviewNoticeComponent; requestRender: () => void } | undefined;
     let shown = false;
     return (update, ctx) => {
         if (!ctx.hasUI) return;
+        // RPC ignores widget factories but renders string lines, so send the same notice as text.
+        if (ctx.mode === "rpc") {
+            ctx.ui.setWidget(
+                REVIEW_NOTICE_WIDGET,
+                update
+                    ? reviewNoticeLines(reviewNoticeView(update), RPC_NOTICE_WIDTH, unstyledTheme)
+                    : undefined,
+                { placement: "aboveEditor" },
+            );
+            return;
+        }
         if (!update) {
             if (shown) ctx.ui.setWidget(REVIEW_NOTICE_WIDGET, undefined);
             shown = false;

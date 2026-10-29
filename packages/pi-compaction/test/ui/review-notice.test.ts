@@ -244,6 +244,29 @@ function context(hasUI: boolean, widgets: { setWidget: (...args: never[]) => voi
     return { hasUI, ui: { setWidget: widgets.setWidget } } as unknown as ExtensionContext;
 }
 
+/** RPC reports a usable UI, but its widget surface renders lines instead of mounting factories. */
+function rpcContext(
+    widgets: { setWidget: (...args: never[]) => void },
+    hasUI = true,
+): ExtensionContext {
+    return {
+        hasUI,
+        mode: "rpc",
+        ui: { setWidget: widgets.setWidget },
+    } as unknown as ExtensionContext;
+}
+
+/** The shared recorder types content as a factory, so RPC lines are narrowed by hand. */
+function rpcLines(widgets: ReturnType<typeof recordWidgets>, index = 0): string[] {
+    const content: unknown = widgets.calls[index]!.content;
+    assert.ok(Array.isArray(content), `call ${index} must send lines instead of a factory`);
+    assert.ok(
+        content.every((line) => typeof line === "string"),
+        `call ${index} must send only string lines`,
+    );
+    return content as string[];
+}
+
 test("notice: a context without a UI never touches widgets", () => {
     const widgets = recordWidgets();
     const listener = createReviewNotice();
@@ -321,4 +344,66 @@ test("notice: a render failure renders nothing, logs, and clears the widget afte
     assert.equal(widgets.calls[1]!.key, REVIEW_NOTICE_WIDGET);
     assert.equal(widgets.calls[1]!.content, undefined);
     assert.deepEqual(widgets.component()?.render(100) ?? [], []);
+});
+
+test("notice: an RPC context receives rendered lines placed above the editor", () => {
+    const widgets = recordWidgets();
+    createReviewNotice()(richUpdate("complete"), rpcContext(widgets));
+    assert.equal(widgets.calls.length, 1);
+    assert.equal(widgets.calls[0]!.key, REVIEW_NOTICE_WIDGET);
+    assert.deepEqual(widgets.calls[0]!.options, { placement: "aboveEditor" });
+    assert.ok(rpcLines(widgets).length > 0);
+});
+
+test("notice: RPC lines carry the notice content of a complete update", () => {
+    const widgets = recordWidgets();
+    createReviewNotice()(richUpdate("complete"), rpcContext(widgets));
+    const text = rpcLines(widgets).join("\n");
+    assert.ok(text.includes("Jev review"), text);
+    assert.ok(text.includes("3 calls"), text);
+    assert.ok(text.includes("−1 call"), text);
+});
+
+test("notice: later RPC updates send new lines that reflect the new state", () => {
+    const widgets = recordWidgets();
+    const listener = createReviewNotice();
+    const ctx = rpcContext(widgets);
+    listener(
+        update("chunks", {
+            candidateTools: 2,
+            protectedTools: 1,
+            completedBatches: 1,
+            totalBatches: 3,
+        }),
+        ctx,
+    );
+    const reviewing = rpcLines(widgets, 0);
+    listener(richUpdate("complete"), ctx);
+    const complete = rpcLines(widgets, 1);
+    assert.equal(widgets.calls.length, 2);
+    assert.notEqual(complete, reviewing);
+    assert.ok(reviewing.join("\n").includes("2 in review"), reviewing.join("\n"));
+    assert.ok(complete.join("\n").includes("−1 call"), complete.join("\n"));
+    assert.ok(!complete.join("\n").includes("in review"), complete.join("\n"));
+});
+
+test("notice: clearing an RPC notice sends undefined content", () => {
+    const widgets = recordWidgets();
+    const listener = createReviewNotice();
+    const ctx = rpcContext(widgets);
+    listener(update("preparing"), ctx);
+    assert.ok(rpcLines(widgets, 0).length > 0, "the update must replace the widget with lines");
+    listener(undefined, ctx);
+    assert.equal(widgets.calls.length, 2);
+    assert.equal(widgets.calls[1]!.key, REVIEW_NOTICE_WIDGET);
+    assert.equal(widgets.calls[1]!.content, undefined);
+});
+
+test("notice: an RPC context without a UI never touches widgets", () => {
+    const widgets = recordWidgets();
+    const listener = createReviewNotice();
+    const ctx = rpcContext(widgets, false);
+    listener(update("chunks"), ctx);
+    listener(undefined, ctx);
+    assert.deepEqual(widgets.calls, []);
 });
