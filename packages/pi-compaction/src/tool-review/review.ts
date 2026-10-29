@@ -63,11 +63,15 @@ export interface ToolReviewReport {
     readonly usage: readonly Usage[];
     /** Serialized native message payload size, including metadata; not summary prompt tokens. */
     readonly charsBefore: number;
+    /** The same size after the review input cap, before any classifier decision. */
+    readonly charsAfterTruncation: number;
     readonly charsAfter: number;
 }
 
 export interface ToolReviewProgress {
     readonly stage: "chunks";
+    readonly candidateTools: number;
+    readonly protectedTools: number;
     readonly completedBatches: number;
     readonly totalBatches: number;
 }
@@ -139,7 +143,13 @@ export async function reviewToolHistory(
             }),
         signal,
         (completedBatches, totalBatches) =>
-            progress({ stage: "chunks", completedBatches, totalBatches }),
+            progress({
+                stage: "chunks",
+                candidateTools: index.pairs.length,
+                protectedTools: index.protectedTools.length,
+                completedBatches,
+                totalBatches,
+            }),
     );
     let oversizedRequests = 0;
     results.forEach((result, position) => {
@@ -189,6 +199,10 @@ export async function reviewToolHistory(
         charsBefore: JSON.stringify([
             event.preparation.messagesToSummarize,
             event.preparation.turnPrefixMessages,
+        ]).length,
+        charsAfterTruncation: JSON.stringify([
+            preparation.messagesToSummarize,
+            preparation.turnPrefixMessages,
         ]).length,
         charsAfter: JSON.stringify([filtered.messagesToSummarize, filtered.turnPrefixMessages])
             .length,
@@ -380,45 +394,6 @@ export function summarizeReview(report: ToolReviewReport): ReviewSummary {
         charsBefore: report.charsBefore,
         charsAfter: report.charsAfter,
     };
-}
-
-function compactSize(chars: number): string {
-    return chars >= 1000 ? `${Math.round(chars / 1000)}k` : `${chars}`;
-}
-
-function pluralize(count: number, singular: string, plural: string): string {
-    return `${count} ${count === 1 ? singular : plural}`;
-}
-
-export function formatReviewNotice(report: ToolReviewReport): string {
-    const summary = summarizeReview(report);
-    const head = `◇ Tool review · ${summary.model} · ${pluralize(summary.checked, "call", "calls")} checked`;
-    if (summary.checked === 0) return `${head} · ${compactSize(summary.charsAfter)}`;
-    const edits: string[] = [];
-    if (summary.removedCalls > 0)
-        edits.push(`${pluralize(summary.removedCalls, "call", "calls")} deleted`);
-    if (summary.droppedFragments > 0)
-        edits.push(
-            `${pluralize(summary.droppedFragments, "result fragment", "result fragments")} deleted`,
-        );
-    if (summary.placeholders > 0)
-        edits.push(
-            `${pluralize(summary.placeholders, "result fragment", "result fragments")} replaced with a placeholder`,
-        );
-    if (summary.unreviewed > 0)
-        edits.push(
-            `${pluralize(summary.unreviewed, "result fragment", "result fragments")} kept without review`,
-        );
-    if (edits.length === 0) edits.push("no change");
-    const percent =
-        summary.charsBefore > 0
-            ? Math.round(((summary.charsBefore - summary.charsAfter) / summary.charsBefore) * 100)
-            : 0;
-    const size =
-        summary.charsBefore === summary.charsAfter || percent <= 0
-            ? compactSize(summary.charsAfter)
-            : `${compactSize(summary.charsBefore)}→${compactSize(summary.charsAfter)} (-${percent}%)`;
-    return `${head}: ${edits.join(" · ")} · ${size}`;
 }
 
 /** Persisted checkpoint record; field names are stored in session files. */

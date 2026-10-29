@@ -7,9 +7,10 @@ import {
     reviewToolHistory,
     summarizeReview,
     type ChunkDecision,
+    type ToolReviewProgress,
     type ToolReviewReport,
 } from "../../src/tool-review/review.ts";
-import type { ResultChunk } from "../../src/tool-review/candidates.ts";
+import { truncateToolResult, type ResultChunk } from "../../src/tool-review/candidates.ts";
 import type { CompactionPolicy } from "../../src/options.ts";
 import { assistantText, assistantToolCall, policy, toolResult, user } from "../harness/fixtures.ts";
 
@@ -20,6 +21,7 @@ function setup(
         contextWindow?: number;
         policy?: CompactionPolicy;
         classify?: (request: ClassifierContext) => Partial<ClassifierResult>;
+        onProgress?: (update: ToolReviewProgress) => void;
     } = {},
 ) {
     const retained = [user("current request"), assistantText("retained progress")];
@@ -75,7 +77,7 @@ function setup(
             options.policy ?? policy({ deletableTools: ["read"] }),
             classifier,
             new AbortController().signal,
-            () => undefined,
+            options.onProgress ?? (() => undefined),
         );
     return { run, captured, classifier, registryCalls };
 }
@@ -181,6 +183,129 @@ test("review protects non-permitted, nested, error and media outputs without cla
     assert.equal(harness.captured.length, 0);
     assert.deepEqual(actual.messagesToSummarize, messages);
     assert.equal(actual.report.protectedTools.length, 4);
+});
+
+function nested(
+    id: string,
+    calls: { name: string; status?: "ok" | "error" | "unfinished" }[],
+    complete = true,
+) {
+    return {
+        ...toolResult(id, "codemode", "NESTED_BODY_" + id),
+        nestedCalls: {
+            calls: calls.map(({ name, status }, position) => ({
+                id: `${id}-n${position}`,
+                name,
+                status: status ?? "ok",
+            })),
+            complete,
+        },
+    } as AgentMessage;
+}
+
+test("review classifies a codemode result whose nested calls are complete, permitted and ok", async () => {
+    const messages = [
+        user("inspect"),
+        assistantToolCall("c", "codemode", {}),
+        nested("c", [{ name: "read" }, { name: "grep" }]),
+    ];
+    const harness = setup(messages, {
+        policy: policy({ deletableTools: ["codemode", "read", "grep"] }),
+    });
+    const actual = await harness.run();
+    assert.equal(harness.captured.length, 1);
+    assert.equal(actual.report.candidateTools, 1);
+    assert.deepEqual(actual.report.protectedTools, []);
+    assert.deepEqual(actual.report.removedCalls, ["c"]);
+});
+
+for (const scenario of [
+    {
+        name: "a nested call to a tool that is not permitted",
+        calls: [{ name: "read" }, { name: "write" }],
+        complete: true,
+        reasons: ["nested-tool-not-deletable"],
+    },
+    {
+        name: "a failed nested call",
+        calls: [{ name: "read", status: "error" as const }],
+        complete: true,
+        reasons: ["nested-call-failed"],
+    },
+    {
+        name: "an unfinished nested call",
+        calls: [{ name: "read", status: "unfinished" as const }],
+        complete: true,
+        reasons: ["nested-call-failed"],
+    },
+    {
+        name: "an incomplete record with recorded calls",
+        calls: [{ name: "read" }],
+        complete: false,
+        reasons: ["incomplete-nested-calls"],
+    },
+    {
+        name: "an incomplete record without calls",
+        calls: [],
+        complete: false,
+        reasons: ["incomplete-nested-calls"],
+    },
+]) {
+    test(`review protects a codemode result with ${scenario.name} without classifier requests`, async () => {
+        const messages = [
+            user("inspect"),
+            assistantToolCall("c", "codemode", {}),
+            nested("c", scenario.calls, scenario.complete),
+        ];
+        const harness = setup(messages, {
+            policy: policy({ deletableTools: ["codemode", "read", "grep"] }),
+        });
+        const actual = await harness.run();
+        const expected = [{ id: "c", reasons: scenario.reasons }];
+        assert.equal(harness.captured.length, 0);
+        assert.deepEqual(actual.report.protectedTools, expected);
+        assert.deepEqual(actual.messagesToSummarize, messages);
+    });
+}
+
+test("review reports the size after the input cap separately from classifier savings and progress counts", async () => {
+    const messages = [
+        user("inspect"),
+        assistantToolCall("big", "read", {}),
+        toolResult("big", "read", "A".repeat(20_000)),
+        assistantToolCall("small", "read", {}),
+        toolResult("small", "read", "SMALL_BODY"),
+        assistantToolCall("w", "write", {}),
+        toolResult("w", "write", "WRITE_BODY"),
+    ];
+    const updates: ToolReviewProgress[] = [];
+    const harness = setup(messages, {
+        onProgress: (update) => updates.push(update),
+        // Only the small result is dropped; the capped big result is kept.
+        classify: (request) => ({
+            answers: {
+                safeToDrop: {
+                    type: "bool",
+                    probability: request.state.result === "SMALL_BODY" ? 1 : 0,
+                },
+            },
+        }),
+    });
+    const actual = await harness.run();
+    const { charsBefore, charsAfterTruncation, charsAfter } = actual.report;
+    assert.ok(charsBefore > charsAfterTruncation, "the cap shrinks an oversized result");
+    assert.ok(charsAfterTruncation > charsAfter, "the classifier drop shrinks it further");
+    // The cap alone: serialize the original history with only the oversized result truncated.
+    const expectedBefore = JSON.stringify([messages, []]).length;
+    const expectedAfterTruncation = JSON.stringify([messages.map(truncateToolResult), []]).length;
+    assert.equal(charsBefore, expectedBefore);
+    assert.equal(charsAfterTruncation, expectedAfterTruncation);
+    assert.ok(updates.length > 0);
+    for (const update of updates) {
+        assert.equal(update.stage, "chunks");
+        assert.equal(update.candidateTools, 2);
+        assert.equal(update.protectedTools, 1);
+    }
 });
 
 test("review preflight overflow uses a placeholder and preserves arguments while other candidates proceed", async () => {
@@ -380,6 +505,7 @@ function summaryFixture(
         budgetFallbacks: [],
         usage: [],
         charsBefore: 1000,
+        charsAfterTruncation: 800,
         charsAfter: 500,
     };
 }
