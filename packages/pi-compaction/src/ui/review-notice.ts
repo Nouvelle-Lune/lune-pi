@@ -6,8 +6,7 @@ import { summarizeReview } from "../tool-review/review.ts";
 
 export const REVIEW_NOTICE_WIDGET = "lune-compaction-review";
 
-/** Widths at which the notice drops its result row, then collapses to one row. */
-export const FULL_NOTICE_WIDTH = 72;
+/** Below this width the notice collapses to one row; at or above it, three rows are reserved. */
 export const COMPACT_NOTICE_WIDTH = 48;
 
 export type ReviewNoticeState =
@@ -38,7 +37,7 @@ export interface ReviewNoticeView {
         readonly chars: {
             readonly before: number;
             readonly after: number;
-            /** Saved by the review input cap alone. */
+            /** Saved by the per-result truncation cap. */
             readonly truncation: number;
             /** Saved by classifier decisions on the capped input. */
             readonly classifier: number;
@@ -271,8 +270,9 @@ function outcomeParts(view: ReviewNoticeView, theme: Theme): Part[] {
 }
 
 /**
- * At most three rows that never wrap: the result row joins the call row below
- * FULL_NOTICE_WIDTH, and everything shares one row below COMPACT_NOTICE_WIDTH.
+ * Always the same rows for a given width: one below COMPACT_NOTICE_WIDTH, three at or
+ * above it. Rows whose content is not known yet stay blank, so the editor never moves
+ * while the review reports progress.
  */
 export function reviewNoticeLines(view: ReviewNoticeView, width: number, theme: Theme): string[] {
     if (width < 1) return [];
@@ -280,16 +280,17 @@ export function reviewNoticeLines(view: ReviewNoticeView, width: number, theme: 
     const head = header(view, theme);
     const calls = callParts(view, theme);
     const outcome = outcomeParts(view, theme);
-    const rows: Row[] =
-        // Without a checkpoint, review counts would describe edits that never reached the session.
-        view.state === "failed" || view.state === "cancelled"
-            ? [head]
-            : width < COMPACT_NOTICE_WIDTH
-              ? [{ leads: head.leads, parts: [...head.parts, ...outcome, ...calls] }]
-              : width < FULL_NOTICE_WIDTH
-                ? [head, { leads: ["  "], parts: [...outcome, ...calls] }]
-                : [head, { leads: ["  "], parts: calls }, { leads: ["  "], parts: outcome }];
-    return rows.flatMap((row) => fitRow(row, width, separator) ?? []);
+    // Without a checkpoint, review counts would describe edits that never reached the session.
+    const settled = view.state === "failed" || view.state === "cancelled";
+    const compact = width < COMPACT_NOTICE_WIDTH;
+    const rows: Row[] = settled
+        ? [head]
+        : compact
+          ? [{ leads: head.leads, parts: [...head.parts, ...outcome, ...calls] }]
+          : [head, { leads: ["  "], parts: calls }, { leads: ["  "], parts: outcome }];
+    const lines = rows.map((row) => fitRow(row, width, separator) ?? "");
+    while (lines.length < (compact ? 1 : 3)) lines.push("");
+    return lines;
 }
 
 class ReviewNoticeComponent implements Component {

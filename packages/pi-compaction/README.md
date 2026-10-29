@@ -29,7 +29,7 @@ Lune compaction is on by default. Run `/compact` as usual, or let Pi compact aut
 - **Gives summaries their own model.** Follow the session model and effort, or select a separate summary model with an independent thinking level.
 - **Works with native compaction.** Manual, threshold and overflow compaction keep Pi's handling of previous summaries, split turns and file operations.
 - **Reviews tool output before summarizing.** An optional classifier judges which result fragments are no longer useful. You choose the confidence threshold and which tools may lose their whole call. `codemode` results are reviewed too when every nested call finished, succeeded and used a permitted tool.
-- **Shows what was removed.** A notice pinned above the editor reports the classifier, reviewed and protected calls, removals, and how much of the size change came from the review input cap and how much from the classifier.
+- **Shows what was removed.** A notice pinned above the editor reports the classifier, reviewed and protected calls, removals, and how much of the size change came from the per-result truncation cap and how much from the classifier.
 - **Keeps configuration close.** Pick models and review options in the Compaction settings panel, with global defaults and project overrides.
 - **Reports failures explicitly.** A failed summary or classification cancels the operation; cancelled or stale work cannot write a checkpoint.
 
@@ -53,7 +53,7 @@ An example review notice:
 
 ![Lune Compaction review notice](docs/compaction-review.png)
 
-The notice shows progress while the classifier runs and keeps the result above the editor until the next compaction or a session change. Sizes are the characters of the messages entering the summary: `truncation` is what the 8,000-character review input cap removed, and `classifier` is what the classifier's decisions removed after that. Review changes only that input; the on-disk tool transcript stays intact.
+The notice shows progress while the classifier runs and keeps the result above the editor until the next compaction or a session change. Sizes are the characters of the messages entering the summary: `truncation` is what the 8,000-character cap on each tool result removed, and `classifier` is what the classifier's decisions removed after that. Review changes only that input; the on-disk tool transcript stays intact.
 
 ## Development
 

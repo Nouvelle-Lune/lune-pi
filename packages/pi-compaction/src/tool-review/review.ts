@@ -63,7 +63,7 @@ export interface ToolReviewReport {
     readonly usage: readonly Usage[];
     /** Serialized native message payload size, including metadata; not summary prompt tokens. */
     readonly charsBefore: number;
-    /** The same size after the review input cap, before any classifier decision. */
+    /** The same size after the per-result truncation cap, before any classifier decision. */
     readonly charsAfterTruncation: number;
     readonly charsAfter: number;
 }

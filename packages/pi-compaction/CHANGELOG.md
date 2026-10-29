@@ -27,7 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Existing settings IDs, policy controls and embedded-options contracts are unchanged.
 
 - **Summary enabled by default**: Lune compaction now runs without an explicitly selected summary model and follows the session model and effort. Existing global and project overrides still apply, so select a model to keep summaries separate and turn Lune compaction off to keep Pi's native summary.
-- **Pinned review notice**: The review notice is now a widget above the editor instead of a transcript notification, which Pi removed when the checkpoint committed. It shows request progress during the review and keeps the result until the next compaction or session change. The size change is split into the review input cap and classifier drops, and drops inside fully removed calls no longer inflate the fragment count.
+- **Pinned review notice**: The review notice is now a widget above the editor instead of a transcript notification, which Pi removed when the checkpoint committed. It shows request progress during the review and keeps the result until the next compaction or session change. The size change is split into per-result truncation and classifier drops, and drops inside fully removed calls no longer inflate the fragment count.
 - **Reviewed `codemode` results**: A result that ran nested tools is now a review candidate when its nested record is complete, every nested call succeeded and every nested tool is in **Deletable tools**; otherwise it stays protected with a specific reason. Pi lists file operations before the review, so `readFiles`, `modifiedFiles` and the summary's file lists can still name files that only a removed call touched, as for removed `read` calls.
 
 ### Fixed

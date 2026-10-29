@@ -7,7 +7,6 @@ import type { ProtectedTool, ResultChunk } from "../../src/tool-review/candidate
 import type { ChunkDecision, ToolReviewReport } from "../../src/tool-review/review.ts";
 import {
     COMPACT_NOTICE_WIDTH,
-    FULL_NOTICE_WIDTH,
     REVIEW_NOTICE_WIDGET,
     createReviewNotice,
     reviewNoticeLines,
@@ -83,6 +82,11 @@ function update(
         totalBatches: 0,
         ...overrides,
     };
+}
+
+/** Rows the notice reserves at a width: one below COMPACT_NOTICE_WIDTH, three at or above it. */
+function expectedRows(width: number): number {
+    return width < COMPACT_NOTICE_WIDTH ? 1 : 3;
 }
 
 /** An update carrying everything a real run knows at the given stage. */
@@ -188,23 +192,47 @@ test("view: an error message collapses whitespace to single spaces", () => {
 test("lines: the row count follows the width", () => {
     const view = reviewNoticeView(richUpdate("complete"));
     const rows = (width: number): number => reviewNoticeLines(view, width, plainTheme()).length;
-    assert.equal(rows(FULL_NOTICE_WIDTH), 3);
-    assert.equal(rows(120), 3);
-    assert.equal(rows(FULL_NOTICE_WIDTH - 1), 2);
-    assert.equal(rows(COMPACT_NOTICE_WIDTH), 2);
+    assert.equal(rows(1), 1);
     assert.equal(rows(COMPACT_NOTICE_WIDTH - 1), 1);
+    assert.equal(rows(COMPACT_NOTICE_WIDTH), 3);
+    assert.equal(rows(COMPACT_NOTICE_WIDTH + 1), 3);
+    assert.equal(rows(120), 3);
 });
 
-test("lines: failed and cancelled notices are always one row", () => {
+test("lines: every stage reserves the same row count at a given width", () => {
+    const widths = [1, 10, COMPACT_NOTICE_WIDTH - 1, COMPACT_NOTICE_WIDTH, 60, 71, 72, 120];
+    for (const width of widths) {
+        const expected = expectedRows(width);
+        for (const stage of STAGES) {
+            const actual = reviewNoticeLines(
+                reviewNoticeView(richUpdate(stage)),
+                width,
+                plainTheme(),
+            ).length;
+            assert.equal(actual, expected, `${stage} at ${width}`);
+        }
+    }
+});
+
+test("lines: failed and cancelled notices keep the header and pad the rest", () => {
     for (const stage of ["failed", "cancelled"] as const) {
         const view = reviewNoticeView(richUpdate(stage));
-        for (const width of [10, 47, 48, 71, 72, 120])
-            assert.equal(
-                reviewNoticeLines(view, width, plainTheme()).length,
-                1,
-                `${stage} ${width}`,
-            );
+        for (const width of [1, COMPACT_NOTICE_WIDTH - 1, COMPACT_NOTICE_WIDTH, 71, 72, 120]) {
+            const lines = reviewNoticeLines(view, width, plainTheme());
+            const expected = expectedRows(width);
+            assert.equal(lines.length, expected, `${stage} ${width}`);
+            assert.notEqual(lines[0]!.trim(), "", `${stage} ${width}: header row is blank`);
+            for (const line of lines.slice(1))
+                assert.equal(line, "", `${stage} ${width}: padding must be blank`);
+        }
     }
+});
+
+test("lines: rows whose content is not known yet are padded blank", () => {
+    const view = reviewNoticeView(update("preparing"));
+    const lines = reviewNoticeLines(view, 80, plainTheme());
+    assert.equal(lines.length, 3);
+    assert.deepEqual(lines.slice(1), ["", ""]);
 });
 
 test("lines: no state at any width overflows, wraps past three rows or truncates with an ellipsis", () => {
@@ -212,8 +240,11 @@ test("lines: no state at any width overflows, wraps past three rows or truncates
         const view = reviewNoticeView(richUpdate(stage));
         for (let width = 1; width <= 120; width++) {
             const lines = reviewNoticeLines(view, width, plainTheme());
-            assert.ok(lines.length <= 3, `${stage} ${width}: ${lines.length} rows`);
+            const expected = expectedRows(width);
+            assert.equal(lines.length, expected, `${stage} ${width}: ${lines.length} rows`);
             for (const line of lines) {
+                // Rows without content are padded with an empty string, not with indentation.
+                assert.ok(line === "" || line.trim() !== "", `${stage} ${width}: "${line}"`);
                 assert.ok(visibleWidth(line) <= width, `${stage} ${width}: "${line}"`);
                 assert.ok(!line.includes("…"), `${stage} ${width}: "${line}"`);
             }
@@ -229,6 +260,16 @@ test("lines: parts drop whole, so a narrow complete row keeps the removed count 
     assert.equal(narrow.length, 1);
     assert.ok(narrow[0]!.includes("−1 call"), narrow[0]);
     assert.ok(!narrow[0]!.includes("classifier-model"), narrow[0]);
+});
+
+test("lines: the reviewed and protected counts keep their own row between the compact and full widths", () => {
+    const view = reviewNoticeView(richUpdate("complete"));
+    for (const width of [COMPACT_NOTICE_WIDTH, 60, 71]) {
+        const counts = reviewNoticeLines(view, width, plainTheme())[1]!;
+        assert.ok(counts.includes("3 calls"), `${width}: "${counts}"`);
+        assert.ok(counts.includes("2 reviewed"), `${width}: "${counts}"`);
+        assert.ok(counts.includes("1 protected"), `${width}: "${counts}"`);
+    }
 });
 
 test("lines: colors are resolved at render time from the theme", () => {
