@@ -185,3 +185,59 @@ test("a call-level error starts no run through the real manager", async (t) => {
     assert.equal(manager.branchRuns().length, 0);
     assert.deepEqual(runFiles(fx), []);
 });
+
+test("a single start with an agent and a model fails and starts nothing", async (t) => {
+    const fx = await createFixture(t);
+    const { manager, call } = await setup(fx);
+
+    await assert.rejects(
+        call({ task: "a", agent: "reviewer", model: "faux/faux-2" }),
+        /The agent "reviewer" runs with the model, thinking, tools and isolation of its definition; .*leave out model\./,
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(spawnEntryCount(fx), 0);
+    assert.deepEqual(runFiles(fx), []);
+});
+
+test("an agent entry with settings fails the whole call, valid entries included, and starts nothing", async (t) => {
+    const fx = await createFixture(t);
+    const { manager, call } = await setup(fx);
+    const message = (fields: string) =>
+        'The agent "reviewer" runs with the model, thinking, tools and isolation of its ' +
+        `definition; give only task and title with agent, and leave out ${fields}.`;
+
+    await assert.rejects(
+        call({
+            tasks: [
+                { task: "a", agent: "reviewer", tools: ["read"] },
+                { task: "b" },
+                { task: "c", agent: "reviewer", model: "faux/faux-2", isolation: "shared" },
+            ],
+        }),
+        (error: Error) =>
+            error.message ===
+            `No run started.\ntasks[0]: ${message("tools")}\ntasks[2]: ${message("model, isolation")}`,
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(spawnEntryCount(fx), 0);
+    assert.deepEqual(runFiles(fx), []);
+});
+
+test("a single bad agent entry with a valid entry fails the call with its index", async (t) => {
+    const fx = await createFixture(t);
+    const { manager, call } = await setup(fx);
+
+    await assert.rejects(
+        call({
+            tasks: [
+                { task: "a", agent: "reviewer", tools: ["read"] },
+                { task: "b", agent: "reviewer" },
+            ],
+        }),
+        /^Error: No run started\.\ntasks\[0\]: The agent "reviewer" .*leave out tools\.$/,
+    );
+
+    assert.deepEqual(manager.branchRuns(), []);
+});

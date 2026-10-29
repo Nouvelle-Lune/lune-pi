@@ -7,7 +7,7 @@ import type { ToolCatalog } from "../catalog.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import { AUTO_MODEL } from "../models.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
-import type { RunManager, StartParams } from "../run/run-manager.ts";
+import { agentSettingsProblem, type RunManager, type StartParams } from "../run/run-manager.ts";
 import type { SendOutcome } from "../run/run.ts";
 import { ISOLATION_MODES, THINKING_LEVELS, type Isolation } from "../run/types.ts";
 import { stringEnum } from "../schema.ts";
@@ -74,12 +74,13 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "Start a separate Pi session for a bounded task in the background. Delegate when " +
             "independent execution, isolated context or a fresh verification pass improves speed " +
             "or quality. Handle quick tasks and tightly coupled steps directly. Use agent to " +
-            'reuse a listed role, or omit it for an inline task. Use isolation "shared" to work ' +
-            'in your current directory, including uncommitted changes; use "worktree" for a ' +
-            "separate Git checkout at HEAD, without uncommitted or untracked files. Tool selection " +
-            "and worktrees are not a security sandbox. Give task for one run or tasks for " +
-            "independent runs started together. The call returns run IDs immediately; each turn's " +
-            "report arrives as a message.",
+            "run a listed role with its own settings; give only task and title with it. Omit " +
+            "agent for an inline run that sets model, thinking, tools and isolation in the call. " +
+            'Use isolation "shared" to work in your current directory, including uncommitted ' +
+            'changes; use "worktree" for a separate Git checkout at HEAD, without uncommitted or ' +
+            "untracked files. Tool selection and worktrees are not a security sandbox. Give task " +
+            "for one run or tasks for independent runs started together. The call returns run " +
+            "IDs immediately; each turn's report arrives as a message.",
         promptSnippet: "Delegate bounded work to a background session and receive its report.",
         promptGuidelines: [
             "Give a run a brief title so the user can identify it in the /agents inspector and Dock.",
@@ -281,22 +282,25 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
 
 function startProperties(options: SubagentToolsOptions): Record<string, TSchema> {
     return {
-        task: Type.Optional(
-            Type.String({ description: `${TASK_DESCRIPTION} Leave it out when you give tasks.` }),
-        ),
-        ...runOptions(options, toolsDescription(options.catalog)),
+        ...runProperties(options, {
+            task: Type.Optional(
+                Type.String({
+                    description: `${TASK_DESCRIPTION} Leave it out when you give tasks.`,
+                }),
+            ),
+            toolsText: toolsDescription(options.catalog),
+        }),
         tasks: Type.Optional(
             Type.Array(
-                Type.Object({
-                    task: Type.String({ description: TASK_DESCRIPTION }),
-                    // The catalog is long, so an entry points to it instead of repeating it.
-                    ...runOptions(
-                        options,
-                        "Exact names of the task tools the run gets, from the list of the " +
-                            "top-level tools parameter. Default: the agent's tools, then the " +
-                            "defaultTools setting.",
-                    ),
-                }),
+                Type.Object(
+                    runProperties(options, {
+                        task: Type.String({ description: TASK_DESCRIPTION }),
+                        // The catalog is long, so an entry points to it instead of repeating it.
+                        toolsText:
+                            "Exact names of the task tools the run gets, from the list of the " +
+                            "top-level tools parameter. Default: the defaultTools setting.",
+                    }),
+                ),
                 {
                     description:
                         "Independent runs started together instead of task. Set title, agent, " +
@@ -308,35 +312,46 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
     };
 }
 
-/** The optional start values of one run, at the top level and in each `tasks` entry. */
-function runOptions(options: SubagentToolsOptions, toolsText: string): Record<string, TSchema> {
-    const properties: Record<string, TSchema> = {
-        title: Type.Optional(
-            Type.String({
-                description:
-                    "A brief one-line title for this run, shown in the /agents inspector, Dock and " +
-                    "run notifications. The subagent tools take a run's ID, never its title.",
-            }),
-        ),
-    };
+/**
+ * One run's values, at the top level and in each `tasks` entry. The agent comes first, so a call
+ * names its role before it writes the task; the settings after the task are for inline runs.
+ */
+function runProperties(
+    options: SubagentToolsOptions,
+    run: { task: TSchema; toolsText: string },
+): Record<string, TSchema> {
+    const properties: Record<string, TSchema> = {};
     const agents = options.definitions.map((definition) => definition.name);
 
     if (agents.length > 0) {
         properties.agent = Type.Optional(
             stringEnum(agents, {
                 description:
-                    "An agent from the subagents list. Leave it out to set up the run in this call.",
+                    "An agent from the subagents list. It runs with its definition's model, " +
+                    "thinking, tools and isolation, so give only task and title with it. Leave " +
+                    "it out to set these in this call.",
             }),
         );
     }
+
+    properties.title = Type.Optional(
+        Type.String({
+            description:
+                "A brief one-line title for this run, shown in the /agents inspector, Dock and " +
+                "run notifications. The subagent tools take a run's ID, never its title.",
+        }),
+    );
+    properties.task = run.task;
+
+    const inlineOnly = agents.length > 0 ? "Only without agent. " : "";
 
     if (options.models.length > 0) {
         properties.model = Type.Optional(
             stringEnum([AUTO_MODEL, ...options.models], {
                 description:
-                    `provider/id, or "${AUTO_MODEL}" to let a classifier rate the task and use ` +
-                    "the model set for its tier; it also sets thinking when the call and the " +
-                    "agent do not. Default: the agent's model, then your current model.",
+                    `${inlineOnly}provider/id, or "${AUTO_MODEL}" to let a classifier rate the ` +
+                    "task and use the model set for its tier; it also sets thinking when the " +
+                    "call does not. Default: your current model.",
             }),
         );
     }
@@ -344,15 +359,15 @@ function runOptions(options: SubagentToolsOptions, toolsText: string): Record<st
     properties.thinking = Type.Optional(
         stringEnum(THINKING_LEVELS, {
             description:
-                "Default: the agent's thinking level, then the classifier's level for model " +
-                "auto, then your current level.",
+                `${inlineOnly}Default: the classifier's level for model auto, then your ` +
+                "current level.",
         }),
     );
-    properties.tools = Type.Optional(Type.Array(Type.String(), { description: toolsText }));
+    properties.tools = Type.Optional(
+        Type.Array(Type.String(), { description: `${inlineOnly}${run.toolsText}` }),
+    );
     properties.isolation = Type.Optional(
-        stringEnum(ISOLATION_MODES, {
-            description: 'Default: the agent\'s isolation, then "shared".',
-        }),
+        stringEnum(ISOLATION_MODES, { description: `${inlineOnly}Default: "shared".` }),
     );
 
     return properties;
@@ -365,8 +380,8 @@ function toolsDescription(catalog: ToolCatalog): string {
 
     return [
         "Exact names of the task tools the run gets. Choose only tools needed for this task; " +
-            "prefer read-only tools for investigation. Default: the agent's tools, then the " +
-            "defaultTools setting. The run always gets report as well.",
+            "prefer read-only tools for investigation. Default: the defaultTools setting. The " +
+            "run always gets report as well.",
         "Available:",
         ...tools.map((line) => `- ${line}`),
         "- mcp__<server>__<tool>: a tool of an MCP server configured for the run's working directory.",
@@ -395,7 +410,10 @@ function startParams(task: string, values: Omit<RunInput, "task">): StartParams 
     };
 }
 
-/** A `tasks` call takes start values only in its entries, so a mixed call starts nothing. */
+/**
+ * A `tasks` call takes start values only in its entries, and an agent entry takes no inline
+ * settings. Both are checked before any entry starts, so a call that breaks either starts nothing.
+ */
 function checkBatch(input: StartInput, entries: readonly RunInput[]): void {
     if (input.task !== undefined) {
         throw new Error("Give task for one run or tasks for several runs, not both.");
@@ -411,6 +429,16 @@ function checkBatch(input: StartInput, entries: readonly RunInput[]): void {
 
     if (entries.length === 0) {
         throw new Error("tasks has no entries.");
+    }
+
+    const problems = entries.flatMap((entry, index) => {
+        const problem = agentSettingsProblem(entry);
+
+        return problem ? [`tasks[${index}]: ${problem}`] : [];
+    });
+
+    if (problems.length > 0) {
+        throw new Error(`No run started.\n${problems.join("\n")}`);
     }
 }
 

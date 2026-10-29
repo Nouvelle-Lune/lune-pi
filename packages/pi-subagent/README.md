@@ -93,6 +93,9 @@ This role follows the main agent's model. Add `model: provider/id` to choose one
 to use task tiers. Add `isolation: worktree` for a role that should change files separately.
 Run `/reload` after saving a definition.
 
+The main agent starts a role with only a task and a title. The definition's model, thinking, tools
+and isolation always apply; the main agent cannot change them in the call.
+
 To create a role interactively:
 
 ```text
