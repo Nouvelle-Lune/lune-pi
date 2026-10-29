@@ -36,7 +36,7 @@
         "packages/pi-subagent/test/unit/tools-batch.test.ts",
         "packages/pi-subagent/test/unit/tools.test.ts"
     ],
-    "state": "open",
+    "state": "converged",
     "rounds": [
         {
             "round": 1,
@@ -47,6 +47,17 @@
             "status": "ingested",
             "findings": 1,
             "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T07:50:35.869Z",
+            "scope": "diff-after-previous-round",
+            "base": "dfa9774471781af441c888f2cae9b8946e03dddb",
+            "head": "156428f2a52276c9c954058a47a91f914e180903",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
             "duplicates": 0
         }
     ],
@@ -61,9 +72,10 @@
             "line": 329,
             "summary": "标题净化只去掉终端序列和空白，仍保留退格、响铃和孤立 ESC；标题直接进入 inspector、Dock 和通知头。只读 node --experimental-strip-types --input-type=module 复现：输入 Review\\bX\\u0007，listRows 与通知 render 输出均保留原始控制字符，导致光标移动或响铃。应使用现有 displayLine 等完整控制字符净化。",
             "preExisting": false,
-            "status": "open",
-            "resolution": null,
-            "resolvedAt": null
+            "status": "fixed",
+            "resolution": "156428f: normalize titles with displayLine, which drops lone ESC, backspace, bell and C1 bytes; start.test.ts gained the regression input and the existing assertions are unchanged.",
+            "resolvedAt": "2026-10-29T07:50:32.766Z"
         }
-    ]
+    ],
+    "convergedAt": "2026-10-29T07:51:28.743Z"
 }
