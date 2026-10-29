@@ -21,6 +21,7 @@ import { definitionsDir, projectDefinitionsDir } from "../paths.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import { ISOLATION_MODES, THINKING_LEVELS } from "../run/types.ts";
 import type { SubagentSettings } from "./schema.ts";
+import { defaultThinkingChoice, thinkingChoices } from "./thinking-choices.ts";
 
 export interface AgentsMenuOptions {
     /** The tools runs can select in the current session; undefined until it has started. */
@@ -79,7 +80,7 @@ export function agentsMenu(options: AgentsMenuOptions): SettingsMenuDefinition<S
                             label: definition.name,
                             description: definition.description,
                             scopes: [scope],
-                            summary: () => agentSummary(definition),
+                            summary: () => agentSummary(definition, values),
                             menu: () => ({
                                 fields: agentFields(
                                     definition,
@@ -120,10 +121,13 @@ function loadScope(context: ExtensionContext, scope: SettingsScope): LoadedDefin
     return loadDefinitions(scopeDir(context, scope), scope === "global" ? "user" : "project");
 }
 
-function agentSummary(definition: AgentDefinition): string {
+function agentSummary(definition: AgentDefinition, values: DeepReadonly<SubagentSettings>): string {
     return [
         definition.model ?? "main model",
-        definition.thinking ?? "main thinking",
+        definition.thinking ??
+            (definition.model === AUTO_MODEL && values.autoClassifier
+                ? "automatic thinking"
+                : "main thinking"),
         definition.tools ? count(definition.tools.length, "tool") : "default tools",
         definition.isolation ?? "shared",
     ].join(" · ");
@@ -234,19 +238,13 @@ function agentFields(
             id: "thinking",
             label: "Thinking",
             description:
-                "Pi lowers a level that the run's model does not support. Ctrl+R removes the field.",
+                "Choose a supported level for the model, or one shared by the auto tier models " +
+                "and the main model. Ctrl+R removes the field.",
             schema: nullable(Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)))),
             editor: "select",
             value: definition.thinking,
-            choices: [
-                {
-                    value: null,
-                    label: "Main agent's thinking",
-                    description: "Leave thinking out: runs use the main agent's level.",
-                },
-                ...THINKING_LEVELS.map((level) => ({ value: level, label: level })),
-            ],
-            formatValue: (value) => value ?? "Main agent's thinking",
+            choiceSource: thinkingChoices(definition.model, values, definition.thinking),
+            formatValue: (value) => value ?? defaultThinkingChoice(definition.model, values).label,
         }),
         field<string[]>({
             id: "tools",
