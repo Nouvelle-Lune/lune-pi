@@ -95,10 +95,12 @@ const TIER_QUESTION = {
 } satisfies ClassifierChoiceQuestion;
 
 const THINKING_INSTRUCTIONS =
-    "Rate the least reasoning that the agent must do, before and between its steps, to complete " +
-    "this task correctly. The options are thinking levels from least to most. Judge the " +
-    "reasoning, not the amount of work: many files or steps need no more thinking, and a subtle " +
-    "race condition in one function can need a lot.";
+    "Rate the reasoning that the agent must do, before and between its steps, to finish this " +
+    "task correctly and safely. Use the least level that is clearly enough, but raise it for " +
+    "work whose mistakes are hard to detect or whose correctness cannot be shown by running " +
+    "the result. The options are thinking levels from least to most. Judge the reasoning, not " +
+    "the amount of work: many files or steps need no more thinking, and a subtle race condition " +
+    "in one function can need a lot.";
 
 // A model-routing signal only: it never grants or blocks a tool, an approval or a permission.
 const RISK_QUESTION = {
@@ -139,17 +141,22 @@ const THINKING_CRITERIA = {
     low: "Brief planning over a few dependent steps, such as finding where a described change goes.",
     medium:
         "Plan several dependent steps and check the results along the way, such as tracing a " +
-        "call path, fitting a change into existing code or debugging a failure that can be " +
-        "reproduced.",
+        "call path, fitting a change into existing code or fixing a failure whose cause is " +
+        "stated.",
     high:
-        "Weigh alternatives, form and test hypotheses, or reason about correctness, such as " +
-        "finding a root cause or showing that a change is safe.",
+        "Investigate a failure that reproduces to find its cause, weigh a few approaches for a " +
+        "contained change, or confirm that a change meets its stated requirements. Not for: a " +
+        "cause that no reproduction shows, an open design trade-off, or correctness that tests " +
+        "cannot show.",
     xhigh:
-        "Long chains of reasoning over many parts that affect each other, such as a concurrency " +
-        "or state bug, a security review or a design with competing constraints.",
+        "Find the cause of a failure that does not reproduce, argue that a risky change is safe, " +
+        "or plan a change that spans unfamiliar components. Not for: a failure that reproduces, " +
+        "or work that only needs care.",
     max:
-        "The hardest reasoning, where a mistake is costly and every step needs checking, such as " +
-        "showing that an algorithm is correct or finding a subtle data-loss bug across systems.",
+        "Reason about correctness that is hard to check, where a mistake is costly and easy to " +
+        "miss: subtle concurrency, state or data-loss defects, security or privacy boundaries, " +
+        "migrations or algorithms with invariants, or design trade-offs between constraints. " +
+        "Not for: work that is only large, or hard only because the code is unfamiliar.",
 } satisfies Record<ThinkingLevel, string>;
 
 export interface AutoModelInput {
