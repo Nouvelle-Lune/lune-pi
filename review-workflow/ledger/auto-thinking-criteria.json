@@ -1,0 +1,29 @@
+{
+    "schemaVersion": 1,
+    "change": "auto-thinking-criteria",
+    "createdAt": "2026-10-29T11:33:24.411Z",
+    "intent": "Remove the Not for clauses from the auto thinking criteria so each level only states the work it covers, keeping the top-level absorbing sentence for models that support fewer levels.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "0b1f4ed1038f4e34393bb29fb4ea563a79452871",
+    "headRev": "5b469cde79b0531fe31358ed4dc351e2423cd163",
+    "files": ["packages/pi-subagent/src/auto-model.ts"],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T11:37:28.434Z",
+            "scope": "full",
+            "base": "0b1f4ed1038f4e34393bb29fb4ea563a79452871",
+            "head": "5b469cde79b0531fe31358ed4dc351e2423cd163",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-29T11:40:34.692Z"
+}
