@@ -6,9 +6,11 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { assistantText, assistantToolCall, policy, toolResult, user } from "../harness/fixtures.ts";
 import type { JevOptions } from "../../src/options.ts";
-import { recordWidgets } from "../harness/widget-ui.ts";
+import { toolReviewRecord } from "../../src/ui/review-notice.ts";
+import { plainTheme, recordWidgets } from "../harness/widget-ui.ts";
 import {
     startJevHost,
+    type JevHost,
     systemOneAnswers,
     type PendingSystemOneRequest,
     type SystemOneRequest,
@@ -62,16 +64,10 @@ async function bindRecordedUi(host: Awaited<ReturnType<typeof startJevHost>>) {
     return { notifications, widgets };
 }
 
-/** Renders the widget Pi currently holds, as Pi would at the given width. */
-function renderPinnedNotice(widgets: ReturnType<typeof recordWidgets>, width = 100): string {
-    const mounts = widgets.calls.filter((call) => call.content !== undefined);
-    assert.equal(mounts.length, 1, "the notice is mounted once and then updated in place");
-    const component = widgets.component();
-    assert.ok(component, "the notice is still pinned after the compaction completes");
-    return component.render(width).join("\n");
-}
+const REVIEW_TYPE = "lune-compaction-review";
 
-function assertNoticePinned(
+/** Progress was shown during the run, then the widget was cleared and nothing was announced. */
+function assertProgressShownThenCleared(
     widgets: ReturnType<typeof recordWidgets>,
     notifications: { text: string; type?: string }[],
 ): void {
@@ -79,11 +75,56 @@ function assertNoticePinned(
         notifications.filter(({ type }) => type === "info"),
         [],
     );
-    assert.ok(widgets.calls.length > 0);
-    for (const call of widgets.calls) assert.equal(call.key, "lune-compaction-review");
-    assert.deepEqual(widgets.calls[0]!.options, { placement: "aboveEditor" });
-    // The notice stays pinned after the compaction completes.
-    assert.equal(widgets.calls.at(-1)!.content !== undefined, true);
+    const mounts = widgets.calls.filter((call) => call.content !== undefined);
+    assert.equal(mounts.length, 1, "the progress row is mounted once and then updated in place");
+    assert.deepEqual(mounts[0]!.options, { placement: "aboveEditor" });
+    for (const call of widgets.calls) assert.equal(call.key, REVIEW_TYPE);
+    assert.equal(widgets.calls.at(-1)!.content, undefined, "the widget is cleared after the run");
+    assert.equal(widgets.component(), undefined, "nothing stays pinned");
+}
+
+/** The entry is appended synchronously inside session_compact, so it is saved when compact() returns. */
+function savedReviewEntries(host: Awaited<ReturnType<typeof startJevHost>>) {
+    const entries = host.sessionManager.getEntries();
+    const reviews = entries.filter(
+        (entry) => entry.type === "custom" && entry.customType === REVIEW_TYPE,
+    );
+    return { entries, reviews };
+}
+
+/** Renders a saved entry through the renderer the extension registered with Pi. */
+function renderSavedEntry(
+    host: Awaited<ReturnType<typeof startJevHost>>,
+    entry: unknown,
+    expanded = false,
+    width = 100,
+): string {
+    const renderer = host.session.extensionRunner.getEntryRenderer(REVIEW_TYPE);
+    assert.ok(renderer, "the extension registers a renderer for the review entry");
+    const component = renderer(entry as never, { expanded } as never, plainTheme());
+    assert.ok(component);
+    return component.render(width).join("\n");
+}
+
+function assertEntryAfterCompaction(
+    host: Awaited<ReturnType<typeof startJevHost>>,
+    saved: Awaited<ReturnType<typeof savedReviewEntries>>,
+    report: NonNullable<ReturnType<JevHost["controller"]["getRun"]>>["jev"],
+): string {
+    assert.ok(report);
+    assert.equal(saved.reviews.length, 1);
+    const review = saved.reviews[0]!;
+    const compactionIndex = saved.entries.findIndex((entry) => entry.type === "compaction");
+    assert.ok(compactionIndex >= 0);
+    assert.equal(
+        saved.entries.indexOf(review),
+        compactionIndex + 1,
+        "the entry directly follows the summary",
+    );
+    const expected = toolReviewRecord(report);
+    const actual = review.type === "custom" ? review.data : undefined;
+    assert.deepEqual(actual, expected);
+    return renderSavedEntry(host, review);
 }
 
 const JEV_POLICY = policy({
@@ -577,7 +618,7 @@ test(
 );
 
 test(
-    "host: fallback preserves failed input, commits a checkpoint and pins the review notice",
+    "host: fallback preserves failed input, commits a checkpoint and saves the review as an entry after clearing its progress row",
     { timeout: 10000 },
     async (t) => {
         // Native transport and UI must distinguish preflight placeholders from provider-limit preservation.
@@ -630,9 +671,9 @@ test(
                 assert.equal(summaryInput.includes("content not classified"), mode === "preflight");
                 assert.ok(!summaryInput.includes("R2BODY"));
                 assert.equal(loggedErrors.mock.calls.length, 0);
-                assertNoticePinned(widgets, notifications);
-                const rendered = renderPinnedNotice(widgets);
-                assert.ok(rendered.includes("Jev review"));
+                assertProgressShownThenCleared(widgets, notifications);
+                const rendered = assertEntryAfterCompaction(host, savedReviewEntries(host), report);
+                assert.ok(rendered.includes("Tool review"));
                 const removed = report.removedCalls.length;
                 assert.ok(rendered.includes(`−${removed} ${removed === 1 ? "call" : "calls"}`));
                 assert.equal(
@@ -648,7 +689,7 @@ test(
 );
 
 test(
-    "host: the pinned notice reports fragment removal even when every tool output remains",
+    "host: the saved review entry reports fragment removal even when every tool output remains",
     { timeout: 10000 },
     async () => {
         for (const partial of [false, true]) {
@@ -670,15 +711,59 @@ test(
                 });
                 host.faux.setResponses([fauxAssistantMessage("## Goal\nreview complete")]);
                 await host.session.compact();
-                assertNoticePinned(widgets, notifications);
-                const rendered = renderPinnedNotice(widgets);
-                assert.ok(rendered.includes("Jev review"));
+                assertProgressShownThenCleared(widgets, notifications);
+                const rendered = assertEntryAfterCompaction(
+                    host,
+                    savedReviewEntries(host),
+                    host.controller.getRun()?.jev,
+                );
+                assert.ok(rendered.includes("Tool review"));
                 assert.ok(rendered.includes(partial ? "−1 fragment" : "nothing removed"));
                 assert.deepEqual(host.controller.getRun()?.jev?.removedCalls, []);
                 assert.equal(host.controller.getRun()?.stage, "complete");
             } finally {
                 await host.dispose();
             }
+        }
+    },
+);
+
+test(
+    "host: the review entry is saved immediately after the compaction entry, before a prompt queued for compaction_end",
+    { timeout: 10000 },
+    async () => {
+        const host = await startJevHost({
+            messages: readHistory(),
+            jev: jevOptions,
+            policy: JEV_POLICY,
+        });
+        try {
+            await bindRecordedUi(host);
+            host.simulator.setResponder((pending) =>
+                pending.respond(systemOneAnswers(pending.request, 1)),
+            );
+            host.faux.setResponses([fauxAssistantMessage("## Goal\nordered summary")]);
+            // Pi's flushCompactionQueue submits queued prompts from a compaction_end subscriber.
+            host.session.subscribe((event) => {
+                if (event.type === "compaction_end")
+                    host.sessionManager.appendMessage(user("QUEUED_PROMPT") as never);
+            });
+            await host.session.compact();
+            const entries = host.sessionManager.getEntries();
+            const start = entries.findIndex((entry) => entry.type === "compaction");
+            assert.ok(start >= 0);
+            const actual = entries.slice(start).map((entry) => {
+                if (entry.type === "custom") return `custom:${entry.customType}`;
+                if (entry.type === "message") return `message:${entry.message.role}`;
+                return entry.type;
+            });
+            const expected = ["compaction", `custom:${REVIEW_TYPE}`, "message:user"];
+            assert.deepEqual(actual, expected);
+            const last = entries.at(-1);
+            assert.ok(last?.type === "message");
+            assert.match(JSON.stringify(last.message), /QUEUED_PROMPT/);
+        } finally {
+            await host.dispose();
         }
     },
 );

@@ -25,7 +25,7 @@ export async function installConfiguredCompaction(pi: ExtensionAPI) {
                     const view = await settings.view(ctx);
                     return resolveCompactionSettings(view.snapshot(), ctx);
                 },
-                { onRunChange: createReviewNotice() },
+                { onRunChange: createReviewNotice(pi) },
             ),
         );
         return { controller, dispose: () => resources.dispose() };
