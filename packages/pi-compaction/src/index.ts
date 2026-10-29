@@ -24,7 +24,7 @@ export function installCompaction(
     pi: ExtensionAPI,
     getConfiguration: ConfigurationProvider,
 ): CompactionController {
-    return new CompactionController(pi, getConfiguration, { onRunChange: createReviewNotice() });
+    return new CompactionController(pi, getConfiguration, { onRunChange: createReviewNotice(pi) });
 }
 
 /** Embedded consumers own configuration; the standalone Pi entry uses Core settings. */

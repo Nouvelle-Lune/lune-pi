@@ -1,7 +1,7 @@
-/** Offline examples rendered by the real settings panel and review notice. */
+/** Offline examples rendered by the real settings panel and tool-review entry. */
 import { fileURLToPath } from "node:url";
 import { compactionSettings, createCompactionPanel } from "../src/settings/section.ts";
-import { reviewNoticeLines, reviewNoticeView } from "../src/ui/review-notice.ts";
+import { reviewEntryLines, toolReviewRecord } from "../src/ui/review-notice.ts";
 import { makeTheme, settingsFrame, writeFrames } from "./doc-images.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -37,16 +37,9 @@ const report = {
     charsAfterTruncation: 39000,
     charsAfter: 31000,
 };
-const notice = reviewNoticeView({
-    runId: 1,
-    stage: "complete",
-    reviewModel: report.model,
-    candidateTools: report.candidateTools,
-    protectedTools: report.protectedTools.length,
-    completedBatches: report.requests,
-    totalBatches: report.requests,
-    jev: report,
-});
+const record = toolReviewRecord(report);
+const entry = (expanded) =>
+    reviewEntryLines(record, 106, theme, expanded).map((line) => ` ${line}`);
 
 writeFrames(root, [
     {
@@ -61,9 +54,9 @@ writeFrames(root, [
     },
     {
         name: "compaction-review",
-        title: "pi — an illustrative tool-review notice",
+        title: "pi — an illustrative tool-review entry, collapsed and expanded",
         theme,
-        // The fixture demonstrates the notice format; its reduction is not a benchmark.
-        lines: reviewNoticeLines(notice, 106, theme).map((line) => ` ${line}`),
+        // The fixture demonstrates the entry format; its reduction is not a benchmark.
+        lines: [...entry(false), "", ...entry(true)],
     },
 ]);

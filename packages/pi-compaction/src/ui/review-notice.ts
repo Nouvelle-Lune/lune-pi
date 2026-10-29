@@ -1,125 +1,173 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { CompactionRunListener, CompactionRunUpdate } from "../compaction-controller.ts";
 import type { ProtectedTool } from "../tool-review/candidates.ts";
-import { summarizeReview } from "../tool-review/review.ts";
+import { summarizeReview, type ToolReviewReport } from "../tool-review/review.ts";
 
+/** Widget key of the progress row and custom type of the saved result entry. */
 export const REVIEW_NOTICE_WIDGET = "lune-compaction-review";
+export const REVIEW_ENTRY_TYPE = "lune-compaction-review";
 
-/** Below this width the notice collapses to one row; at or above it, three rows are reserved. */
+/** Below this width an expanded entry collapses to one row; at or above it, the result row joins the call row. */
 export const COMPACT_NOTICE_WIDTH = 48;
+/** At or above this width an expanded entry gives calls and results their own rows. */
+export const FULL_NOTICE_WIDTH = 72;
 
-export type ReviewNoticeState =
-    | "preparing"
-    | "reviewing"
-    | "summarizing"
-    | "complete"
-    | "failed"
-    | "cancelled";
+const TITLE = "Tool review";
 
-export interface ReviewNoticeView {
-    readonly state: ReviewNoticeState;
-    readonly model?: string;
-    /** Known once the review has indexed the summarized history. */
-    readonly calls?: {
-        readonly total: number;
-        readonly reviewed: number;
-        readonly protected: number;
-    };
-    /** Each protected call counts once, under its first matching label. */
-    readonly protectedReasons: readonly { readonly label: string; readonly count: number }[];
-    /** Known once every classifier decision is applied. */
-    readonly outcome?: {
-        readonly removedCalls: number;
-        readonly fragments: number;
-        readonly placeholders: number;
-        readonly unreviewed: number;
-        readonly chars: {
-            readonly before: number;
-            readonly after: number;
-            /** Saved by the per-result truncation cap. */
-            readonly truncation: number;
-            /** Saved by classifier decisions on the capped input. */
-            readonly classifier: number;
-        };
-    };
-    readonly batches?: { readonly completed: number; readonly total: number };
-    readonly error?: string;
+export type ProtectedCategory = "recent" | "error" | "not-permitted" | "nested" | "media" | "other";
+
+const PROTECTED_CATEGORIES: readonly (readonly [ProtectedCategory, readonly string[]])[] = [
+    ["recent", ["retained-region"]],
+    ["error", ["error-result"]],
+    ["not-permitted", ["tool-not-deletable"]],
+    ["nested", ["incomplete-nested-calls", "nested-tool-not-deletable", "nested-call-failed"]],
+    ["media", ["non-text-result"]],
+];
+const CATEGORY_ORDER: readonly ProtectedCategory[] = [
+    ...PROTECTED_CATEGORIES.map(([category]) => category),
+    "other",
+];
+const CATEGORY_LABELS: Record<ProtectedCategory, string> = {
+    recent: "recent",
+    error: "error",
+    "not-permitted": "not permitted",
+    nested: "nested",
+    media: "media",
+    other: "other",
+};
+
+/** Saved in a custom session entry; field names are stored in session files. */
+export interface ToolReviewRecord {
+    readonly version: 1;
+    readonly model: string;
+    readonly candidateTools: number;
+    readonly protectedTools: number;
+    /** Each protected call counts once, under its first matching category; largest first. */
+    readonly protectedReasons: readonly {
+        readonly category: ProtectedCategory;
+        readonly count: number;
+    }[];
+    readonly removedCalls: number;
+    /** Drops in calls that survive; drops inside removed calls belong to the call count. */
+    readonly droppedFragments: number;
+    readonly placeholders: number;
+    readonly unreviewed: number;
+    readonly charsBefore: number;
+    /** After the per-result truncation cap, before any classifier decision. */
+    readonly charsAfterTruncation: number;
+    readonly charsAfter: number;
 }
 
-const STAGE_STATES = {
+function protectedReasons(tools: readonly ProtectedTool[]): ToolReviewRecord["protectedReasons"] {
+    const counts = new Map<ProtectedCategory, number>();
+    for (const tool of tools) {
+        const category =
+            PROTECTED_CATEGORIES.find(([, reasons]) =>
+                reasons.some((reason) => tool.reasons.includes(reason)),
+            )?.[0] ?? "other";
+        counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    // Array.prototype.sort is stable, so equal counts keep the category priority order.
+    return CATEGORY_ORDER.flatMap((category) => {
+        const count = counts.get(category);
+        return count ? [{ category, count }] : [];
+    }).sort((left, right) => right.count - left.count);
+}
+
+export function toolReviewRecord(report: Readonly<ToolReviewReport>): ToolReviewRecord {
+    const summary = summarizeReview(report);
+    return {
+        version: 1,
+        model: report.model,
+        candidateTools: report.candidateTools,
+        protectedTools: report.protectedTools.length,
+        protectedReasons: protectedReasons(report.protectedTools),
+        removedCalls: summary.removedCalls,
+        droppedFragments: summary.droppedFragments,
+        placeholders: summary.placeholders,
+        unreviewed: summary.unreviewed,
+        charsBefore: report.charsBefore,
+        charsAfterTruncation: report.charsAfterTruncation,
+        charsAfter: report.charsAfter,
+    };
+}
+
+const COUNT_FIELDS = [
+    "candidateTools",
+    "protectedTools",
+    "removedCalls",
+    "droppedFragments",
+    "placeholders",
+    "unreviewed",
+    "charsBefore",
+    "charsAfterTruncation",
+    "charsAfter",
+] as const satisfies readonly (keyof ToolReviewRecord)[];
+
+function isCount(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+/** Session files can be edited by hand or written by another version; render only what was validated. */
+export function parseToolReviewRecord(data: unknown): ToolReviewRecord {
+    const record = data as Partial<Record<keyof ToolReviewRecord, unknown>> | null;
+    if (
+        typeof record !== "object" ||
+        record === null ||
+        record.version !== 1 ||
+        typeof record.model !== "string" ||
+        !COUNT_FIELDS.every((field) => isCount(record[field])) ||
+        !Array.isArray(record.protectedReasons) ||
+        !record.protectedReasons.every(
+            (entry: unknown) =>
+                typeof entry === "object" &&
+                entry !== null &&
+                CATEGORY_ORDER.includes((entry as { category: ProtectedCategory }).category) &&
+                isCount((entry as { count: unknown }).count),
+        )
+    ) {
+        throw new Error("Malformed tool review record");
+    }
+    return record as ToolReviewRecord;
+}
+
+export type ReviewProgressState = "preparing" | "reviewing" | "summarizing";
+
+export interface ReviewProgressView {
+    readonly state: ReviewProgressState;
+    /** Known once the review has indexed the summarized history. */
+    readonly calls?: { readonly total: number; readonly reviewed: number };
+    readonly batches?: { readonly completed: number; readonly total: number };
+    /** Known once every classifier decision is applied. */
+    readonly result?: ToolReviewRecord;
+}
+
+const PROGRESS_STATES: Partial<Record<CompactionRunUpdate["stage"], ReviewProgressState>> = {
     preparing: "preparing",
     chunks: "reviewing",
     summarizing: "summarizing",
     "awaiting-commit": "summarizing",
-    complete: "complete",
-    failed: "failed",
-    cancelled: "cancelled",
-} as const satisfies Record<CompactionRunUpdate["stage"], ReviewNoticeState>;
+};
 
-const REASON_LABELS: readonly (readonly [label: string, reasons: readonly string[]])[] = [
-    ["recent", ["retained-region"]],
-    ["error", ["error-result"]],
-    ["not permitted", ["tool-not-deletable"]],
-    ["nested", ["incomplete-nested-calls", "nested-tool-not-deletable", "nested-call-failed"]],
-    ["media", ["non-text-result"]],
-];
-
-function protectedReasons(tools: readonly ProtectedTool[]): ReviewNoticeView["protectedReasons"] {
-    const counts = new Map<string, number>();
-    for (const tool of tools) {
-        const label =
-            REASON_LABELS.find(([, reasons]) =>
-                reasons.some((reason) => tool.reasons.includes(reason)),
-            )?.[0] ?? "other";
-        counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    // Array.prototype.sort is stable, so equal counts keep the label priority order.
-    return [...REASON_LABELS.map(([label]) => label), "other"]
-        .flatMap((label) => {
-            const count = counts.get(label);
-            return count ? [{ label, count }] : [];
-        })
-        .sort((left, right) => right.count - left.count);
-}
-
-export function reviewNoticeView(update: CompactionRunUpdate): ReviewNoticeView {
-    const state = STAGE_STATES[update.stage];
-    const report = update.jev;
-    const summary = report && summarizeReview(report);
+/** Undefined once the run has settled: a running notice never outlives its compaction. */
+export function reviewProgressView(update: CompactionRunUpdate): ReviewProgressView | undefined {
+    const state = PROGRESS_STATES[update.stage];
+    if (!state) return undefined;
     return {
         state,
-        ...(update.reviewModel === undefined ? {} : { model: update.reviewModel }),
         ...(update.candidateTools === undefined || update.protectedTools === undefined
             ? {}
             : {
                   calls: {
                       total: update.candidateTools + update.protectedTools,
                       reviewed: update.candidateTools,
-                      protected: update.protectedTools,
                   },
               }),
-        protectedReasons: report ? protectedReasons(report.protectedTools) : [],
-        ...(report && summary
-            ? {
-                  outcome: {
-                      removedCalls: summary.removedCalls,
-                      fragments: summary.droppedFragments,
-                      placeholders: summary.placeholders,
-                      unreviewed: summary.unreviewed,
-                      chars: {
-                          before: report.charsBefore,
-                          after: report.charsAfter,
-                          truncation: report.charsBefore - report.charsAfterTruncation,
-                          classifier: report.charsAfterTruncation - report.charsAfter,
-                      },
-                  },
-              }
-            : {}),
         ...(state === "reviewing"
             ? { batches: { completed: update.completedBatches, total: update.totalBatches } }
             : {}),
-        ...(update.error === undefined ? {} : { error: update.error.replace(/\s+/g, " ").trim() }),
+        ...(update.jev ? { result: toolReviewRecord(update.jev) } : {}),
     };
 }
 
@@ -175,133 +223,137 @@ function count(value: number, singular: string, plural = `${singular}s`): string
     return `${value} ${value === 1 ? singular : plural}`;
 }
 
-function header(view: ReviewNoticeView, theme: Theme): Row {
-    const reviewed = view.outcome !== undefined;
-    if (view.state === "failed" || view.state === "cancelled") {
-        const color = view.state === "failed" ? "error" : "warning";
-        const glyph = view.state === "failed" ? "✖" : "⚠";
-        const title =
-            view.state === "failed"
-                ? reviewed
-                    ? "Compaction failed"
-                    : "Jev failed"
-                : reviewed
-                  ? "Compaction cancelled"
-                  : "Jev review cancelled";
-        const consequence =
-            view.state === "failed" && !reviewed ? "compaction cancelled" : "no checkpoint written";
-        return {
-            leads: [
-                theme.fg(color, `${glyph} ${title}`),
-                theme.fg(color, `${glyph} ${view.state === "failed" ? "Failed" : "Cancelled"}`),
-                theme.fg(color, glyph),
-            ],
-            parts: [
-                ...(view.error ? [{ text: theme.fg(color, view.error), rank: 1 }] : []),
-                { text: theme.fg("muted", consequence), rank: 2 },
-            ],
-        };
-    }
-    const glyph = theme.fg("accent", view.state === "complete" ? "◇" : "◐");
-    const stage =
-        view.state === "preparing" || view.state === "summarizing"
-            ? [{ text: theme.fg("muted", view.state), rank: 7 }]
-            : [];
-    return {
-        leads: [`${glyph} Jev review`, `${glyph} Jev`, glyph],
-        parts: [
-            ...stage,
-            ...(view.model ? [{ text: theme.fg("muted", view.model), rank: 0 }] : []),
-        ],
-    };
+function leads(glyph: string, theme: Theme): readonly string[] {
+    const marker = theme.fg("accent", glyph);
+    return [`${marker} ${TITLE}`, marker];
 }
 
-function callParts(view: ReviewNoticeView, theme: Theme): Part[] {
+/** `−3 calls · −13 fragments · 989k → 515k`, with the edits outranking the size. */
+function resultParts(record: ToolReviewRecord): Part[] {
+    const edits: Part[] = [];
+    if (record.removedCalls > 0)
+        edits.push({ text: `−${count(record.removedCalls, "call")}`, rank: 9 });
+    if (record.droppedFragments > 0)
+        edits.push({ text: `−${count(record.droppedFragments, "fragment")}`, rank: 8 });
+    if (record.placeholders > 0)
+        edits.push({ text: count(record.placeholders, "placeholder"), rank: 5 });
+    if (record.unreviewed > 0)
+        edits.push({ text: `${record.unreviewed} kept unreviewed`, rank: 5 });
+    if (edits.length === 0) edits.push({ text: "nothing removed", rank: 9 });
+    return [
+        ...edits,
+        { text: `${size(record.charsBefore)} → ${size(record.charsAfter)}`, rank: 6 },
+    ];
+}
+
+/** One row that keeps the editor in place: preparing, request progress, then the edits while the summary runs. */
+export function reviewProgressLine(view: ReviewProgressView, width: number, theme: Theme): string {
+    if (width < 1) return "";
     const muted = (text: string): string => theme.fg("muted", text);
     const parts: Part[] = [];
-    if (view.calls) {
+    if (view.state !== "reviewing") parts.push({ text: muted(view.state), rank: 7 });
+    if (view.state === "summarizing" && view.result) parts.push(...resultParts(view.result));
+    else if (view.calls)
         parts.push(
             { text: muted(count(view.calls.total, "call")), rank: 2 },
-            {
-                text: muted(
-                    `${view.calls.reviewed} ${view.state === "reviewing" ? "in review" : "reviewed"}`,
-                ),
-                rank: 4,
-            },
-            { text: muted(`${view.calls.protected} protected`), rank: 3 },
+            { text: muted(`${view.calls.reviewed} in review`), rank: 4 },
         );
-        if (view.protectedReasons.length > 0)
-            parts.push({
-                text: muted(
-                    `(${view.protectedReasons.map(({ label, count }) => `${count} ${label}`).join(" · ")})`,
-                ),
-                rank: 1,
-                attached: true,
-            });
-    }
     if (view.batches)
         parts.push({
             text: muted(`${view.batches.completed}/${view.batches.total} requests`),
             rank: 6,
         });
-    return parts;
-}
-
-function outcomeParts(view: ReviewNoticeView, theme: Theme): Part[] {
-    const outcome = view.outcome;
-    if (!outcome) return [];
-    const edits: Part[] = [];
-    if (outcome.removedCalls > 0)
-        edits.push({ text: `−${count(outcome.removedCalls, "call")}`, rank: 9 });
-    if (outcome.fragments > 0)
-        edits.push({ text: `−${count(outcome.fragments, "fragment")}`, rank: 8 });
-    if (outcome.placeholders > 0)
-        edits.push({ text: count(outcome.placeholders, "placeholder"), rank: 5 });
-    if (outcome.unreviewed > 0)
-        edits.push({ text: `${outcome.unreviewed} kept unreviewed`, rank: 5 });
-    if (edits.length === 0) edits.push({ text: "nothing removed", rank: 9 });
-    const muted = (text: string): string => theme.fg("muted", text);
-    return [
-        ...edits,
-        { text: `${size(outcome.chars.before)} → ${size(outcome.chars.after)}`, rank: 6 },
-        { text: muted(`truncation ${saved(outcome.chars.truncation)}`), rank: 3 },
-        { text: muted(`classifier ${saved(outcome.chars.classifier)}`), rank: 4 },
-    ];
+    return fitRow({ leads: leads("◐", theme), parts }, width, muted(" · ")) ?? "";
 }
 
 /**
- * Always the same rows for a given width: one below COMPACT_NOTICE_WIDTH, three at or
- * above it. Rows whose content is not known yet stay blank, so the editor never moves
- * while the review reports progress.
+ * The saved result under Pi's compaction summary. Collapsed it is one row of edits and size;
+ * expanded it adds the classifier, the call counts and the truncation/classifier split.
  */
-export function reviewNoticeLines(view: ReviewNoticeView, width: number, theme: Theme): string[] {
+export function reviewEntryLines(
+    record: ToolReviewRecord,
+    width: number,
+    theme: Theme,
+    expanded: boolean,
+): string[] {
     if (width < 1) return [];
-    const separator = theme.fg("muted", " · ");
-    const head = header(view, theme);
-    const calls = callParts(view, theme);
-    const outcome = outcomeParts(view, theme);
-    // Without a checkpoint, review counts would describe edits that never reached the session.
-    const settled = view.state === "failed" || view.state === "cancelled";
-    const compact = width < COMPACT_NOTICE_WIDTH;
-    const rows: Row[] = settled
-        ? [head]
-        : compact
-          ? [{ leads: head.leads, parts: [...head.parts, ...outcome, ...calls] }]
-          : [head, { leads: ["  "], parts: calls }, { leads: ["  "], parts: outcome }];
-    const lines = rows.map((row) => fitRow(row, width, separator) ?? "");
-    while (lines.length < (compact ? 1 : 3)) lines.push("");
-    return lines;
+    const muted = (text: string): string => theme.fg("muted", text);
+    const separator = muted(" · ");
+    const lead = leads("◇", theme);
+    const result = resultParts(record);
+    if (!expanded) return [fitRow({ leads: lead, parts: result }, width, separator) ?? ""];
+    const calls: Part[] = [
+        { text: muted(count(record.candidateTools + record.protectedTools, "call")), rank: 2 },
+        { text: muted(`${record.candidateTools} reviewed`), rank: 4 },
+        { text: muted(`${record.protectedTools} protected`), rank: 3 },
+    ];
+    if (record.protectedReasons.length > 0)
+        calls.push({
+            text: muted(
+                `(${record.protectedReasons.map((reason) => `${reason.count} ${CATEGORY_LABELS[reason.category]}`).join(" · ")})`,
+            ),
+            rank: 1,
+            attached: true,
+        });
+    const split: Part[] = [
+        {
+            text: muted(`truncation ${saved(record.charsBefore - record.charsAfterTruncation)}`),
+            rank: 3,
+        },
+        {
+            text: muted(`classifier ${saved(record.charsAfterTruncation - record.charsAfter)}`),
+            rank: 4,
+        },
+    ];
+    const head: Row = { leads: lead, parts: [{ text: muted(record.model), rank: 0 }] };
+    const rows: Row[] =
+        width < COMPACT_NOTICE_WIDTH
+            ? [{ leads: lead, parts: [...result, ...split, ...calls] }]
+            : width < FULL_NOTICE_WIDTH
+              ? [head, { leads: ["  "], parts: [...result, ...split, ...calls] }]
+              : [
+                    head,
+                    { leads: ["  "], parts: calls },
+                    { leads: ["  "], parts: [...result, ...split] },
+                ];
+    return rows.flatMap((row) => fitRow(row, width, separator) ?? []);
 }
 
-class ReviewNoticeComponent implements Component {
-    private view: ReviewNoticeView;
+/** Pi adds no padding around custom entries; one column lines the entry up with Pi's own notices. */
+const ENTRY_PADDING = " ";
+
+class ReviewEntryComponent implements Component {
+    private readonly record: ToolReviewRecord;
+    private readonly theme: Theme;
+    private readonly expanded: boolean;
+
+    constructor(record: ToolReviewRecord, theme: Theme, expanded: boolean) {
+        this.record = record;
+        this.theme = theme;
+        this.expanded = expanded;
+    }
+
+    render(width: number): string[] {
+        return reviewEntryLines(
+            this.record,
+            width - ENTRY_PADDING.length,
+            this.theme,
+            this.expanded,
+        ).map((line) => ENTRY_PADDING + line);
+    }
+
+    invalidate(): void {}
+}
+
+class ReviewProgressComponent implements Component {
+    private view: ReviewProgressView;
     private broken = false;
     private readonly theme: () => Theme;
     private readonly onRenderError: (error: unknown) => void;
     private readonly onDispose: () => void;
 
     constructor(
-        view: ReviewNoticeView,
+        view: ReviewProgressView,
         theme: () => Theme,
         onRenderError: (error: unknown) => void,
         onDispose: () => void,
@@ -312,14 +364,14 @@ class ReviewNoticeComponent implements Component {
         this.onDispose = onDispose;
     }
 
-    setView(view: ReviewNoticeView): void {
+    setView(view: ReviewProgressView): void {
         this.view = view;
     }
 
     render(width: number): string[] {
         if (this.broken) return [];
         try {
-            return reviewNoticeLines(this.view, width, this.theme());
+            return [reviewProgressLine(this.view, width, this.theme())];
         } catch (error) {
             this.broken = true;
             this.onRenderError(error);
@@ -334,36 +386,53 @@ class ReviewNoticeComponent implements Component {
     }
 }
 
-/** RPC has no width to measure against; 80 keeps all three rows inside a typical client pane. */
+/** RPC has no width to measure against; 80 keeps the row inside a typical client pane. */
 const RPC_NOTICE_WIDTH = 80;
 
 /** RPC renders the string form of a widget, so nothing resolves a theme. */
 const unstyledTheme = { fg: (_color: string, text: string) => text } as unknown as Theme;
 
-/** Pins the latest review above the editor, outside the transcript that Pi rebuilds after a compaction. */
-export function createReviewNotice(): CompactionRunListener {
-    let mounted: { component: ReviewNoticeComponent; requestRender: () => void } | undefined;
+/**
+ * Shows review progress above the editor only while a compaction runs, then saves the result
+ * as a transcript entry under Pi's compaction summary, where it scrolls away with the conversation.
+ */
+export function createReviewNotice(pi: ExtensionAPI): CompactionRunListener {
+    // Pi passes its live theme, so colors follow a theme switch when the entry is rebuilt.
+    pi.registerEntryRenderer(REVIEW_ENTRY_TYPE, (entry, options, theme) => {
+        return new ReviewEntryComponent(parseToolReviewRecord(entry.data), theme, options.expanded);
+    });
+    let mounted: { component: ReviewProgressComponent; requestRender: () => void } | undefined;
     let shown = false;
     return (update, ctx) => {
         if (!ctx.hasUI) return;
-        // RPC ignores widget factories but renders string lines, so send the same notice as text.
+        const view = update && reviewProgressView(update);
+        if (update?.stage === "complete" && update.jev) {
+            const record = toolReviewRecord(update.jev);
+            // Pi rebuilds the transcript right after session_compact returns; an entry added
+            // earlier would render above the new summary instead of below it.
+            setTimeout(() => {
+                try {
+                    pi.appendEntry(REVIEW_ENTRY_TYPE, record);
+                } catch (error) {
+                    console.warn("[pi-compaction] Tool review entry was not saved", error);
+                }
+            });
+        }
+        // RPC ignores widget factories but renders string lines, so send the same row as text.
         if (ctx.mode === "rpc") {
             ctx.ui.setWidget(
                 REVIEW_NOTICE_WIDGET,
-                update
-                    ? reviewNoticeLines(reviewNoticeView(update), RPC_NOTICE_WIDTH, unstyledTheme)
-                    : undefined,
+                view ? [reviewProgressLine(view, RPC_NOTICE_WIDTH, unstyledTheme)] : undefined,
                 { placement: "aboveEditor" },
             );
             return;
         }
-        if (!update) {
+        if (!view) {
             if (shown) ctx.ui.setWidget(REVIEW_NOTICE_WIDGET, undefined);
             shown = false;
             mounted = undefined;
             return;
         }
-        const view = reviewNoticeView(update);
         shown = true;
         if (mounted) {
             mounted.component.setView(view);
@@ -373,12 +442,11 @@ export function createReviewNotice(): CompactionRunListener {
         ctx.ui.setWidget(
             REVIEW_NOTICE_WIDGET,
             (tui, theme) => {
-                const component = new ReviewNoticeComponent(
+                const component = new ReviewProgressComponent(
                     view,
-                    // Pi passes its live theme, so colors follow a theme switch at the next render.
                     () => theme,
                     (error) => {
-                        console.error("[pi-compaction] Review notice failed to render", error);
+                        console.error("[pi-compaction] Review progress failed to render", error);
                         // Pi is mid-render; replacing a widget now would edit the tree it is drawing.
                         queueMicrotask(() => {
                             if (mounted?.component !== component) return;
@@ -386,7 +454,7 @@ export function createReviewNotice(): CompactionRunListener {
                                 ctx.ui.setWidget(REVIEW_NOTICE_WIDGET, undefined);
                             } catch (clearError) {
                                 console.error(
-                                    "[pi-compaction] Review notice cleanup failed",
+                                    "[pi-compaction] Review progress cleanup failed",
                                     clearError,
                                 );
                             }
