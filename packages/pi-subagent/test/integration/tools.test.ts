@@ -60,7 +60,6 @@ test("the four tools drive a run from start to report, steering and status", asy
         task: "Review a.ts",
         title: "Review a.ts",
         agent: "reviewer",
-        isolation: "shared",
     });
     const [run] = manager.branchRuns();
 

@@ -1,0 +1,72 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-locked-agent-settings",
+    "createdAt": "2026-10-29T09:19:42.602Z",
+    "intent": "A subagent_start call that names a custom agent takes only task and title; the definition's model, thinking, tools and isolation always apply. A call that also sets one of them fails in RunManager.start before anything is created (no run, spawn entry, run file, worktree or classifier request). A tasks call checks every entry before any starts and starts nothing when an entry breaks the rule, listing each as tasks[n]. Inline runs keep call values. The start schema lists agent first, then title and task, and marks model, thinking, tools and isolation as inline-only when agents are loaded. Docs, skill text and changelog match.",
+    "tier": "high",
+    "tierReasons": [
+        "packages/pi-subagent/src/tools/subagent-tools.ts"
+    ],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "adc7f24b6dbea34696c5ef2b49fc34ee31f4923f",
+    "headRev": "d4a4e694737a40e6529ef25dc22021c7a1333fcd",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/skills/create-lune-subagent/SKILL.md",
+        "packages/pi-subagent/src/run/run-manager.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts",
+        "packages/pi-subagent/test/integration/auto-model.test.ts",
+        "packages/pi-subagent/test/integration/precedence.test.ts",
+        "packages/pi-subagent/test/integration/start.test.ts",
+        "packages/pi-subagent/test/integration/tools-batch.test.ts",
+        "packages/pi-subagent/test/integration/tools.test.ts",
+        "packages/pi-subagent/test/integration/worktree.test.ts",
+        "packages/pi-subagent/test/unit/agent-settings.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T09:19:42.746Z",
+            "scope": "full",
+            "base": "adc7f24b6dbea34696c5ef2b49fc34ee31f4923f",
+            "head": "d4a4e694737a40e6529ef25dc22021c7a1333fcd",
+            "status": "ingested",
+            "findings": 2,
+            "newFindings": 1,
+            "duplicates": 1
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T09:27:12.736Z",
+            "scope": "diff-after-previous-round",
+            "base": "d4a4e694737a40e6529ef25dc22021c7a1333fcd",
+            "head": "6f5cebd5930b7c2e790d8cab92c75b38904326b0",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-subagent/docs/reference.md:101:stale-doc",
+            "round": 1,
+            "severity": "important",
+            "class": "stale-doc",
+            "file": "packages/pi-subagent/docs/reference.md",
+            "line": 101,
+            "summary": "The change makes the Auto model section false (reference.md:140, untouched): a disallowed tier model 'fails the start, so the main agent can name a model instead'. For an agent whose definition sets model: auto, agentSettingsProblem now rejects any call model, so the main agent cannot name one. Limit that sentence to inline runs; for agents, point to the definition or Auto tiers.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "reference.md Auto model paragraph: limit 'name a model instead' to inline runs; agent runs take the model from the definition, and a disallowed tier model points to Auto tiers.",
+            "resolvedAt": "2026-10-29T09:24:33.773Z"
+        }
+    ],
+    "convergedAt": "2026-10-29T09:29:00.711Z"
+}

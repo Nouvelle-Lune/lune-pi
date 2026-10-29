@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { SUBAGENT_GUIDE } from "../../src/run/guide.ts";
+import type { StartParams } from "../../src/run/run-manager.ts";
 import { RUN_ENTRY_TYPE } from "../../src/run/types.ts";
 import { SUBAGENT_TOOL_NAMES } from "../../src/tools/subagent-tools.ts";
 import {
@@ -228,4 +229,43 @@ test("a tool the run does not have fails the start and removes the run file", as
     assert.deepEqual(spawnEntries(fx.parent), []);
     assert.equal(manager.branchRuns().length, 0);
     assert.deepEqual(runFiles(fx.agentDir, fx.parent.getSessionId()), []);
+});
+
+const AGENT_SETTING_CASES: Array<{ field: string; params: Partial<StartParams> }> = [
+    { field: "model", params: { model: "faux/faux-2" } },
+    { field: "thinking", params: { thinking: "low" } },
+    { field: "tools", params: { tools: ["read"] } },
+    { field: "isolation", params: { isolation: "shared" } },
+];
+
+for (const { field, params } of AGENT_SETTING_CASES) {
+    test(`an agent with ${field} in the call fails the start and leaves no run, entry or run file`, async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([definition({ name: "reviewer" })]);
+        const expected =
+            'The agent "reviewer" runs with the model, thinking, tools and isolation of its ' +
+            `definition; give only task and title with agent, and leave out ${field}.`;
+
+        await assert.rejects(
+            manager.start({ task: "work", agent: "reviewer", ...params }, fx.ctx),
+            (error: Error) => error.message === expected,
+        );
+
+        assert.equal(manager.branchRuns().length, 0);
+        assert.deepEqual(spawnEntries(fx.parent), []);
+        assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+    });
+}
+
+test("an agent with only a task and a title still starts, with its definition's values", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "reviewer", thinking: "high" })]);
+
+    fx.faux.setResponses([reportResponse("done", "ok")]);
+    const run = await manager.start({ task: "work", agent: "reviewer", title: "Review" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+
+    assert.equal(run.snapshot?.sources.thinking, "definition");
+    assert.equal(manager.branchRuns().length, 1);
 });

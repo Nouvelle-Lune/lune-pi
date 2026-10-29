@@ -661,3 +661,44 @@ test("a turn with one report shows no earlier report line", (t) => {
     assert.doesNotMatch(formatRunStatus(run), /Earlier report/);
     assert.doesNotMatch(formatRunList([run], 0), /Earlier report/);
 });
+
+test("the start properties follow the order agent, title, task, model, thinking, tools, isolation, then tasks", (t) => {
+    const tool = toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName(
+        "subagent_start",
+    );
+    const schema = tool.parameters as {
+        properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
+    };
+    const order = ["agent", "title", "task", "model", "thinking", "tools", "isolation"];
+
+    assert.deepEqual(Object.keys(schema.properties), [...order, "tasks"]);
+    assert.deepEqual(Object.keys(schema.properties["tasks"]!.items!.properties), order);
+});
+
+test("with definitions, the model, thinking, tools and isolation descriptions start with Only without agent", (t) => {
+    const prefix = "Only without agent. ";
+    const withDefinitions = properties(
+        toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName("subagent_start"),
+    );
+    const entry = (
+        toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName("subagent_start")
+            .parameters as {
+            properties: {
+                tasks: { items: { properties: Record<string, { description: string }> } };
+            };
+        }
+    ).properties.tasks.items.properties;
+
+    for (const field of ["model", "thinking", "tools", "isolation"]) {
+        assert.ok(withDefinitions[field]!.description.startsWith(prefix), field);
+        assert.ok(entry[field]!.description.startsWith(prefix), `tasks entry ${field}`);
+    }
+});
+
+test("without definitions, the settings descriptions carry no Only without agent prefix", (t) => {
+    const without = properties(toolsFor(t, { models: ["a/one"] }).byName("subagent_start"));
+
+    for (const field of ["model", "thinking", "tools", "isolation"]) {
+        assert.doesNotMatch(without[field]!.description, /Only without agent/, field);
+    }
+});

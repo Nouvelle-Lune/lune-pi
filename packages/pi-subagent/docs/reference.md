@@ -20,7 +20,7 @@ Pi asks whether to trust a project only when the project has resources that Pi i
 | `tools`       | No       | Tool names, extension tools included, as a comma-separated string or a list. Default: `defaultTools`.                                        |
 | `model`       | No       | `provider/id`, or `auto` for the model of the task's tier. Default: the main agent's model.                                                  |
 | `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the classifier's level for `model: auto`, then the main agent's level. |
-| `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                                                                    |
+| `isolation`   | No       | `shared` or `worktree`. Default: `shared`.                                                                                                   |
 
 The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. Edits in the [settings panel](#settings) are the exception: their model, thinking, tools and isolation apply to the next run at once. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
 
@@ -98,14 +98,16 @@ the tests and report the commands, the results and the files you changed.
 
 ## Starting a run
 
-`subagent_start` takes the task and, optionally, an agent and run settings. Each value comes from the first source that sets it:
+`subagent_start` takes the task, an optional title, and either an agent or the settings of an inline run. A call that names an agent gives only `task` and `title`: the agent runs with the model, thinking, tools and isolation of its definition, and the main agent cannot change them. A call that names an agent and sets `model`, `thinking`, `tools` or `isolation` starts nothing. To change a role's settings, edit its definition.
 
-| Value     | Sources, in order                                                                          |
-| --------- | ------------------------------------------------------------------------------------------ |
-| Model     | The call, the definition, the main agent's current model                                   |
-| Thinking  | The call, the definition, the classifier for `model: auto`, the main agent's current level |
-| Tools     | The call, the definition, the `defaultTools` setting                                       |
-| Isolation | The call, the definition, `shared`                                                         |
+Each value comes from the first source that sets it:
+
+| Value     | Agent run                                                                        | Inline run                                                                 |
+| --------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Model     | The definition, the main agent's current model                                   | The call, the main agent's current model                                   |
+| Thinking  | The definition, the classifier for `model: auto`, the main agent's current level | The call, the classifier for `model: auto`, the main agent's current level |
+| Tools     | The definition, the `defaultTools` setting                                       | The call, the `defaultTools` setting                                       |
+| Isolation | The definition, `shared`                                                         | The call, `shared`                                                         |
 
 - The `model` parameter accepts the **Allowed models** selection in [settings](#settings), when nonempty, and `auto`. Otherwise, it accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set. The same allowed set checks explicit models in definitions and auto tiers; inheriting the main agent's current model remains allowed even outside that set.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
@@ -135,7 +137,7 @@ The tier and high-risk questions always go in the first request. The thinking op
 - **No classifier selected:** the run uses the main agent's model and thinking. This is the default.
 - **Nothing to rate:** when no tier has a model and the thinking is set, the run uses the main agent's model without a classifier request.
 
-When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that the subagent allowed set no longer permits is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
+When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that the subagent allowed set no longer permits is a settings error and fails the start; select another model under Auto tiers. For an inline run, the main agent can name a model instead; an agent run takes its model only from its definition. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
 
 ### Extension tools
 
@@ -152,7 +154,7 @@ A run can select a tool that one of your user or project extensions registers in
 
 ### Several runs in one call
 
-The main agent can give `tasks` instead of `task`: a list of entries, each with its own `task` and the same optional values as a single start. With `tasks`, the optional values go in each entry, not at the top level. A call that mixes them, or gives both `task` and `tasks`, starts nothing.
+The main agent can give `tasks` instead of `task`: a list of entries, each with its own `task` and the same optional values as a single start. With `tasks`, the optional values go in each entry, not at the top level. A call that mixes them, gives both `task` and `tasks`, or has an entry that names an agent and sets its settings, starts nothing.
 
 All entries start at the same time, and each one on its own. An entry that fails to start, for example with a tool that the run does not have, undoes only its own work and does not stop the others. A run that started is kept. The result names each entry by its index, `tasks[0]`, `tasks[1]` and so on, with its run or its error. When no entry starts, the call fails.
 
@@ -167,12 +169,12 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 Every tool that takes a run addresses it by the ID that `subagent_start` returned: eight hexadecimal characters, such as `8416992c`. A run's title and name identify it only in the inspector, the Dock and notices; a tool given either one fails, and the error lists the branch's run IDs.
 
-| Tool              | Parameters                                                                              | Effect                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task` or `tasks`; optional `title`, `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
-| `subagent_send`   | `runId`, `message`                                                                      | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
-| `subagent_status` | optional `runId`                                                                        | Reads one run, or every run on the current branch, with token usage and the last report.      |
-| `subagent_stop`   | `runId`                                                                                 | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
+| Tool              | Parameters                                                                                              | Effect                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `subagent_start`  | `task` or `tasks`; optional `agent`, `title`; for inline runs `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
+| `subagent_send`   | `runId`, `message`                                                                                      | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
+| `subagent_status` | optional `runId`                                                                                        | Reads one run, or every run on the current branch, with token usage and the last report.      |
+| `subagent_stop`   | `runId`                                                                                                 | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
 
 ## Reports and states
 

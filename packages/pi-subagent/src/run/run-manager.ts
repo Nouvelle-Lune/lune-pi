@@ -62,6 +62,26 @@ export interface StartParams {
     isolation?: Isolation;
 }
 
+/** The run settings that only an inline start takes; a named agent runs with its definition's. */
+export const INLINE_SETTINGS = ["model", "thinking", "tools", "isolation"] as const;
+
+/**
+ * Why a start may not go ahead because it names an agent and sets its settings too, or
+ * `undefined`. The definition is the user's, so the main agent gives only the task and a title.
+ */
+export function agentSettingsProblem(params: Omit<StartParams, "task">): string | undefined {
+    if (params.agent === undefined) {
+        return undefined;
+    }
+
+    const set = INLINE_SETTINGS.filter((field) => params[field] !== undefined);
+
+    return set.length > 0
+        ? `The agent "${params.agent}" runs with the model, thinking, tools and isolation of ` +
+              `its definition; give only task and title with agent, and leave out ${set.join(", ")}.`
+        : undefined;
+}
+
 export interface ProgressOptions {
     signal?: AbortSignal;
     onProgress?: (text: string) => void;
@@ -294,6 +314,12 @@ export class RunManager implements RunHost {
         options: ProgressOptions = {},
     ): Promise<Run> {
         this.assertActive();
+
+        const problem = agentSettingsProblem(params);
+
+        if (problem) {
+            throw new Error(problem);
+        }
 
         const definition = this.resolveDefinition(params.agent);
         const taskTools = params.tools ?? definition?.tools;

@@ -379,20 +379,21 @@ test("an auto run with no explicit thinking and no classifier keeps the parent's
     assert.notEqual(run.snapshot?.sources.thinking, "auto");
 });
 
-test("a call's explicit model beats a definition's auto and asks no classifier", async (t) => {
+test("a definition's auto with a call model is rejected and asks no classifier", async (t) => {
     const fx = await createFixture(t);
     const { ctx, seen: classified } = withClassifier(fx, { tier: "light" });
 
-    const { run, seen } = await startAuto(fx, {
-        ctx,
-        definitions: [definition({ name: "d", model: "auto" })],
-        params: { agent: "d" },
-        model: "faux/faux-2",
-        settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
-    });
+    await assert.rejects(
+        startAuto(fx, {
+            ctx,
+            definitions: [definition({ name: "d", model: "auto" })],
+            params: { agent: "d" },
+            model: "faux/faux-2",
+            settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
+        }),
+        /The agent "d" runs with the model, thinking, tools and isolation of its definition.*leave out model\./,
+    );
 
-    assert.deepEqual(seen, ["faux/faux-2"]);
-    assert.equal(run.snapshot?.autoModel, undefined);
     assert.equal(classified.requests.length, 0);
 });
 
