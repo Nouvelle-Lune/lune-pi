@@ -317,10 +317,23 @@ function sharedLevels(
 }
 
 function thinkingQuestion(levels: readonly ThinkingLevel[]): ClassifierChoiceQuestion {
+    const top = levels.at(-1)!;
+
     return {
         type: "choice",
         instructions: THINKING_INSTRUCTIONS,
-        criteria: Object.fromEntries(levels.map((level) => [level, THINKING_CRITERIA[level]])),
+        criteria: Object.fromEntries(
+            levels.map((level) => [
+                level,
+                // A model with fewer levels needs its top one to take the work that a higher level
+                // would rate, or a hard task falls to a level whose "Not for" clause excludes it.
+                level === top && level !== "max"
+                    ? `${THINKING_CRITERIA[level]} Also use this level for work that needs more ` +
+                      "reasoning than this: the run's model has no higher level, so the " +
+                      "exclusions above mark only what that level would cover."
+                    : THINKING_CRITERIA[level],
+            ]),
+        ),
     };
 }
 
