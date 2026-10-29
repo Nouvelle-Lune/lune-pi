@@ -16,13 +16,22 @@ import {
     type Fixture,
 } from "../harness/fixture.ts";
 
-async function setup(fx: Fixture) {
+async function setup(fx: Fixture, options: { autoOnly?: boolean } = {}) {
     const definitions = [definition({ name: "reviewer" })];
-    const manager = fx.createManager(definitions);
+    const autoOnly = options.autoOnly ?? false;
+    const manager = fx.createManager(
+        definitions,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => autoOnly,
+    );
     const tools = createSubagentTools({
         manager,
         definitions,
         models: ["faux/faux-1", "faux/faux-2"],
+        autoOnly,
         catalog: await loadToolCatalog(fx.cwd, fx.agentDir),
     });
     const start = tools.find((tool) => tool.name === "subagent_start") as ToolDefinition;
@@ -240,4 +249,26 @@ test("a single bad agent entry with a valid entry fails the call with its index"
     );
 
     assert.deepEqual(manager.branchRuns(), []);
+});
+
+test("with Auto mode only one entry naming another model fails the call and starts nothing", async (t) => {
+    const fx = await createFixture(t);
+    const { manager, call } = await setup(fx, { autoOnly: true });
+
+    await assert.rejects(
+        call({
+            tasks: [
+                { task: "a" },
+                { task: "b", model: "faux/faux-2" },
+                { task: "c", model: "auto" },
+            ],
+        }),
+        (error: Error) =>
+            error.message ===
+            'No run started.\ntasks[1]: Auto mode only is on, so an inline run uses model auto; leave out model "faux/faux-2".',
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(spawnEntryCount(fx), 0);
+    assert.deepEqual(runFiles(fx), []);
 });

@@ -135,6 +135,13 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                     value ? `${value.provider}/${value.id}` : "None · main session model",
                 choiceSource: classifierChoices,
             }),
+            field("autoOnly", {
+                label: "Auto mode only",
+                description:
+                    "Inline runs always use model auto: the main agent's subagent_start tool has " +
+                    "no model parameter, and a start that still names another model fails. " +
+                    "Custom agents keep their definition's model. Changes apply to the next start.",
+            }),
             ...AUTO_TIERS.map((tier) =>
                 field(["autoTiers", tier], {
                     label: TIERS[tier].label,

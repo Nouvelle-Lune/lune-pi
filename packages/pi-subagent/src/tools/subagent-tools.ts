@@ -7,7 +7,12 @@ import type { ToolCatalog } from "../catalog.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import { AUTO_MODEL } from "../models.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
-import { agentSettingsProblem, type RunManager, type StartParams } from "../run/run-manager.ts";
+import {
+    agentSettingsProblem,
+    autoOnlyProblem,
+    type RunManager,
+    type StartParams,
+} from "../run/run-manager.ts";
 import type { SendOutcome } from "../run/run.ts";
 import { ISOLATION_MODES, THINKING_LEVELS, type Isolation } from "../run/types.ts";
 import { stringEnum } from "../schema.ts";
@@ -57,12 +62,15 @@ export interface SubagentToolsOptions {
     definitions: readonly AgentDefinition[];
     /** `provider/id` references the `model` parameter allows. */
     models: readonly string[];
+    /** Auto mode only: the schema has no `model`, and inline runs use `model: auto`. */
+    autoOnly: boolean;
     catalog: ToolCatalog;
 }
 
 /**
- * The main agent's four tools. Their descriptions are fixed; only the `subagent_start` schema
- * depends on the session. It is rebuilt only when the allowed model list changes.
+ * The main agent's four tools. Only `subagent_start` depends on the session, through its schema
+ * and the inline settings it names; it is rebuilt only when the allowed models or Auto mode only
+ * change.
  */
 export function createSubagentTools(options: SubagentToolsOptions): ToolDefinition[] {
     const { manager } = options;
@@ -75,7 +83,8 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "independent execution, isolated context or a fresh verification pass improves speed " +
             "or quality. Handle quick tasks and tightly coupled steps directly. Use agent to " +
             "run a listed role with its own settings; give only task and title with it. Omit " +
-            "agent for an inline run that sets model, thinking, tools and isolation in the call. " +
+            `agent for an inline run that sets ${inlineSettings(options.autoOnly)} in the call` +
+            (options.autoOnly ? "; the user's auto model settings choose its model. " : ". ") +
             'Use isolation "shared" to work in your current directory, including uncommitted ' +
             'changes; use "worktree" for a separate Git checkout at HEAD, without uncommitted or ' +
             "untracked files. Tool selection and worktrees are not a security sandbox. Give task " +
@@ -117,7 +126,7 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
 
             const entries = input.tasks;
 
-            checkBatch(input, entries);
+            checkBatch(input, entries, options.autoOnly);
 
             // Each entry starts on its own, as parallel calls would: a failed one undoes only its
             // own work, because a run that started cannot be taken back.
@@ -304,7 +313,7 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
                 {
                     description:
                         "Independent runs started together instead of task. Set title, agent, " +
-                        "model, thinking, tools and isolation per entry, not at the top level. A " +
+                        `${inlineSettings(options.autoOnly)} per entry, not at the top level. A ` +
                         "failed start does not stop the other runs.",
                 },
             ),
@@ -329,7 +338,7 @@ function runProperties(
                 description:
                     "An agent from the subagents list. It runs with its definition's model, " +
                     "thinking, tools and isolation, so give only task and title with it. Leave " +
-                    "it out to set these in this call.",
+                    `it out to set ${options.autoOnly ? inlineSettings(true) : "these"} in this call.`,
             }),
         );
     }
@@ -345,7 +354,7 @@ function runProperties(
 
     const inlineOnly = agents.length > 0 ? "Only without agent. " : "";
 
-    if (options.models.length > 0) {
+    if (!options.autoOnly && options.models.length > 0) {
         properties.model = Type.Optional(
             stringEnum([AUTO_MODEL, ...options.models], {
                 description:
@@ -359,8 +368,9 @@ function runProperties(
     properties.thinking = Type.Optional(
         stringEnum(THINKING_LEVELS, {
             description:
-                `${inlineOnly}Default: the classifier's level for model auto, then your ` +
-                "current level.",
+                `${inlineOnly}Default: the classifier's level` +
+                (options.autoOnly ? "" : ` for model ${AUTO_MODEL}`) +
+                ", then your current level.",
         }),
     );
     properties.tools = Type.Optional(
@@ -371,6 +381,11 @@ function runProperties(
     );
 
     return properties;
+}
+
+/** The settings an inline run takes from the call; under Auto mode only, the model is auto. */
+function inlineSettings(autoOnly: boolean): string {
+    return autoOnly ? "thinking, tools and isolation" : "model, thinking, tools and isolation";
 }
 
 function toolsDescription(catalog: ToolCatalog): string {
@@ -411,10 +426,11 @@ function startParams(task: string, values: Omit<RunInput, "task">): StartParams 
 }
 
 /**
- * A `tasks` call takes start values only in its entries, and an agent entry takes no inline
- * settings. Both are checked before any entry starts, so a call that breaks either starts nothing.
+ * A `tasks` call takes start values only in its entries, an agent entry takes no inline settings,
+ * and under Auto mode only an inline entry takes no model but auto. These are checked before any
+ * entry starts, so a call that breaks one starts nothing.
  */
-function checkBatch(input: StartInput, entries: readonly RunInput[]): void {
+function checkBatch(input: StartInput, entries: readonly RunInput[], autoOnly: boolean): void {
     if (input.task !== undefined) {
         throw new Error("Give task for one run or tasks for several runs, not both.");
     }
@@ -432,7 +448,7 @@ function checkBatch(input: StartInput, entries: readonly RunInput[]): void {
     }
 
     const problems = entries.flatMap((entry, index) => {
-        const problem = agentSettingsProblem(entry);
+        const problem = agentSettingsProblem(entry) ?? autoOnlyProblem(entry, autoOnly);
 
         return problem ? [`tasks[${index}]: ${problem}`] : [];
     });

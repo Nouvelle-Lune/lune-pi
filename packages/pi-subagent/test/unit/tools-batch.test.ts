@@ -55,6 +55,7 @@ function stubbed(t: TestContext, startFor: (call: StartCall, index: number) => P
         manager,
         definitions: [definition("reviewer")],
         models: ["a/one"],
+        autoOnly: false,
         catalog,
     });
     const byName = (name: string) =>
