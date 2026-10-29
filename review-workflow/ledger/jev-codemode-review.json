@@ -1,0 +1,103 @@
+{
+    "schemaVersion": 1,
+    "change": "jev-codemode-review",
+    "createdAt": "2026-10-29T10:03:20.553Z",
+    "intent": "Let Jev review a codemode result when its nested-call record is complete, every nested call succeeded and every nested tool is in Deletable tools; otherwise protect it with incomplete-nested-calls, nested-tool-not-deletable or nested-call-failed. Replace the dim info notification, which Pi removed when the checkpoint committed, with a widget pinned above the editor that shows progress, survives the commit until the next compaction or session change, and reports disjoint removal counts plus an in-memory charsAfterTruncation split between the review input cap and classifier drops. The checkpoint format is unchanged; README, CHANGELOG and the rendered preview are updated. npm run check passed (exit 0) in the worktree.",
+    "tier": "high",
+    "tierReasons": ["package-lock.json", "packages/pi-compaction/package.json"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "97887814e659f478b14e18f29775635c54c65726",
+    "headRev": "2e91ca67c05757420fe489467a7414d6f0c2bc3b",
+    "files": [
+        "package-lock.json",
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/README.md",
+        "packages/pi-compaction/docs/compaction-review.png",
+        "packages/pi-compaction/docs/compaction-review.svg",
+        "packages/pi-compaction/package.json",
+        "packages/pi-compaction/src/compaction-controller.ts",
+        "packages/pi-compaction/src/extension.ts",
+        "packages/pi-compaction/src/index.ts",
+        "packages/pi-compaction/src/tool-review/candidates.ts",
+        "packages/pi-compaction/src/tool-review/review.ts",
+        "packages/pi-compaction/src/ui/review-notice.ts",
+        "packages/pi-compaction/test/compaction/run-listener.test.ts",
+        "packages/pi-compaction/test/harness/widget-ui.ts",
+        "packages/pi-compaction/test/host/tool-review-host.test.ts",
+        "packages/pi-compaction/test/tool-review/review.test.ts",
+        "packages/pi-compaction/test/tool-review/tool-index.test.ts",
+        "packages/pi-compaction/test/ui/review-notice.test.ts",
+        "packages/pi-compaction/tools/make-doc-images.mjs"
+    ],
+    "state": "abandoned",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T10:03:25.513Z",
+            "scope": "full",
+            "base": "97887814e659f478b14e18f29775635c54c65726",
+            "head": "2e91ca67c05757420fe489467a7414d6f0c2bc3b",
+            "status": "ingested",
+            "findings": 3,
+            "newFindings": 3,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T10:20:09.980Z",
+            "scope": "diff-after-previous-round",
+            "base": "2e91ca67c05757420fe489467a7414d6f0c2bc3b",
+            "head": "94379cb79d99bed11fcfea90bc3b4d3a863606c1",
+            "status": "pending",
+            "findings": 0,
+            "newFindings": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-compaction/src/ui/review-notice.ts:341:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-compaction/src/ui/review-notice.ts",
+            "line": 341,
+            "summary": "Widget support is detected with ctx.hasUI, which is true in RPC mode, and the mount always passes a component factory (line 355). Pi's rpc-mode.js ignores factories (\"Only support string arrays in RPC mode\"), so the review notice never appears for RPC clients, while the base commit notified through ctx.ui.notify, which RPC forwards. Pi docs say to guard TUI-only UI with ctx.mode === \"tui\".",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Handle ctx.mode === \"rpc\" by sending reviewNoticeLines as string[]; tests in test/ui/review-notice.test.ts.",
+            "resolvedAt": "2026-10-29T10:20:09.677Z"
+        },
+        {
+            "id": "F1-2",
+            "key": "packages/pi-compaction/src/ui/review-notice.ts:341:silent-fallback",
+            "round": 1,
+            "severity": "important",
+            "class": "silent-fallback",
+            "file": "packages/pi-compaction/src/ui/review-notice.ts",
+            "line": 341,
+            "summary": "RPC mode loses the notice: the listener gates only on ctx.hasUI and always passes a component factory, which Pi 1.3.0 RPC setWidget ignores (rpc-mode.js:135), so nothing renders and nothing is notified; the replaced notify (base compaction-controller.ts:254) did reach RPC clients. Fall back to string[] when ctx.mode !== \"tui\".",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Same RPC branch sends the rendered notice as string lines instead of a factory.",
+            "resolvedAt": "2026-10-29T10:20:09.761Z"
+        },
+        {
+            "id": "F1-3",
+            "key": "packages/pi-compaction/src/compaction-controller.ts:371:missing-guard",
+            "round": 1,
+            "severity": "nit",
+            "class": "missing-guard",
+            "file": "packages/pi-compaction/src/compaction-controller.ts",
+            "line": 371,
+            "summary": "The previous run's notice is cleared only for a jev-disabled run (line 324) or a failure after reviewing began (line 371), so a run that fails before the review leaves the old complete notice pinned, though line 323 says such a notice covers a checkpoint this run replaces. Scripted check: after a completed review, a run with an unregistered summary model published nothing.",
+            "preExisting": false,
+            "status": "rejected",
+            "resolution": "A run that fails before review writes no checkpoint, so the pinned notice still describes the session's last committed review; the failure reports its own error notification.",
+            "resolvedAt": "2026-10-29T10:20:09.850Z"
+        }
+    ],
+    "abandonedReason": "Round 2 was started from the main checkout while another session merged fix/subagent-dock-kept-runs into dev, so it recorded 94379cb7 as head instead of this branch's 5962bc0. Superseded by jev-codemode-review-2.",
+    "abandonedAt": "2026-10-29T10:20:45.347Z"
+}
