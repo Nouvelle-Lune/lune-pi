@@ -145,18 +145,14 @@ const THINKING_CRITERIA = {
         "stated.",
     high:
         "Investigate a failure that reproduces to find its cause, weigh a few approaches for a " +
-        "contained change, or confirm that a change meets its stated requirements. Not for: a " +
-        "cause that no reproduction shows, an open design trade-off, or correctness that tests " +
-        "cannot show.",
+        "contained change, or confirm that a change meets its stated requirements.",
     xhigh:
         "Find the cause of a failure that does not reproduce, argue that a risky change is safe, " +
-        "or plan a change that spans unfamiliar components. Not for: a failure that reproduces, " +
-        "or work that only needs care.",
+        "or plan a change that spans unfamiliar components.",
     max:
         "Reason about correctness that is hard to check, where a mistake is costly and easy to " +
         "miss: subtle concurrency, state or data-loss defects, security or privacy boundaries, " +
-        "migrations or algorithms with invariants, or design trade-offs between constraints. " +
-        "Not for: work that is only large, or hard only because the code is unfamiliar.",
+        "migrations or algorithms with invariants, or design trade-offs between constraints.",
 } satisfies Record<ThinkingLevel, string>;
 
 export interface AutoModelInput {
@@ -329,11 +325,10 @@ function thinkingQuestion(levels: readonly ThinkingLevel[]): ClassifierChoiceQue
             levels.map((level) => [
                 level,
                 // A model with fewer levels needs its top one to take the work that a higher level
-                // would rate, or a hard task falls to a level whose "Not for" clause excludes it.
+                // would rate, or a hard task falls to a lower level instead.
                 level === top && level !== "max"
                     ? `${THINKING_CRITERIA[level]} Also use this level for work that needs more ` +
-                      "reasoning than this: the run's model has no higher level, so the " +
-                      "exclusions above mark only what that level would cover."
+                      "reasoning than this, because the run's model has no higher thinking level."
                     : THINKING_CRITERIA[level],
             ]),
         ),
