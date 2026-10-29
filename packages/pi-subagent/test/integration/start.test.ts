@@ -269,3 +269,75 @@ test("an agent with only a task and a title still starts, with its definition's 
     assert.equal(run.snapshot?.sources.thinking, "definition");
     assert.equal(manager.branchRuns().length, 1);
 });
+
+test.describe("Auto mode only", () => {
+    const autoOnly = async () => true;
+
+    test("an inline start with another model fails and leaves no run, entry, run file or rating", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+        const expected =
+            'Auto mode only is on, so an inline run uses model auto; leave out model "faux/faux-2".';
+
+        await assert.rejects(
+            manager.start({ task: "work", model: "faux/faux-2" }, fx.ctx),
+            (error: Error) => error.message === expected,
+        );
+
+        assert.equal(manager.branchRuns().length, 0);
+        assert.deepEqual(spawnEntries(fx.parent), []);
+        assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+    });
+
+    test("an inline start without a model becomes an auto run with source settings", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+
+        fx.faux.setResponses([reportResponse("done", "ok")]);
+        const run = await manager.start({ task: "work" }, fx.ctx);
+
+        await waitForTurns(manager, run, 1);
+
+        assert.equal(run.snapshot?.sources.model, "settings");
+        assert.deepEqual(run.snapshot?.autoModel, { by: "no-classifier" });
+    });
+
+    test("an inline start with model auto is allowed and records source call", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+
+        fx.faux.setResponses([reportResponse("done", "ok")]);
+        const run = await manager.start({ task: "work", model: "auto" }, fx.ctx);
+
+        await waitForTurns(manager, run, 1);
+
+        assert.equal(run.snapshot?.sources.model, "call");
+        assert.notEqual(run.snapshot?.autoModel, undefined);
+    });
+
+    test("an agent keeps its definition's model, and one without a model inherits the parent's", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager(
+            [definition({ name: "pinned", model: "faux/faux-2" }), definition({ name: "plain" })],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            autoOnly,
+        );
+
+        fx.faux.setResponses([reportResponse("done", "one"), reportResponse("done", "two")]);
+        const pinned = await manager.start({ task: "a", agent: "pinned" }, fx.ctx);
+        const plain = await manager.start({ task: "b", agent: "plain" }, fx.ctx);
+
+        await waitForTurns(manager, pinned, 1);
+        await waitForTurns(manager, plain, 1);
+
+        assert.equal(pinned.snapshot?.model, "faux/faux-2");
+        assert.equal(pinned.snapshot?.sources.model, "definition");
+        assert.equal(pinned.snapshot?.autoModel, undefined);
+        assert.equal(plain.snapshot?.model, "faux/faux-1");
+        assert.equal(plain.snapshot?.sources.model, "parent");
+        assert.equal(plain.snapshot?.autoModel, undefined);
+    });
+});

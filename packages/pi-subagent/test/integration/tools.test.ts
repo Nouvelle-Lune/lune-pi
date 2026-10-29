@@ -20,6 +20,7 @@ async function setup(fx: Fixture, definitions = [definition({ name: "reviewer" }
         manager,
         definitions,
         models: ["faux/faux-1", "faux/faux-2"],
+        autoOnly: false,
         catalog: await loadToolCatalog(fx.cwd, fx.agentDir),
     });
     const call = async (name: string, params: Record<string, unknown>) => {

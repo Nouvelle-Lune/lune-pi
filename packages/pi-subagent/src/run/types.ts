@@ -111,7 +111,7 @@ export interface RunSnapshot {
     task: string;
     /** `provider/id`. */
     model: string;
-    /** Set when the call or definition asked for `auto`; `sources.model` says which. */
+    /** Set when the call, definition or Auto mode only asked for `auto`; `sources.model` says which. */
     autoModel?: AutoModelChoice;
     thinking: ThinkingLevel;
     /** The effective SDK allowlist, `report` included. */

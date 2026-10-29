@@ -43,13 +43,14 @@ const catalog: ToolCatalog = {
 
 function toolsFor(
     t: Parameters<typeof parentSession>[0],
-    options: { definitions?: string[]; models?: string[] } = {},
+    options: { definitions?: string[]; models?: string[]; autoOnly?: boolean } = {},
 ) {
     const session = parentSession(t, tempAgentDir(t));
     const tools = createSubagentTools({
         manager: session.manager(),
         definitions: (options.definitions ?? []).map((name) => definition(name)),
         models: options.models ?? [],
+        autoOnly: options.autoOnly ?? false,
         catalog,
     });
 
@@ -104,6 +105,41 @@ test("the model enum lists the allowed models and is absent when the list is emp
 
     assert.deepEqual(withModels["model"]!.enum, ["auto", "a/one", "b/two"]);
     assert.equal("model" in without, false);
+});
+
+test("with Auto mode only the start schema has no model, at the top level or in tasks", (t) => {
+    const models = ["a/one", "b/two"];
+    const on = toolsFor(t, { models, autoOnly: true }).byName("subagent_start");
+    const off = toolsFor(t, { models, autoOnly: false }).byName("subagent_start");
+    const entry = (tool: { parameters: unknown }) =>
+        (
+            tool.parameters as {
+                properties: { tasks: { items: { properties: Record<string, unknown> } } };
+            }
+        ).properties.tasks.items.properties;
+
+    assert.equal("model" in properties(on), false);
+    assert.equal("model" in entry(on), false);
+    assert.equal("model" in properties(off), true);
+    assert.equal("model" in entry(off), true);
+});
+
+test("with Auto mode only the descriptions name only thinking, tools and isolation as inline settings", (t) => {
+    const definitions = ["reviewer"];
+    const on = toolsFor(t, { definitions, autoOnly: true }).byName("subagent_start");
+    const off = toolsFor(t, { definitions, autoOnly: false }).byName("subagent_start");
+
+    assert.match(on.description, /sets thinking, tools and isolation in the call/);
+    assert.match(off.description, /sets model, thinking, tools and isolation in the call/);
+    assert.match(
+        properties(on)["agent"]!.description,
+        /set thinking, tools and isolation in this call/,
+    );
+    assert.match(
+        (on.parameters as { properties: { tasks: { description: string } } }).properties.tasks
+            .description,
+        /^Independent runs started together instead of task\. Set title, agent, thinking, tools and isolation per entry/,
+    );
 });
 
 test("thinking and isolation are fixed enums and no top-level parameter is required", (t) => {
@@ -192,6 +228,7 @@ test("subagent_status without a runId lists the runs of the branch", async (t) =
         manager: session.manager(),
         definitions: [],
         models: [],
+        autoOnly: false,
         catalog,
     });
     const status = tools.find((tool) => tool.name === "subagent_status") as unknown as ToolShape;

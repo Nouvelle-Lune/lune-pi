@@ -4,9 +4,7 @@
     "createdAt": "2026-10-29T09:19:42.602Z",
     "intent": "A subagent_start call that names a custom agent takes only task and title; the definition's model, thinking, tools and isolation always apply. A call that also sets one of them fails in RunManager.start before anything is created (no run, spawn entry, run file, worktree or classifier request). A tasks call checks every entry before any starts and starts nothing when an entry breaks the rule, listing each as tasks[n]. Inline runs keep call values. The start schema lists agent first, then title and task, and marks model, thinking, tools and isolation as inline-only when agents are loaded. Docs, skill text and changelog match.",
     "tier": "high",
-    "tierReasons": [
-        "packages/pi-subagent/src/tools/subagent-tools.ts"
-    ],
+    "tierReasons": ["packages/pi-subagent/src/tools/subagent-tools.ts"],
     "roundCap": 3,
     "minIndependentReviews": 2,
     "baseRev": "adc7f24b6dbea34696c5ef2b49fc34ee31f4923f",

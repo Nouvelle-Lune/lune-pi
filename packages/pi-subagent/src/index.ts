@@ -106,17 +106,20 @@ export default function (pi: ExtensionAPI): void {
                 autoModelSettings((await settings.view(startCtx)).snapshot()),
             modelSelection: async (startCtx) =>
                 (await settings.view(startCtx)).get("allowedModels"),
+            autoOnly: async (startCtx) => (await settings.view(startCtx)).get("autoOnly"),
         });
         manager.restore();
         toolCatalog = addExtensionTools(catalog, extensionTools());
 
         const runManager = manager;
         const sessionCatalog = toolCatalog;
-        let registeredModels: string[] | undefined;
+        let registeredSchema: string | undefined;
         const registerTools = (): void => {
             const models = allowedModelRefs(ctx, view.get("allowedModels"));
+            const autoOnly = view.get("autoOnly");
+            const schema = JSON.stringify({ models, autoOnly });
 
-            if (registeredModels && JSON.stringify(models) === JSON.stringify(registeredModels)) {
+            if (schema === registeredSchema) {
                 return;
             }
 
@@ -124,15 +127,17 @@ export default function (pi: ExtensionAPI): void {
                 manager: runManager,
                 definitions,
                 models,
+                autoOnly,
                 catalog: sessionCatalog,
             });
 
-            // Only an allowlist change replaces the start schema; unrelated settings keep it stable.
-            for (const tool of registeredModels ? tools.slice(0, 1) : tools) {
+            // Only the allowlist and Auto mode only replace the start schema; other settings
+            // keep it stable.
+            for (const tool of registeredSchema ? tools.slice(0, 1) : tools) {
                 pi.registerTool(tool);
             }
 
-            registeredModels = models;
+            registeredSchema = schema;
         };
 
         registerTools();

@@ -112,6 +112,7 @@ export interface Fixture {
         extensionTools?: () => readonly ExtensionTool[],
         autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>,
         modelSelection?: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>,
+        autoOnly?: (ctx: ExtensionContext) => Promise<boolean>,
     ): RunManager;
 }
 
@@ -200,6 +201,7 @@ export async function createFixture(
             extensionTools,
             autoModelSettings,
             modelSelection,
+            autoOnly,
         ) {
             const manager = new RunManager({
                 pi: pi.asApi(),
@@ -209,6 +211,7 @@ export async function createFixture(
                 extensionTools,
                 autoModelSettings,
                 modelSelection,
+                autoOnly,
                 modelRuntime: runtime,
             });
 

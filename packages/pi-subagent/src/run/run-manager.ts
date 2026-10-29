@@ -82,6 +82,23 @@ export function agentSettingsProblem(params: Omit<StartParams, "task">): string 
         : undefined;
 }
 
+/**
+ * Why an inline start may not go ahead because it names a model while Auto mode only is on, or
+ * `undefined`. Agent runs keep their definition's model.
+ */
+export function autoOnlyProblem(
+    params: Omit<StartParams, "task">,
+    autoOnly: boolean,
+): string | undefined {
+    return autoOnly &&
+        params.agent === undefined &&
+        params.model !== undefined &&
+        params.model !== AUTO_MODEL
+        ? `Auto mode only is on, so an inline run uses model ${AUTO_MODEL}; leave out ` +
+              `model "${String(params.model)}".`
+        : undefined;
+}
+
 export interface ProgressOptions {
     signal?: AbortSignal;
     onProgress?: (text: string) => void;
@@ -107,6 +124,7 @@ export class RunManager implements RunHost {
     private readonly listExtensionTools: () => readonly ExtensionTool[];
     private readonly autoModelSettings: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
     private readonly modelSelection: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
+    private readonly autoOnly: (ctx: ExtensionContext) => Promise<boolean>;
     private readonly runs = new Map<string, Run>();
     /** Ended turns of runs on another branch; sent when their branch is active again. */
     private readonly deferred = new Map<string, RunNotice[]>();
@@ -127,6 +145,8 @@ export class RunManager implements RunHost {
         autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
         /** A nonempty selection replaces the parent's scope for new runs. */
         modelSelection?: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
+        /** Read at each start; when true, inline runs use `model: auto`. Off when left out. */
+        autoOnly?: (ctx: ExtensionContext) => Promise<boolean>;
         /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
         modelRuntime?: ModelRuntime;
     }) {
@@ -139,6 +159,7 @@ export class RunManager implements RunHost {
         this.autoModelSettings =
             options.autoModelSettings ?? (async () => DEFAULT_AUTO_MODEL_SETTINGS);
         this.modelSelection = options.modelSelection ?? (async () => []);
+        this.autoOnly = options.autoOnly ?? (async () => false);
         this.sessionId = options.ctx.sessionManager.getSessionId();
         this.notifier = new RunNotifier(
             options.pi,
@@ -315,7 +336,8 @@ export class RunManager implements RunHost {
     ): Promise<Run> {
         this.assertActive();
 
-        const problem = agentSettingsProblem(params);
+        const autoOnly = params.agent === undefined && (await this.autoOnly(ctx));
+        const problem = agentSettingsProblem(params) ?? autoOnlyProblem(params, autoOnly);
 
         if (problem) {
             throw new Error(problem);
@@ -341,6 +363,7 @@ export class RunManager implements RunHost {
             tools: taskTools,
             isolation,
             thinkingSet: explicitThinking !== undefined,
+            autoOnly,
             options,
         });
         // An auto run's rating sets the thinking only where the call and definition do not.
@@ -788,6 +811,7 @@ export class RunManager implements RunHost {
             tools?: readonly string[];
             isolation: Isolation;
             thinkingSet: boolean;
+            autoOnly: boolean;
             options: ProgressOptions;
         },
     ): Promise<{
@@ -797,7 +821,8 @@ export class RunManager implements RunHost {
         /** The auto rating's thinking level, when the start set none. */
         thinking?: ThinkingLevel;
     }> {
-        const requested = params.model ?? definition?.model;
+        const requested =
+            params.model ?? definition?.model ?? (run.autoOnly ? AUTO_MODEL : undefined);
 
         if (requested === undefined) {
             if (!ctx.model) {
@@ -807,7 +832,12 @@ export class RunManager implements RunHost {
             return { ref: { provider: ctx.model.provider, id: ctx.model.id }, source: "parent" };
         }
 
-        const source: ValueSource = params.model !== undefined ? "call" : "definition";
+        const source: ValueSource =
+            params.model !== undefined
+                ? "call"
+                : definition?.model !== undefined
+                  ? "definition"
+                  : "settings";
         const selection = await this.modelSelection(ctx);
 
         if (requested === AUTO_MODEL) {

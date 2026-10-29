@@ -62,7 +62,7 @@ test("the Allowed models row leads the section and summarizes the saved count", 
     assert.equal(field.label, "Allowed models");
     assert.deepEqual(
         section.fields.map((candidate) => candidate.id),
-        ["allowedModels", "autoClassifier", "tiers", "agents"],
+        ["allowedModels", "autoClassifier", "autoOnly", "tiers", "agents"],
     );
     assert.equal(field.formatValue?.([], ctx, "global"), "Default · Pi's model scope");
     assert.equal(field.formatValue?.([SMALL, BIG], ctx, "global"), "2 selected");
