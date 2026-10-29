@@ -20,6 +20,10 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 - **Auto mode only.** A Subagents setting that removes the `model` parameter from `subagent_start`, so every inline run uses `model: auto` and the main agent cannot pick a model. An inline call that still names another model starts nothing. Custom agents keep their definition's model.
 - **Startup agent list.** When Lune Core Theme is enabled, the session's loaded agent names appear under `[Agents]` below Pi's other startup resources. The list uses the same validated, trusted-scope definitions as the tools and prompt, and refreshes with the session.
 
+### Fixed
+
+- **Supported thinking choices.** Custom agents now offer only thinking levels supported by the selected model, or by the current main model when inherited. With a classifier and `model: auto`, explicit choices are limited to levels shared by the tier models and the main model, and the default is labeled automatic thinking. Missing or disallowed models report a configuration error instead of offering unsupported levels.
+
 ### Changed
 
 - **Package presentation.** Introduce the package with native Pi screenshots, installation steps and a shorter feature guide. Keep detailed contracts in a bundled reference, and declare the package image and public npm access for its first release.

@@ -249,6 +249,14 @@ The main agent's inherited model and the model of an existing or resumed run are
 
 In **Custom agents**, Enter opens an agent, and its page edits the name, description, model, thinking level, tools and isolation. Each change is written to the definition file at once; comments and the body stay. Ctrl+R removes an optional field, so the run's default applies again. Renaming an agent renames a file named after it. Model, thinking, tools and isolation apply to the next run; the name and description reach the main agent after `/reload`, because its agent list stays fixed for the session. MCP tools are not listed in the tools menu, but selected MCP tools stay in the file. A file that does not load is listed with its problem and must be fixed by hand.
 
+The **Thinking** selector offers only levels supported by the agent's model. When the model is
+inherited, it follows the current main model. With `model: auto` and a configured classifier,
+explicit levels must be supported by every configured tier model and the main model, which a
+failed classifier can use. If those models share no level, only **Automatic thinking** is offered;
+leaving the field out lets the classifier choose a supported level per task. Without a classifier,
+`auto` follows the main model and thinking. An unavailable or disallowed model must be corrected
+before loading thinking choices. Existing saved thinking values remain intact when changing models.
+
 ## Sessions and branches
 
 - **Shutdown.** When the main session ends, for any reason, running runs stop and become `interrupted`. `subagent_send` continues them later from their session file, in the same working directory. A missing worktree fails the continuation.
