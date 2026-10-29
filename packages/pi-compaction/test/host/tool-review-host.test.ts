@@ -6,6 +6,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { assistantText, assistantToolCall, policy, toolResult, user } from "../harness/fixtures.ts";
 import type { JevOptions } from "../../src/options.ts";
+import { recordWidgets } from "../harness/widget-ui.ts";
 import {
     startJevHost,
     systemOneAnswers,
@@ -45,6 +46,46 @@ function readHistory(): AgentMessage[] {
     ];
 }
 
+/** Binds a TUI context whose notifications and widgets are recorded instead of drawn. */
+async function bindRecordedUi(host: Awaited<ReturnType<typeof startJevHost>>) {
+    const notifications: { text: string; type?: string }[] = [];
+    const widgets = recordWidgets();
+    const ui = host.captureContext().ui;
+    await host.session.bindExtensions({
+        mode: "tui",
+        uiContext: {
+            ...ui,
+            notify: (text, type) => notifications.push({ text, type }),
+            setWidget: widgets.setWidget,
+        } as typeof ui,
+    });
+    return { notifications, widgets };
+}
+
+/** Renders the widget Pi currently holds, as Pi would at the given width. */
+function renderPinnedNotice(widgets: ReturnType<typeof recordWidgets>, width = 100): string {
+    const mounts = widgets.calls.filter((call) => call.content !== undefined);
+    assert.equal(mounts.length, 1, "the notice is mounted once and then updated in place");
+    const component = widgets.component();
+    assert.ok(component, "the notice is still pinned after the compaction completes");
+    return component.render(width).join("\n");
+}
+
+function assertNoticePinned(
+    widgets: ReturnType<typeof recordWidgets>,
+    notifications: { text: string; type?: string }[],
+): void {
+    assert.deepEqual(
+        notifications.filter(({ type }) => type === "info"),
+        [],
+    );
+    assert.ok(widgets.calls.length > 0);
+    for (const call of widgets.calls) assert.equal(call.key, "lune-compaction-review");
+    assert.deepEqual(widgets.calls[0]!.options, { placement: "aboveEditor" });
+    // The notice stays pinned after the compaction completes.
+    assert.equal(widgets.calls.at(-1)!.content !== undefined, true);
+}
+
 const JEV_POLICY = policy({
     deletableTools: ["read"],
 });
@@ -56,6 +97,47 @@ function jevOptions(): JevOptions {
         model: { provider: "registry-jev", id: "jev-latest" },
     };
 }
+
+test(
+    "host: a codemode result with complete, permitted and successful nested calls is classified and removed",
+    { timeout: 10000 },
+    async () => {
+        const messages = readHistory();
+        const codemode: ToolResultMessage = {
+            role: "toolResult",
+            toolCallId: "cm",
+            toolName: "codemode",
+            content: [{ type: "text", text: "CODEMODE_BODY" }],
+            nestedCalls: {
+                complete: true,
+                calls: [{ id: "cm-1", name: "read", status: "ok" }],
+            },
+            isError: false,
+            timestamp: 1_700_000_300_000,
+        };
+        messages.splice(2, 0, assistantToolCall("cm", "codemode", { script: "read()" }), codemode);
+        const host = await startJevHost({
+            messages,
+            jev: jevOptions,
+            policy: policy({ deletableTools: ["read", "codemode"] }),
+            contextWindow: 64_000,
+        });
+        try {
+            host.simulator.setResponder((pending) =>
+                pending.respond(systemOneAnswers(pending.request, 1)),
+            );
+            host.faux.setResponses([fauxAssistantMessage("## Goal\ncodemode summary")]);
+            await host.session.compact();
+            const sent = JSON.stringify(host.simulator.requests);
+            assert.ok(sent.includes("CODEMODE_BODY"));
+            const report = host.controller.getRun()?.jev;
+            assert.deepEqual(report?.protectedTools, []);
+            assert.deepEqual(report?.removedCalls, ["cm", "r1", "r2"]);
+        } finally {
+            await host.dispose();
+        }
+    },
+);
 
 test(
     "host: native System One sends one minimal safeToDrop request per chunk and commits pair removal",
@@ -495,7 +577,7 @@ test(
 );
 
 test(
-    "host: fallback preserves failed input, commits a checkpoint and emits one dim info notification",
+    "host: fallback preserves failed input, commits a checkpoint and pins the review notice",
     { timeout: 10000 },
     async (t) => {
         // Native transport and UI must distinguish preflight placeholders from provider-limit preservation.
@@ -516,15 +598,7 @@ test(
                 contextWindow: mode === "preflight" ? 7_000 : 64_000,
             });
             try {
-                const notifications: { text: string; type?: string }[] = [];
-                const ui = host.captureContext().ui;
-                await host.session.bindExtensions({
-                    mode: "tui",
-                    uiContext: {
-                        ...ui,
-                        notify: (text, type) => notifications.push({ text, type }),
-                    },
-                });
+                const { notifications, widgets } = await bindRecordedUi(host);
                 host.simulator.setResponder((pending) => {
                     if (
                         mode === "provider" &&
@@ -556,12 +630,11 @@ test(
                 assert.equal(summaryInput.includes("content not classified"), mode === "preflight");
                 assert.ok(!summaryInput.includes("R2BODY"));
                 assert.equal(loggedErrors.mock.calls.length, 0);
-                // The notice wording is not contracted; only its emission as one compact line is.
-                assert.equal(notifications.length, 1);
-                assert.equal(notifications[0]?.type, "info");
-                const notice = notifications[0]?.text ?? "";
-                assert.ok(notice.length > 0);
-                assert.ok(!notice.includes("\n"));
+                assertNoticePinned(widgets, notifications);
+                const rendered = renderPinnedNotice(widgets);
+                assert.ok(rendered.includes("Jev review"));
+                const removed = report.removedCalls.length;
+                assert.ok(rendered.includes(`−${removed} ${removed === 1 ? "call" : "calls"}`));
                 assert.equal(
                     host.sessionManager.getEntries().filter((entry) => entry.type === "compaction")
                         .length,
@@ -575,10 +648,9 @@ test(
 );
 
 test(
-    "host: review notice explains fragment removal even when every tool output remains",
+    "host: the pinned notice reports fragment removal even when every tool output remains",
     { timeout: 10000 },
     async () => {
-        initTheme("dark", false);
         for (const partial of [false, true]) {
             const host = await startJevHost({
                 messages: readHistory(),
@@ -586,15 +658,7 @@ test(
                 policy: JEV_POLICY,
             });
             try {
-                const notifications: { text: string; type?: string }[] = [];
-                const ui = host.captureContext().ui;
-                await host.session.bindExtensions({
-                    mode: "tui",
-                    uiContext: {
-                        ...ui,
-                        notify: (text, type) => notifications.push({ text, type }),
-                    },
-                });
+                const { notifications, widgets } = await bindRecordedUi(host);
                 host.simulator.setResponder((pending) => {
                     const body = String(pending.request.state.result);
                     pending.respond(
@@ -606,12 +670,10 @@ test(
                 });
                 host.faux.setResponses([fauxAssistantMessage("## Goal\nreview complete")]);
                 await host.session.compact();
-                // The notice wording is not contracted; only its emission as one compact line is.
-                assert.equal(notifications.length, 1);
-                assert.equal(notifications[0]?.type, "info");
-                const notice = notifications[0]?.text ?? "";
-                assert.ok(notice.length > 0);
-                assert.ok(!notice.includes("\n"));
+                assertNoticePinned(widgets, notifications);
+                const rendered = renderPinnedNotice(widgets);
+                assert.ok(rendered.includes("Jev review"));
+                assert.ok(rendered.includes(partial ? "−1 fragment" : "nothing removed"));
                 assert.deepEqual(host.controller.getRun()?.jev?.removedCalls, []);
                 assert.equal(host.controller.getRun()?.stage, "complete");
             } finally {

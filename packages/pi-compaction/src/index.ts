@@ -1,10 +1,13 @@
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { CompactionController } from "./compaction-controller.ts";
 import type { ConfigurationProvider } from "./options.ts";
+import { createReviewNotice } from "./ui/review-notice.ts";
 
 export type {
     CompactionController,
     CompactionRun,
+    CompactionRunListener,
+    CompactionRunUpdate,
     CompactionStage,
 } from "./compaction-controller.ts";
 export { DEFAULT_COMPACTION_POLICY } from "./options.ts";
@@ -21,7 +24,7 @@ export function installCompaction(
     pi: ExtensionAPI,
     getConfiguration: ConfigurationProvider,
 ): CompactionController {
-    return new CompactionController(pi, getConfiguration);
+    return new CompactionController(pi, getConfiguration, { onRunChange: createReviewNotice() });
 }
 
 /** Embedded consumers own configuration; the standalone Pi entry uses Core settings. */

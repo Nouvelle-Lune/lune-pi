@@ -5,6 +5,7 @@ import { ResourceScope } from "@lune_99/pi-lune-extensions-core/resources";
 import { CompactionController } from "./compaction-controller.ts";
 import { resolveCompactionSettings } from "./settings/schema.ts";
 import { compactionSettings, createCompactionPanel } from "./settings/section.ts";
+import { createReviewNotice } from "./ui/review-notice.ts";
 
 export async function installConfiguredCompaction(pi: ExtensionAPI) {
     const resources = new ResourceScope();
@@ -18,10 +19,14 @@ export async function installConfiguredCompaction(pi: ExtensionAPI) {
             ),
         );
         const controller = resources.use(
-            new CompactionController(pi, async (ctx) => {
-                const view = await settings.view(ctx);
-                return resolveCompactionSettings(view.snapshot(), ctx);
-            }),
+            new CompactionController(
+                pi,
+                async (ctx) => {
+                    const view = await settings.view(ctx);
+                    return resolveCompactionSettings(view.snapshot(), ctx);
+                },
+                { onRunChange: createReviewNotice() },
+            ),
         );
         return { controller, dispose: () => resources.dispose() };
     } catch (error) {

@@ -12,8 +12,8 @@ import { validateOptions, type ConfigurationProvider } from "./options.ts";
 import { resolveClassifier } from "./tool-review/classification.ts";
 import {
     checkpointRecord,
-    formatReviewNotice,
     reviewToolHistory,
+    type ToolReviewProgress,
     type ToolReviewReport,
 } from "./tool-review/review.ts";
 
@@ -44,6 +44,30 @@ export interface CompactionRun {
     jev?: ToolReviewReport;
     summaryUsage?: Usage;
     summary?: string;
+}
+
+/** What a presentation layer sees of a reviewed run; the report is shared, not copied. */
+export interface CompactionRunUpdate {
+    readonly runId: number;
+    readonly stage: CompactionStage;
+    /** `provider/id`, known once the classifier is resolved. */
+    readonly reviewModel?: string;
+    readonly candidateTools?: number;
+    readonly protectedTools?: number;
+    readonly completedBatches: number;
+    readonly totalBatches: number;
+    readonly jev?: Readonly<ToolReviewReport>;
+    readonly error?: string;
+}
+
+/** Receives every visible change of a reviewed run, and `undefined` when its notice no longer applies. */
+export type CompactionRunListener = (
+    update: CompactionRunUpdate | undefined,
+    ctx: ExtensionContext,
+) => void;
+
+export interface CompactionControllerOptions {
+    readonly onRunChange?: CompactionRunListener;
 }
 
 /** Route summaries through Pi's registry and reject any split response that did not finish normally. */
@@ -85,19 +109,29 @@ export class CompactionController {
     private run: CompactionRun | undefined;
     private readonly unregister: (() => void)[] = [];
     private readonly getConfiguration: ConfigurationProvider;
+    private readonly onRunChange: CompactionRunListener | undefined;
 
-    constructor(pi: ExtensionAPI, getConfiguration: ConfigurationProvider) {
+    constructor(
+        pi: ExtensionAPI,
+        getConfiguration: ConfigurationProvider,
+        options: CompactionControllerOptions = {},
+    ) {
         this.getConfiguration = getConfiguration;
+        this.onRunChange = options.onRunChange;
+        const retire = (ctx: ExtensionContext): void => {
+            this.invalidate();
+            this.publish(ctx, undefined);
+        };
         this.unregister.push(
             pi.on("session_before_compact", (event, ctx) => this.beforeCompact(event, ctx)),
-            pi.on("session_start", () => {
-                this.invalidate();
+            pi.on("session_start", (_event, ctx) => {
+                retire(ctx);
                 this.run = undefined;
             }),
-            pi.on("session_shutdown", () => this.invalidate()),
-            pi.on("session_before_switch", () => this.invalidate()),
-            pi.on("session_before_fork", () => this.invalidate()),
-            pi.on("session_before_tree", () => this.invalidate()),
+            pi.on("session_shutdown", (_event, ctx) => retire(ctx)),
+            pi.on("session_before_switch", (_event, ctx) => retire(ctx)),
+            pi.on("session_before_fork", (_event, ctx) => retire(ctx)),
+            pi.on("session_before_tree", (_event, ctx) => retire(ctx)),
             pi.on("session_compact", (event, ctx) => {
                 const run = this.awaitingCommit(ctx);
                 if (!run) return;
@@ -117,6 +151,7 @@ export class CompactionController {
                     run.stage = "complete";
                 }
                 run.finishedAt = Date.now();
+                if (run.jev) this.publish(ctx, run);
             }),
             pi.on("session_compact_failed", (event, ctx) => {
                 const run = this.awaitingCommit(ctx);
@@ -129,6 +164,7 @@ export class CompactionController {
                     );
                     this.report(ctx, run.error);
                 }
+                if (run.jev) this.publish(ctx, run);
             }),
         );
     }
@@ -155,6 +191,31 @@ export class CompactionController {
         if (this.run?.stage === "awaiting-commit") {
             this.run.stage = "cancelled";
             this.run.finishedAt = Date.now();
+        }
+    }
+
+    private publish(
+        ctx: ExtensionContext,
+        run: CompactionRun | undefined,
+        progress?: { readonly reviewModel: string; readonly review?: ToolReviewProgress },
+    ): void {
+        if (!this.onRunChange) return;
+        const update: CompactionRunUpdate | undefined = run && {
+            runId: run.id,
+            stage: run.stage,
+            reviewModel: run.jev?.model ?? progress?.reviewModel,
+            candidateTools: run.jev?.candidateTools ?? progress?.review?.candidateTools,
+            protectedTools: run.jev?.protectedTools.length ?? progress?.review?.protectedTools,
+            completedBatches: run.completedBatches,
+            totalBatches: run.totalBatches,
+            jev: run.jev,
+            error: run.error?.message,
+        };
+        try {
+            this.onRunChange(update, ctx);
+        } catch (listenerError) {
+            // Presentation must never fail or retry a compaction.
+            console.warn("[pi-compaction] Run listener failed", listenerError);
         }
     }
 
@@ -193,6 +254,7 @@ export class CompactionController {
         };
         const previousRun = this.run;
         this.run = run;
+        let reviewing = false;
         const signal = AbortSignal.any([event.signal, cancel.signal]);
         const assertActive = (): void => {
             signal.throwIfAborted();
@@ -215,6 +277,7 @@ export class CompactionController {
             if (configuration === null) {
                 // Disabling interception is a configured mode, never a response to failure.
                 this.run = previousRun;
+                this.publish(ctx, undefined);
                 return {};
             }
             validateOptions(configuration);
@@ -232,34 +295,37 @@ export class CompactionController {
             // Native compact reads preparation without mutating it; only the review replaces these message arrays.
             const preparation = { ...event.preparation };
             if (configuration.jev.enabled) {
+                reviewing = true;
+                this.publish(ctx, run);
+                const classifier = await resolveClassifier(configuration.jev.model, ctx, signal);
+                assertActive();
+                const reviewModel = `${classifier.provider}/${classifier.id}`;
+                this.publish(ctx, run, { reviewModel });
                 const reviewed = await reviewToolHistory(
                     event,
                     ctx,
                     configuration.policy,
-                    await resolveClassifier(configuration.jev.model, ctx, signal),
+                    classifier,
                     signal,
                     (update) => {
                         assertActive();
                         run.stage = update.stage;
                         run.completedBatches = update.completedBatches;
                         run.totalBatches = update.totalBatches;
+                        this.publish(ctx, run, { reviewModel, review: update });
                     },
                 );
                 assertActive();
                 preparation.messagesToSummarize = reviewed.messagesToSummarize;
                 preparation.turnPrefixMessages = reviewed.turnPrefixMessages;
                 run.jev = reviewed.report;
-                if (ctx.hasUI) {
-                    try {
-                        const theme = ctx.ui.theme;
-                        ctx.ui.notify(theme.fg("dim", formatReviewNotice(reviewed.report)), "info");
-                    } catch (notificationError) {
-                        console.warn("[pi-compaction] Notification failed", notificationError);
-                    }
-                }
+            } else {
+                // A notice from an earlier review would describe a checkpoint this run replaces.
+                this.publish(ctx, undefined);
             }
             assertActive();
             run.stage = "summarizing";
+            if (run.jev) this.publish(ctx, run);
             const result = await compact(
                 preparation,
                 model,
@@ -301,6 +367,8 @@ export class CompactionController {
                 run.error = failure;
                 this.report(ctx, failure);
             }
+            // A retired session already cleared its notice; its context must not draw a new one.
+            if (reviewing && generation === this.generation) this.publish(ctx, run);
             return { cancel: true };
         } finally {
             if (this.active === cancel) this.active = undefined;
