@@ -183,7 +183,8 @@ test("a title is normalized to one line in the snapshot; a blank title is droppe
 
     fx.faux.setResponses([reportResponse("done", "one"), reportResponse("done", "two")]);
     const titled = await manager.start(
-        { task: "a", title: "  Review\u001b[31m the\n  diff \t" },
+        // These control characters outlive sequence stripping; displayLine must drop them.
+        { task: "a", title: "  Review\u001b[31m the\u0007\b \u001b \u009b\n  diff \t" },
         fx.ctx,
     );
     const blank = await manager.start({ task: "b", title: " \n\t " }, fx.ctx);

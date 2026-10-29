@@ -10,8 +10,6 @@ import type {
     SessionBeforeTreeResult,
     Theme,
 } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
-
 import {
     chooseAutoModel,
     DEFAULT_AUTO_MODEL_SETTINGS,
@@ -28,6 +26,7 @@ import {
     type RunNotice,
 } from "../notify/notifier.ts";
 import { runSessionFile, runWorktreePath } from "../paths.ts";
+import { displayLine } from "../render/text.ts";
 import { SUBAGENT_GUIDE } from "./guide.ts";
 import { REPORT_TOOL_NAME } from "./report-tool.ts";
 import { createRunFile } from "./run-file.ts";
@@ -324,10 +323,7 @@ export class RunManager implements RunHost {
 
         const runId = this.reserveRunId();
         const name = definition?.name ?? `run-${++this.inlineCount}`;
-        const title =
-            typeof params.title === "string"
-                ? stripTerminalSequences(params.title).replace(/\s+/g, " ").trim()
-                : undefined;
+        const title = typeof params.title === "string" ? displayLine(params.title) : undefined;
         const file = runSessionFile(this.sessionId, runId, this.agentDir);
         let worktree: CreatedWorktree | undefined;
         let fileCreated = false;

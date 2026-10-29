@@ -1,0 +1,69 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-run-title",
+    "createdAt": "2026-10-29T07:44:05.699Z",
+    "intent": "Give subagent_start an optional title for the /agents inspector, Dock and end-of-turn notice, and make every model-facing run handle the run ID only, so a run name or title cannot be passed to subagent_send, subagent_status or subagent_stop.",
+    "tier": "high",
+    "tierReasons": [
+        "packages/pi-subagent/src/tools/format.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts"
+    ],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "9dd05ed8ae9e2530109f126d43bcab202553c648",
+    "headRev": "dfa9774471781af441c888f2cae9b8946e03dddb",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/dock/dock-contribution.ts",
+        "packages/pi-subagent/src/inspector/details.ts",
+        "packages/pi-subagent/src/inspector/inspector.ts",
+        "packages/pi-subagent/src/notify/notifier.ts",
+        "packages/pi-subagent/src/run/run-file.ts",
+        "packages/pi-subagent/src/run/run-manager.ts",
+        "packages/pi-subagent/src/run/run.ts",
+        "packages/pi-subagent/src/run/types.ts",
+        "packages/pi-subagent/src/tools/format.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts",
+        "packages/pi-subagent/test/integration/branches.test.ts",
+        "packages/pi-subagent/test/integration/start.test.ts",
+        "packages/pi-subagent/test/integration/tools-batch.test.ts",
+        "packages/pi-subagent/test/integration/tools.test.ts",
+        "packages/pi-subagent/test/unit/notifier.test.ts",
+        "packages/pi-subagent/test/unit/run-file.test.ts",
+        "packages/pi-subagent/test/unit/run-getters.test.ts",
+        "packages/pi-subagent/test/unit/tools-batch.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "open",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T07:44:08.636Z",
+            "scope": "full",
+            "base": "9dd05ed8ae9e2530109f126d43bcab202553c648",
+            "head": "dfa9774471781af441c888f2cae9b8946e03dddb",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-subagent/src/run/run-manager.ts:329:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-subagent/src/run/run-manager.ts",
+            "line": 329,
+            "summary": "标题净化只去掉终端序列和空白，仍保留退格、响铃和孤立 ESC；标题直接进入 inspector、Dock 和通知头。只读 node --experimental-strip-types --input-type=module 复现：输入 Review\\bX\\u0007，listRows 与通知 render 输出均保留原始控制字符，导致光标移动或响铃。应使用现有 displayLine 等完整控制字符净化。",
+            "preExisting": false,
+            "status": "open",
+            "resolution": null,
+            "resolvedAt": null
+        }
+    ]
+}
