@@ -146,9 +146,9 @@ test("host: a virtual summary model uses Pi's direct route and commits from its 
     assert.ok(summaryRequests.length > 0);
     assert.ok(
         summaryRequests.every(
-            (request) => request.id === "physical-summary" && request.maxTokens === undefined,
+            (request) => request.id === "physical-summary" && (request.maxTokens ?? 0) > 0,
         ),
-        "Pi 1.4.0 routes the physical model without a sized maxTokens",
+        "the routed physical model must receive the sized request",
     );
     assert.equal(host.summary.state.callCount, 0);
     assert.equal(host.main.state.callCount, 0);
@@ -582,10 +582,10 @@ test("host: a real history plus turn-prefix split turn merges two summaries, pre
         /Additional focus: FOCUS_XYZ/,
         "custom instructions must reach the history prompt",
     );
-    assert.match(
+    assert.doesNotMatch(
         prompts[1]!,
-        /Additional focus: FOCUS_XYZ/,
-        "Pi 1.4.0 also passes custom instructions to the turn-prefix prompt",
+        /Additional focus/,
+        "custom instructions belong to the history summary only",
     );
     assert.match(prompts[1]!, /# Instructions/);
     assert.ok(second.summary.includes("history checkpoint"));

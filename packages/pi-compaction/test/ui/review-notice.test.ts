@@ -366,11 +366,11 @@ test("entry: the expanded full-width form has a header, a calls row and a result
 });
 
 test("entry: the middle widths merge the details into one row under the header", () => {
-    for (const width of [COMPACT_NOTICE_WIDTH, 60, FULL_NOTICE_WIDTH - 1]) {
+    for (let width = COMPACT_NOTICE_WIDTH; width < FULL_NOTICE_WIDTH; width++) {
         const rows = reviewEntryLines(exampleRecord(), width, plainTheme(), true);
-        assert.ok(rows.length <= 2 && rows.length >= 1, `${width}: ${rows.length} rows`);
+        assert.equal(rows.length, 2, `${width}: ${rows.length} rows`);
         assert.ok(rows[0]!.includes("Tool review"), rows[0]);
-        if (rows.length === 2) assert.ok(rows[1]!.includes("−3 calls"), `${width}: ${rows[1]}`);
+        assert.ok(rows[1]!.includes("−3 calls"), `${width}: ${rows[1]}`);
     }
 });
 
@@ -486,8 +486,6 @@ function rpcLines(widgets: ReturnType<typeof recordWidgets>, index = 0): string[
     return content as string[];
 }
 
-const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve));
-
 test("notice: creating it registers the entry renderer for the review type", () => {
     const { pi, renderers } = stubPi();
     createReviewNotice(pi);
@@ -502,7 +500,6 @@ test("notice: a context without a UI does nothing, yet the renderer is registere
     listener(update("chunks"), context(false, widgets));
     listener(richUpdate("complete"), context(false, widgets));
     listener(undefined, context(false, widgets));
-    await macrotask();
     assert.deepEqual(widgets.calls, []);
     assert.deepEqual(appended, []);
     assert.equal(renderers.size, 1);
@@ -528,7 +525,8 @@ test("notice: later updates re-render the mounted component instead of mounting 
     assert.equal(widgets.calls.length, 1);
     assert.equal(widgets.tui.renders, 1);
     assert.ok(after.includes("−1 call"), after);
-    assert.ok(!after.includes("preparing") || after.includes("summarizing"), after);
+    assert.ok(after.includes("summarizing"), after);
+    assert.ok(!after.includes("preparing"), after);
 });
 
 test("notice: every settled stage clears a shown widget and leaves nothing pinned", () => {
@@ -571,22 +569,18 @@ test("notice: after Pi disposes the component the next update mounts a new one",
     assert.equal(typeof widgets.calls[1]!.content, "function");
 });
 
-test("notice: a completed report is appended as an entry only after a macrotask", async () => {
+test("notice: a completed report is appended synchronously after the widget is cleared", () => {
     const { pi, appended } = stubPi();
     const widgets = recordWidgets();
     const listener = createReviewNotice(pi);
     const jev = report();
     listener(update("complete", { jev }), context(true, widgets));
-    await Promise.resolve();
-    assert.deepEqual(appended, [], "the entry must not land before Pi rebuilds its transcript");
-    await macrotask();
     assert.deepEqual(appended, [{ customType: REVIEW_ENTRY_TYPE, data: toolReviewRecord(jev) }]);
 });
 
 test("notice: a complete update without a report appends nothing", async () => {
     const { pi, appended } = stubPi();
     createReviewNotice(pi)(update("complete"), context(true, recordWidgets()));
-    await macrotask();
     assert.deepEqual(appended, []);
 });
 
@@ -595,21 +589,24 @@ test("notice: failed and cancelled runs never append an entry", async () => {
     const listener = createReviewNotice(pi);
     for (const stage of ["failed", "cancelled"] as const)
         listener(richUpdate(stage), context(true, recordWidgets()));
-    await macrotask();
     assert.deepEqual(appended, []);
 });
 
-test("notice: a failing append is logged and does not throw", async (t) => {
-    const warned = t.mock.method(console, "warn", () => undefined);
+test("notice: when the append throws, the widget is already cleared and the error escapes", () => {
+    const widgets = recordWidgets();
+    const failure = new Error("session closed");
     const pi = {
         registerEntryRenderer: () => undefined,
         appendEntry: () => {
-            throw new Error("session closed");
+            throw failure;
         },
     } as unknown as ExtensionAPI;
-    createReviewNotice(pi)(richUpdate("complete"), context(true, recordWidgets()));
-    await macrotask();
-    assert.equal(warned.mock.callCount(), 1);
+    const listener = createReviewNotice(pi);
+    const ctx = context(true, widgets);
+    listener(update("chunks"), ctx);
+    assert.throws(() => listener(update("complete", { jev: report() }), ctx), failure);
+    assert.equal(widgets.calls.at(-1)!.content, undefined);
+    assert.equal(widgets.component(), undefined);
 });
 
 test("notice: a render failure renders nothing, logs, and clears the widget after the render", async (t) => {
@@ -678,12 +675,10 @@ test("notice: RPC terminal stages and clears send undefined content", async () =
     assert.equal(widgets.calls[0]!.content, undefined);
 });
 
-test("notice: an RPC completion still appends the entry after a macrotask", async () => {
+test("notice: an RPC completion appends the entry synchronously", () => {
     const { pi, appended } = stubPi();
     const jev = report();
     createReviewNotice(pi)(update("complete", { jev }), rpcContext(recordWidgets()));
-    assert.deepEqual(appended, []);
-    await macrotask();
     assert.deepEqual(appended, [{ customType: REVIEW_ENTRY_TYPE, data: toolReviewRecord(jev) }]);
 });
 
@@ -695,7 +690,6 @@ test("notice: an RPC context without a UI does nothing", async () => {
     listener(update("chunks"), ctx);
     listener(richUpdate("complete"), ctx);
     listener(undefined, ctx);
-    await macrotask();
     assert.deepEqual(widgets.calls, []);
     assert.deepEqual(appended, []);
 });

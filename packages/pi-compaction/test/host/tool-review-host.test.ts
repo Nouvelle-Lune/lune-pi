@@ -83,9 +83,8 @@ function assertProgressShownThenCleared(
     assert.equal(widgets.component(), undefined, "nothing stays pinned");
 }
 
-/** The entry lands in a later macrotask, after Pi rebuilt its transcript. */
-async function savedReviewEntries(host: Awaited<ReturnType<typeof startJevHost>>) {
-    await new Promise((resolve) => setTimeout(resolve));
+/** The entry is appended synchronously inside session_compact, so it is saved when compact() returns. */
+function savedReviewEntries(host: Awaited<ReturnType<typeof startJevHost>>) {
     const entries = host.sessionManager.getEntries();
     const reviews = entries.filter(
         (entry) => entry.type === "custom" && entry.customType === REVIEW_TYPE,
@@ -117,7 +116,11 @@ function assertEntryAfterCompaction(
     const review = saved.reviews[0]!;
     const compactionIndex = saved.entries.findIndex((entry) => entry.type === "compaction");
     assert.ok(compactionIndex >= 0);
-    assert.ok(saved.entries.indexOf(review) > compactionIndex, "the entry follows the summary");
+    assert.equal(
+        saved.entries.indexOf(review),
+        compactionIndex + 1,
+        "the entry directly follows the summary",
+    );
     const expected = toolReviewRecord(report);
     const actual = review.type === "custom" ? review.data : undefined;
     assert.deepEqual(actual, expected);
@@ -669,11 +672,7 @@ test(
                 assert.ok(!summaryInput.includes("R2BODY"));
                 assert.equal(loggedErrors.mock.calls.length, 0);
                 assertProgressShownThenCleared(widgets, notifications);
-                const rendered = assertEntryAfterCompaction(
-                    host,
-                    await savedReviewEntries(host),
-                    report,
-                );
+                const rendered = assertEntryAfterCompaction(host, savedReviewEntries(host), report);
                 assert.ok(rendered.includes("Tool review"));
                 const removed = report.removedCalls.length;
                 assert.ok(rendered.includes(`−${removed} ${removed === 1 ? "call" : "calls"}`));
@@ -715,7 +714,7 @@ test(
                 assertProgressShownThenCleared(widgets, notifications);
                 const rendered = assertEntryAfterCompaction(
                     host,
-                    await savedReviewEntries(host),
+                    savedReviewEntries(host),
                     host.controller.getRun()?.jev,
                 );
                 assert.ok(rendered.includes("Tool review"));
@@ -725,6 +724,46 @@ test(
             } finally {
                 await host.dispose();
             }
+        }
+    },
+);
+
+test(
+    "host: the review entry is saved immediately after the compaction entry, before a prompt queued for compaction_end",
+    { timeout: 10000 },
+    async () => {
+        const host = await startJevHost({
+            messages: readHistory(),
+            jev: jevOptions,
+            policy: JEV_POLICY,
+        });
+        try {
+            await bindRecordedUi(host);
+            host.simulator.setResponder((pending) =>
+                pending.respond(systemOneAnswers(pending.request, 1)),
+            );
+            host.faux.setResponses([fauxAssistantMessage("## Goal\nordered summary")]);
+            // Pi's flushCompactionQueue submits queued prompts from a compaction_end subscriber.
+            host.session.subscribe((event) => {
+                if (event.type === "compaction_end")
+                    host.sessionManager.appendMessage(user("QUEUED_PROMPT") as never);
+            });
+            await host.session.compact();
+            const entries = host.sessionManager.getEntries();
+            const start = entries.findIndex((entry) => entry.type === "compaction");
+            assert.ok(start >= 0);
+            const actual = entries.slice(start).map((entry) => {
+                if (entry.type === "custom") return `custom:${entry.customType}`;
+                if (entry.type === "message") return `message:${entry.message.role}`;
+                return entry.type;
+            });
+            const expected = ["compaction", `custom:${REVIEW_TYPE}`, "message:user"];
+            assert.deepEqual(actual, expected);
+            const last = entries.at(-1);
+            assert.ok(last?.type === "message");
+            assert.match(JSON.stringify(last.message), /QUEUED_PROMPT/);
+        } finally {
+            await host.dispose();
         }
     },
 );

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { CompactionRunListener, CompactionRunUpdate } from "../compaction-controller.ts";
 import type { ProtectedTool } from "../tool-review/candidates.ts";
@@ -403,21 +403,7 @@ export function createReviewNotice(pi: ExtensionAPI): CompactionRunListener {
     });
     let mounted: { component: ReviewProgressComponent; requestRender: () => void } | undefined;
     let shown = false;
-    return (update, ctx) => {
-        if (!ctx.hasUI) return;
-        const view = update && reviewProgressView(update);
-        if (update?.stage === "complete" && update.jev) {
-            const record = toolReviewRecord(update.jev);
-            // Pi rebuilds the transcript right after session_compact returns; an entry added
-            // earlier would render above the new summary instead of below it.
-            setTimeout(() => {
-                try {
-                    pi.appendEntry(REVIEW_ENTRY_TYPE, record);
-                } catch (error) {
-                    console.warn("[pi-compaction] Tool review entry was not saved", error);
-                }
-            });
-        }
+    const showProgress = (view: ReviewProgressView | undefined, ctx: ExtensionContext): void => {
         // RPC ignores widget factories but renders string lines, so send the same row as text.
         if (ctx.mode === "rpc") {
             ctx.ui.setWidget(
@@ -469,5 +455,15 @@ export function createReviewNotice(pi: ExtensionAPI): CompactionRunListener {
             },
             { placement: "aboveEditor" },
         );
+    };
+    return (update, ctx) => {
+        if (!ctx.hasUI) return;
+        showProgress(update && reviewProgressView(update), ctx);
+        if (update?.stage === "complete" && update.jev) {
+            // Appending inside session_compact puts the entry right after the checkpoint, before
+            // any queued prompt. Pi's rebuild then draws it after the retained messages, directly
+            // above the live summary; a deferred append could land after a queued prompt instead.
+            pi.appendEntry(REVIEW_ENTRY_TYPE, toolReviewRecord(update.jev));
+        }
     };
 }
