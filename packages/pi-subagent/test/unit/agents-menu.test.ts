@@ -22,8 +22,23 @@ tools: read, grep
 You review.
 `;
 
-async function setup(t: TestContext, options: { trusted?: boolean } = {}) {
+function fakeModel(id: string) {
+    return { provider: "prov", id, name: id.toUpperCase() };
+}
+
+async function setup(
+    t: TestContext,
+    options: {
+        trusted?: boolean;
+        stored?: Record<string, unknown>;
+        scoped?: string[];
+        available?: string[];
+    } = {},
+) {
     const sandbox = await createSettingsSandbox({ prefix: "lune-agents-menu-" });
+
+    if (options.stored) await sandbox.writeStored(subagentSettings, "global", options.stored);
+
     const lease = await sandbox.acquire(subagentSettings);
     const edits: Array<{ previous: string; edited: AgentDefinition }> = [];
     const panel = createSubagentPanel({
@@ -34,6 +49,11 @@ async function setup(t: TestContext, options: { trusted?: boolean } = {}) {
     const ctx = {
         cwd: sandbox.cwd,
         isProjectTrusted: () => options.trusted ?? true,
+        scopedModels: (options.scoped ?? []).map((id) => ({ model: fakeModel(id) })),
+        modelRegistry: {
+            getAvailable: () => (options.available ?? options.scoped ?? []).map(fakeModel),
+            getProviderDisplayName: (provider: string) => provider,
+        },
     } as unknown as ExtensionContext;
 
     t.after(async () => {
@@ -56,7 +76,7 @@ async function setup(t: TestContext, options: { trusted?: boolean } = {}) {
     const page = (entry: SettingsPanelField, scope: "global" | "project") =>
         entry.menu!(ctx, scope).fields;
 
-    return { section, menu, ctx, edits, dir, write, open, page };
+    return { section, menu, ctx, edits, dir, write, open, page, lease };
 }
 
 const byId = (fields: readonly SettingsPanelField[], id: string) =>
@@ -67,7 +87,7 @@ test("the Subagents section lists the auto settings and the Custom agents menu a
 
     assert.deepEqual(
         section.fields.map((field) => field.id),
-        ["autoClassifier", "tiers", "agents"],
+        ["allowedModels", "autoClassifier", "tiers", "agents"],
     );
     assert.equal(menu.label, "Custom agents");
     assert.equal(menu.editor, "menu");
@@ -149,6 +169,33 @@ test("an agent's page lists Name, Description, Model, Thinking, Tools and Isolat
     assert.equal(fields[2]!.inspect().value, "prov/big");
     assert.deepEqual(fields[4]!.inspect().value, ["read", "grep"]);
     assert.equal(fields[3]!.inspect().value, null);
+});
+
+test("an agent's model choices follow the saved allowed-model selection", async (t) => {
+    const { write, open, page, ctx, lease } = await setup(t, {
+        stored: { allowedModels: [{ provider: "prov", id: "small" }] },
+        scoped: ["small", "big"],
+    });
+
+    write("global", "reviewer.md", REVIEWER);
+
+    const fields = page(open("global").fields[0]!, "global");
+    const choices = await byId(fields, "model").choiceSource!.load({
+        context: ctx,
+        scope: "global",
+        values: lease.settings.snapshot(),
+        signal: new AbortController().signal,
+    });
+
+    assert.deepEqual(
+        choices.map((choice) => [choice.value, choice.label, choice.badge]),
+        [
+            [null, "Main agent's model", undefined],
+            ["auto", "auto", undefined],
+            ["prov/small", "small", "prov"],
+            ["prov/big", "prov/big", "Not allowed"],
+        ],
+    );
 });
 
 test("setting a field writes the file, keeps its comments and reports the edit", async (t) => {

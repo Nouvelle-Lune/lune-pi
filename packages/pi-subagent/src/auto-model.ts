@@ -155,6 +155,8 @@ const THINKING_CRITERIA = {
 export interface AutoModelInput {
     ctx: ExtensionContext;
     settings: AutoModelSettings;
+    /** The effective subagent allowlist; uses the parent's scope when omitted. */
+    models?: readonly Model<Api>[];
     task: string;
     definition?: AgentDefinition;
     /** The selected task tools; undefined for the defaultTools selection. */
@@ -218,7 +220,8 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
         };
     };
     // Undefined when the levels depend on the tier's model, so a second request asks for them.
-    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings);
+    const models = input.models ?? allowedModels(ctx);
+    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings, models);
     let classifier: ClassifierModel<ClassifierApi>;
     let tier: AutoRating<AutoTier>;
     let thinking: AutoRating<ThinkingLevel> | undefined;
@@ -250,7 +253,7 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
     const model =
         modelFrom === "main"
             ? mainModel(ctx)
-            : tierModel(ctx, modelFrom, settings.tiers[modelFrom]!);
+            : tierModel(modelFrom, settings.tiers[modelFrom]!, models);
     const supported = getSupportedThinkingLevels(model);
 
     if (!levels && supported.length > 1) {
@@ -290,9 +293,9 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
 function sharedLevels(
     ctx: ExtensionContext,
     settings: AutoModelSettings,
+    allowed: readonly Model<Api>[],
 ): readonly ThinkingLevel[] | undefined {
-    const allowed = allowedModels(ctx);
-    // A model that the scope no longer allows fails the start if the tier leads to it.
+    // A model no longer in the allowed set fails the start if the tier leads to it.
     const models = AUTO_TIERS.flatMap((tier) => {
         const ref = settings.tiers[tier];
         const model = ref && allowed.find((each) => sameModel(each, ref));
@@ -517,9 +520,8 @@ function mainModel(ctx: ExtensionContext): Model<Api> {
     return ctx.model;
 }
 
-/** A tier's model must still be one the parent allows; the scope can change after it was set. */
-function tierModel(ctx: ExtensionContext, tier: AutoTier, ref: ModelRef): Model<Api> {
-    const allowed = allowedModels(ctx);
+/** A tier's model must still be allowed; the selection can change after it was set. */
+function tierModel(tier: AutoTier, ref: ModelRef, allowed: readonly Model<Api>[]): Model<Api> {
     const model = allowed.find((each) => sameModel(each, ref));
 
     if (!model) {

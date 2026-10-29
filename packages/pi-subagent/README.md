@@ -112,8 +112,15 @@ Install Core's Pi entry to use the settings command:
 pi install npm:@lune_99/pi-lune-extensions-core
 ```
 
-Then restart Pi and open `/lune-core-settings subagents`. **Custom agents** edits saved definitions;
-**Auto classifier** and **Auto tiers** configure runs started with `model: auto`.
+Then restart Pi and open `/lune-core-settings subagents`. **Allowed models** is a multi-select
+list from Pi's scoped models: Space toggles a model and Enter saves. A nonempty selection replaces
+the session's default allowed model list for new runs; clear it to follow Pi's scope again. Saved
+models remain allowed outside a later session's scope while available in Pi. Existing runs keep
+their model, and inheriting the main agent's model is unchanged.
+
+**Custom agents** edits saved definitions; **Auto classifier** and **Auto tiers** configure runs
+started with `model: auto`. Model choices in Custom agents and Auto tiers follow the subagent
+allowed list.
 
 | Tier     | Intended work                                      |
 | -------- | -------------------------------------------------- |
