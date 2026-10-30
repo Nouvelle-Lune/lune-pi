@@ -21,10 +21,13 @@ const expectedNames = [
     "pi-core-nebula",
     "pi-core-dawn",
     "pi-core-mist",
+    "pi-core-claude-code",
+    "pi-core-cursor",
+    "pi-core-codex",
 ];
 const literalColor = /^(#[0-9a-fA-F]{6}|\d{1,3}|)$/;
 
-test("the registry exposes the seven Lune palettes in settings order", () => {
+test("the registry exposes the ten Lune palettes in settings order", () => {
     const actual = [...paletteNames];
     assert.deepEqual(actual, expectedNames);
     for (const name of expectedNames) assert.ok(isPaletteName(name));
@@ -46,6 +49,10 @@ for (const name of expectedNames as (keyof typeof palettes)[]) {
             const resolved = definition.vars[value as string] ?? value;
             assert.match(String(resolved), literalColor, `color ${token} -> ${String(value)}`);
         }
+        // A palette that remaps tokens must still define every token the base palette does.
+        const expected = Object.keys(palettes["pi-core-dark"].definition.colors).sort();
+        const actual = Object.keys(definition.colors).sort();
+        assert.deepEqual(actual, expected);
     });
 
     test(`createPalette(${name}) names the theme and takes its appearance from the palette`, () => {
