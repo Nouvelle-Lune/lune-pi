@@ -1,7 +1,7 @@
 {
     "name": "@lune_99/pi-core-theme",
     "version": "0.1.0",
-    "description": "Opt-in Lune appearance for Pi: pixel-moon header, eleven palettes and Lune tool cards",
+    "description": "Opt-in Lune appearance for Pi: pixel-moon header, ten palettes and Lune tool cards",
     "type": "module",
     "files": [
         "extension.ts",
@@ -17,7 +17,6 @@
         ],
         "themes": [
             "./src/palettes/pi-core-dark.json",
-            "./src/palettes/pi-core-dark-plain.json",
             "./src/palettes/pi-core-light.json",
             "./src/palettes/pi-core-aurora.json",
             "./src/palettes/pi-core-eclipse.json",

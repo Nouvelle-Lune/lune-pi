@@ -6,7 +6,7 @@
 
 **A moonlit workspace for [Pi](https://pi.dev), with compact tool cards, rich diffs and a pixel-moon header.**
 
-Lune Core Theme makes a busy session easier to read. Scan tool activity in a few rows, open the output you need, and see file changes side by side. Eleven palettes, dark and light, carry one set of colors from the header through the whole conversation: the seven moonlit palettes, a no-background Dark variant, and three in the style of Claude Code, Cursor and Codex.
+Lune Core Theme makes a busy session easier to read. Scan tool activity in a few rows, open the output you need, and see file changes side by side. Ten palettes, dark and light, carry one set of colors from the header through the whole conversation: seven moonlit ones and three in the style of Claude Code, Cursor and Codex.
 
 ## Quick start
 
@@ -54,25 +54,24 @@ Choose automatic, split or unified diffs in the Theme tab. Tune indicators, wrap
 | ------------------------------------------------------------------------- |
 | [![Mist](docs/palettes/pi-core-mist.png)](docs/palettes/pi-core-mist.png) |
 
-These screenshots show actual Pi sessions in Ghostty, with each palette enabled from startup. **Lune Core Dark Plain**, **Lune Core Claude Code**, **Lune Core Cursor** and **Lune Core Codex** are not pictured yet.
+These screenshots show actual Pi sessions in Ghostty, with each palette enabled from startup. The Claude Code, Cursor and Codex styles are not pictured yet.
 
 Choose a palette in the Theme tab, or **Inherit Pi theme** to keep your current one:
 
-| Palette                   | Mood                                                  |
-| ------------------------- | ----------------------------------------------------- |
-| **Lune Core Dark**        | Moonlight blues on midnight navy                      |
-| **Lune Core Dark Plain**  | Moonlight blues without panel or terminal backgrounds |
-| **Lune Core Light**       | Moonlight blues on pale paper                         |
-| **Lune Core Aurora**      | Teal aurora over polar night                          |
-| **Lune Core Eclipse**     | Golden corona on black                                |
-| **Lune Core Nebula**      | Violet and magenta clouds                             |
-| **Lune Core Dawn**        | Terracotta sunrise on parchment                       |
-| **Lune Core Mist**        | Pine teal on sage mist                                |
-| **Lune Core Claude Code** | Claude Code-style clay orange on warm charcoal        |
-| **Lune Core Cursor**      | Cursor-style pastel syntax on graphite                |
-| **Lune Core Codex**       | Codex-style cyan and magenta on black                 |
+| Palette                   | Mood                                           |
+| ------------------------- | ---------------------------------------------- |
+| **Lune Core Dark**        | Moonlight blues on midnight navy               |
+| **Lune Core Light**       | Moonlight blues on pale paper                  |
+| **Lune Core Aurora**      | Teal aurora over polar night                   |
+| **Lune Core Eclipse**     | Golden corona on black                         |
+| **Lune Core Nebula**      | Violet and magenta clouds                      |
+| **Lune Core Dawn**        | Terracotta sunrise on parchment                |
+| **Lune Core Mist**        | Pine teal on sage mist                         |
+| **Lune Core Claude Code** | Claude Code-style clay orange on warm charcoal |
+| **Lune Core Cursor**      | Cursor-style pastel syntax on graphite         |
+| **Lune Core Codex**       | Codex-style cyan and magenta on black          |
 
-Each palette tints the crescent and thinking levels along its own gradient and keeps distinct success, error and warning tones. Each painted palette also sets the terminal background and default text in its own colors, so a light palette stays light on a dark terminal profile and the other way around. The Plain variant leaves panel and terminal backgrounds untouched. Turn **Palette background** off to keep your terminal's colors.
+Each palette tints the crescent and thinking levels along its own gradient and keeps distinct success, error and warning tones. It also paints the terminal background and default text in its own colors, so a light palette stays light on a dark terminal profile and the other way around. Turn **Palette background** off to keep your terminal's colors.
 
 ![Lune Core Theme light palette](docs/theme-light.png)
 

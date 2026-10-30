@@ -29,20 +29,11 @@ const backgrounds = new Set([
     "toolErrorBg",
 ]);
 
-/**
- * Use actual Pi tokens with explicit truecolor output, independent of the invoking terminal.
- * Offline frames paint a concrete profile, so an empty value (the terminal default) falls back
- * to `pageBackground` for backgrounds and to the palette's text color for foregrounds.
- */
-export function makeTheme(definition = dark, pageBackground = definition.vars?.bg || "#101722") {
-    const themeColor = (key, value) => {
-        const color = definition.vars[value] ?? value;
-        if (color !== "") return colorToHex(parseColor(color));
-        return backgrounds.has(key) ? pageBackground : (definition.vars.text ?? pageBackground);
-    };
+/** Use actual Pi tokens with explicit truecolor output, independent of the invoking terminal. */
+export function makeTheme(definition = dark) {
     const colors = Object.entries(definition.colors).map(([key, value]) => [
         key,
-        themeColor(key, value),
+        colorToHex(parseColor(definition.vars[value] ?? value)),
     ]);
     initTheme("dark", false);
     return new Theme(

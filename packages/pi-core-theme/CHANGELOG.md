@@ -37,9 +37,6 @@ All notable changes are documented here using
   Lune Core Dark and Light under **Style · Color palette**. Each has its own crescent
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
-- **No-background palette.** `pi-core-dark-plain` keeps the Dark text, status and syntax
-  colors but leaves panel fills and the terminal background to the terminal, for customized
-  terminal profiles. It is also a standalone Pi theme.
 - **Claude Code, Cursor and Codex palettes.** Three dark palettes follow the look of these
   tools: clay orange on warm charcoal, pastel syntax on graphite, and cyan and magenta on
   black. Each is a standalone Pi theme (`pi-core-claude-code`, `pi-core-cursor`,
