@@ -16,6 +16,7 @@ test("configuration defaults enable session-following summaries and automatic cl
         assert.equal(actual.summaryModel, null);
         assert.equal(actual.classifier, null);
         assert.equal(actual.jevEnabled, false);
+        assert.equal(actual.classifierConcurrency, 2);
         assert.deepEqual(actual.policy, {
             deleteThreshold: 0.7,
             deletableTools: [
@@ -67,11 +68,13 @@ test("preprocessing supports automatic or explicit classifiers without endpoint 
         assert.deepEqual(resolveCompactionSettings(settings.snapshot())?.jev, {
             enabled: true,
             model: null,
+            concurrency: 2,
         });
         await settings.set("classifier", CLASSIFIER_REFERENCE);
         assert.deepEqual(resolveCompactionSettings(settings.snapshot())?.jev, {
             enabled: true,
             model: CLASSIFIER_REFERENCE,
+            concurrency: 2,
         });
         await assert.rejects(
             settings.set("policy", {
@@ -117,5 +120,27 @@ test("confidence saved through either settings scope reloads unchanged without v
             assert.equal(saved.policy.deleteThreshold, expectedThreshold);
             assert.equal(Object.hasOwn(saved, "version"), false);
         }
+    });
+});
+
+test("classifier concurrency resolves into the Jev options and is validated by the schema", async () => {
+    // The configured value reaches the resolved Jev options only while Jev is enabled.
+    await withCompactionSettings("lune-concurrency-", async (settings) => {
+        await settings.set("enabled", true);
+        await settings.set("summaryModel", SUMMARY_REFERENCE);
+        await settings.set("classifierConcurrency", 5);
+        assert.deepEqual(resolveCompactionSettings(settings.snapshot())?.jev, { enabled: false });
+        await settings.set("jevEnabled", true);
+        assert.deepEqual(resolveCompactionSettings(settings.snapshot())?.jev, {
+            enabled: true,
+            model: null,
+            concurrency: 5,
+        });
+        for (const value of [1, 16]) {
+            await settings.set("classifierConcurrency", value);
+            assert.equal(settings.get("classifierConcurrency"), value);
+        }
+        for (const value of [0, 17, 1.5])
+            await assert.rejects(settings.set("classifierConcurrency", value), /Invalid/);
     });
 });

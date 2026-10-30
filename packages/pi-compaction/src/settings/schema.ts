@@ -1,7 +1,13 @@
 import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsView, DeepReadonly } from "@lune_99/pi-lune-extensions-core/settings";
-import { DEFAULT_COMPACTION_POLICY, validateOptions, type CompactionOptions } from "../options.ts";
+import {
+    DEFAULT_CLASSIFIER_CONCURRENCY,
+    DEFAULT_COMPACTION_POLICY,
+    MAX_CLASSIFIER_CONCURRENCY,
+    validateOptions,
+    type CompactionOptions,
+} from "../options.ts";
 
 export const SETTINGS_ID = "pi-compaction";
 
@@ -27,6 +33,11 @@ export const compactionSchema = Type.Object(
         ),
         jevEnabled: Type.Boolean({ default: false }),
         classifier: modelReference(),
+        classifierConcurrency: Type.Integer({
+            minimum: 1,
+            maximum: MAX_CLASSIFIER_CONCURRENCY,
+            default: DEFAULT_CLASSIFIER_CONCURRENCY,
+        }),
         policy: Type.Object(
             {
                 deleteThreshold: Type.Number({ minimum: 0, maximum: 1 }),
@@ -61,7 +72,11 @@ export function resolveCompactionSettings(
             : (session?.thinkingLevel ?? "off"),
         policy: { ...settings.policy, deletableTools: [...settings.policy.deletableTools] },
         jev: settings.jevEnabled
-            ? { enabled: true, model: settings.classifier }
+            ? {
+                  enabled: true,
+                  model: settings.classifier,
+                  concurrency: settings.classifierConcurrency,
+              }
             : { enabled: false },
     };
     validateOptions(options);

@@ -306,6 +306,7 @@ export class CompactionController {
                     ctx,
                     configuration.policy,
                     classifier,
+                    configuration.jev.concurrency,
                     signal,
                     (update) => {
                         assertActive();

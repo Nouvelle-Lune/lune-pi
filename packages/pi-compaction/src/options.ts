@@ -11,7 +11,12 @@ export interface CompactionPolicy {
 /** A null model selects the first available Pi classifier at run time. */
 export type JevOptions =
     | { readonly enabled: false }
-    | { readonly enabled: true; readonly model: ModelReference | null };
+    | {
+          readonly enabled: true;
+          readonly model: ModelReference | null;
+          /** Classifier requests in flight at once during a review. */
+          readonly concurrency: number;
+      };
 
 export interface CompactionOptions {
     readonly summaryModel: ModelReference;
@@ -40,6 +45,10 @@ export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = Object.freeze({
     ]),
 });
 
+export const DEFAULT_CLASSIFIER_CONCURRENCY = 2;
+// Requests run without retries and one rejected request cancels the review, so the cap bounds rate-limit failures.
+export const MAX_CLASSIFIER_CONCURRENCY = 16;
+
 /** Embedded providers bypass settings schema validation, so every operation rechecks its options. */
 export function validateOptions(options: CompactionOptions): void {
     const identity = options.summaryModel;
@@ -65,5 +74,15 @@ export function validateOptions(options: CompactionOptions): void {
         (!options.jev.model.provider.trim() || !options.jev.model.id.trim())
     ) {
         throw new Error("Classifier reference must contain a provider and model id");
+    }
+    if (
+        options.jev.enabled &&
+        (!Number.isSafeInteger(options.jev.concurrency) ||
+            options.jev.concurrency < 1 ||
+            options.jev.concurrency > MAX_CLASSIFIER_CONCURRENCY)
+    ) {
+        throw new Error(
+            `Classifier concurrency must be an integer from 1 to ${MAX_CLASSIFIER_CONCURRENCY}`,
+        );
     }
 }

@@ -67,7 +67,11 @@ function config(jevEnabled = true): CompactionOptions {
         summaryThinkingLevel: "off",
         policy: policy({ deletableTools: ["read"] }),
         jev: jevEnabled
-            ? { enabled: true, model: { provider: "provider", id: "any-classifier" } }
+            ? {
+                  enabled: true,
+                  model: { provider: "provider", id: "any-classifier" },
+                  concurrency: 2,
+              }
             : { enabled: false },
     };
 }

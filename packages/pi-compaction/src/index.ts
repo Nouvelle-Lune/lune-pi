@@ -10,7 +10,7 @@ export type {
     CompactionRunUpdate,
     CompactionStage,
 } from "./compaction-controller.ts";
-export { DEFAULT_COMPACTION_POLICY } from "./options.ts";
+export { DEFAULT_CLASSIFIER_CONCURRENCY, DEFAULT_COMPACTION_POLICY } from "./options.ts";
 export type {
     CompactionOptions,
     CompactionPolicy,

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="929.5799999999999" height="399.79999999999995" viewBox="0 0 929.5799999999999 399.79999999999995" font-family="Menlo, FiraCode Nerd Font Mono, monospace" font-size="14" xml:space="preserve" role="img" aria-label="pi — choose how your next compaction runs">
+<svg xmlns="http://www.w3.org/2000/svg" width="929.5799999999999" height="419.2" viewBox="0 0 929.5799999999999 419.2" font-family="Menlo, FiraCode Nerd Font Mono, monospace" font-size="14" xml:space="preserve" role="img" aria-label="pi — choose how your next compaction runs">
 <title>pi — choose how your next compaction runs</title>
-<rect width="929.5799999999999" height="399.79999999999995" rx="10" fill="#181a1b"/>
+<rect width="929.5799999999999" height="419.2" rx="10" fill="#181a1b"/>
 <rect width="929.5799999999999" height="34" rx="10" fill="#768186" opacity="0.25"/>
 <circle cx="24" cy="17" r="5" fill="#ff5f57"/><circle cx="42" cy="17" r="5" fill="#febc2e"/><circle cx="60" cy="17" r="5" fill="#28c840"/>
 <text x="80" y="22" fill="#9da5a9" font-size="13">pi — choose how your next compaction runs</text>
@@ -13,12 +13,13 @@
 <text x="18.00" y="182.37" fill="#dee0e1" textLength="227.61" lengthAdjust="spacingAndGlyphs">  Compaction thinking level</text><text x="245.61" y="182.37" fill="#9da5a9" textLength="311.91" lengthAdjust="spacingAndGlyphs">       Follow session effort · medium</text>
 <text x="18.00" y="201.77" fill="#dee0e1" textLength="160.17" lengthAdjust="spacingAndGlyphs">  Jev preprocessing</text><text x="178.17" y="201.77" fill="#9da5a9" textLength="151.74" lengthAdjust="spacingAndGlyphs">               off</text>
 <text x="18.00" y="221.17" fill="#dee0e1" textLength="151.74" lengthAdjust="spacingAndGlyphs">  Classifier model</text><text x="169.74" y="221.17" fill="#9da5a9" textLength="438.36" lengthAdjust="spacingAndGlyphs">                Automatic · available Pi classifiers</text>
-<text x="18.00" y="240.57" fill="#dee0e1" textLength="143.31" lengthAdjust="spacingAndGlyphs">  Drop confidence</text><text x="161.31" y="240.57" fill="#9da5a9" textLength="168.60" lengthAdjust="spacingAndGlyphs">                 0.7</text>
-<text x="18.00" y="259.97" fill="#dee0e1" textLength="160.17" lengthAdjust="spacingAndGlyphs">  Deletable tools →</text><text x="178.17" y="259.97" fill="#9da5a9" textLength="210.75" lengthAdjust="spacingAndGlyphs">               9 selected</text>
+<text x="18.00" y="240.57" fill="#dee0e1" textLength="252.90" lengthAdjust="spacingAndGlyphs">  Parallel classifier requests</text><text x="270.90" y="240.57" fill="#9da5a9" textLength="42.15" lengthAdjust="spacingAndGlyphs">    2</text>
+<text x="18.00" y="259.97" fill="#dee0e1" textLength="143.31" lengthAdjust="spacingAndGlyphs">  Drop confidence</text><text x="161.31" y="259.97" fill="#9da5a9" textLength="168.60" lengthAdjust="spacingAndGlyphs">                 0.7</text>
+<text x="18.00" y="279.37" fill="#dee0e1" textLength="160.17" lengthAdjust="spacingAndGlyphs">  Deletable tools →</text><text x="178.17" y="279.37" fill="#9da5a9" textLength="210.75" lengthAdjust="spacingAndGlyphs">               9 selected</text>
 
-<text x="18.00" y="298.77" fill="#9da5a9" textLength="893.58" lengthAdjust="spacingAndGlyphs">Enabled by default. Follow the session model and effort, or select a separate summary model. Changes apply</text>
-<text x="18.00" y="318.17" fill="#9da5a9" textLength="185.46" lengthAdjust="spacingAndGlyphs">on the next operation.</text>
-<text x="18.00" y="337.57" fill="#7e888e" textLength="893.58" lengthAdjust="spacingAndGlyphs">──────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
-<text x="18.00" y="356.97" fill="#7e888e" textLength="876.72" lengthAdjust="spacingAndGlyphs">↑↓ select · Enter change · Tab section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · Esc close</text>
-<text x="18.00" y="376.37" fill="#7e888e" textLength="893.58" lengthAdjust="spacingAndGlyphs">──────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18.00" y="318.17" fill="#9da5a9" textLength="893.58" lengthAdjust="spacingAndGlyphs">Enabled by default. Follow the session model and effort, or select a separate summary model. Changes apply</text>
+<text x="18.00" y="337.57" fill="#9da5a9" textLength="185.46" lengthAdjust="spacingAndGlyphs">on the next operation.</text>
+<text x="18.00" y="356.97" fill="#7e888e" textLength="893.58" lengthAdjust="spacingAndGlyphs">──────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="18.00" y="376.37" fill="#7e888e" textLength="876.72" lengthAdjust="spacingAndGlyphs">↑↓ select · Enter change · Tab section · Ctrl+G scope · Ctrl+S reload section · Ctrl+R reset · Esc close</text>
+<text x="18.00" y="395.77" fill="#7e888e" textLength="893.58" lengthAdjust="spacingAndGlyphs">──────────────────────────────────────────────────────────────────────────────────────────────────────────</text>
 </svg>

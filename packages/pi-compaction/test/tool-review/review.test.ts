@@ -76,6 +76,7 @@ function setup(
             ctx,
             options.policy ?? policy({ deletableTools: ["read"] }),
             classifier,
+            2,
             new AbortController().signal,
             options.onProgress ?? (() => undefined),
         );
