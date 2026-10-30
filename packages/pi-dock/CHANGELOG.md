@@ -96,4 +96,5 @@
   mixed `·` and `•` separators in the model segment.
 - **Clearer Dock selection.** The focus arrow follows the selected module, and its background
   fills the whole cell while preserving status colors. Reserved padding keeps neighboring cells
-  in place when selection changes, including the classic style's shortcut hints.
+  in place when selection changes. Classic fits shortcut hints beside short labels without hiding
+  visible modules.

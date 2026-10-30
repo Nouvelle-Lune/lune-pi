@@ -2,7 +2,11 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { LuneDockSnapshot, LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock";
 
-export const DOCK_CELL_STRIDE = 12;
+const CELL_CHROME_WIDTH = 4;
+const CELL_SEPARATOR_WIDTH = 3;
+const MIN_CONTENT_WIDTH = 5;
+const DOCK_CELL_STRIDE = CELL_CHROME_WIDTH + CELL_SEPARATOR_WIDTH + MIN_CONTENT_WIDTH;
+const HINT_GAP = "   ";
 
 export interface VisibleDockItem {
     id: string;
@@ -18,6 +22,15 @@ export function resolveSnapshotLevel(snapshot: LuneDockSnapshot, mode: LuneDockD
     return snapshot.base;
 }
 
+function renderCellText(entry: VisibleDockItem, mode: LuneDockDisplayMode, width: number): string {
+    const lines = resolveSnapshotLevel(entry.snapshot, mode).render(width);
+    // A level must publish one physical line; wrapping would corrupt the host's single-row widget.
+    if (lines.length !== 1 || /[\r\n]/.test(lines[0]!)) {
+        throw new Error(`Lune snapshot ${entry.id} (${mode}) must render exactly one line`);
+    }
+    return truncateToWidth(lines[0]!, width);
+}
+
 /** Components own their text and styling; this view adds only placement and focus chrome. */
 export class DockView {
     /** The controller keeps one view across widget rebuilds, so the window survives a re-created component. */
@@ -29,6 +42,7 @@ export class DockView {
         theme: Theme,
         selectedId?: string,
         mode: LuneDockDisplayMode = "detail",
+        hintCandidates: readonly string[] = [],
     ): string[] {
         width = Math.max(0, Math.floor(width));
         if (entries.length === 0 || width === 0) {
@@ -64,29 +78,45 @@ export class DockView {
         const gutter = width > 1 ? " " : "";
 
         // Overflow counts must leave at least one column per cell for its focus marker.
-        if (gutter.length + visibleWidth(before + after) + 3 * (count - 1) + count > width) {
+        if (
+            gutter.length +
+                visibleWidth(before + after) +
+                CELL_SEPARATOR_WIDTH * (count - 1) +
+                count >
+            width
+        ) {
             before = "";
             after = "";
         }
 
-        const overhead = gutter.length + visibleWidth(before + after) + 3 * (count - 1);
-
+        const overhead =
+            gutter.length + visibleWidth(before + after) + CELL_SEPARATOR_WIDTH * (count - 1);
         const available = Math.max(0, width - overhead);
+        const visible = entries.slice(this.start, end);
+        const allocate = (columns: number, index: number) =>
+            Math.floor(columns / count) + (index < columns % count ? 1 : 0);
+        const texts = visible.map((entry, index) =>
+            renderCellText(
+                entry,
+                mode,
+                Math.max(0, allocate(available, index) - CELL_CHROME_WIDTH),
+            ),
+        );
 
-        const cells = entries.slice(this.start, end).map((entry, index) => {
+        // Short labels need only their actual width; hint reservation must not hide visible cells.
+        const minimumCellWidth =
+            CELL_CHROME_WIDTH + Math.min(MIN_CONTENT_WIDTH, Math.max(...texts.map(visibleWidth)));
+        const hint = hintCandidates.find(
+            (text) => available - visibleWidth(text) - HINT_GAP.length >= minimumCellWidth * count,
+        );
+        const cellColumns = available - (hint ? visibleWidth(hint) + HINT_GAP.length : 0);
+
+        const cells = visible.map((entry, index) => {
             // Leftmost cells absorb the remainder so allocation stays independent of the selection.
-            const allocated = Math.floor(available / count) + (index < available % count ? 1 : 0);
-
+            const allocated = allocate(cellColumns, index);
             // Reserve the pointer and padding even while blurred so focus cannot move the cells.
-            const contentWidth = Math.max(0, allocated - 4);
-            const lines = resolveSnapshotLevel(entry.snapshot, mode).render(contentWidth);
-
-            // A level must publish one physical line; wrapping would corrupt the host's single-row widget.
-            if (lines.length !== 1 || /[\r\n]/.test(lines[0]!)) {
-                throw new Error(`Lune snapshot ${entry.id} (${mode}) must render exactly one line`);
-            }
-            // A level may overflow its allocation: Dock owns the width budget, not the plugin.
-            const text = truncateToWidth(lines[0]!, contentWidth);
+            const contentWidth = Math.max(0, allocated - CELL_CHROME_WIDTH);
+            const text = hint ? renderCellText(entry, mode, contentWidth) : texts[index]!;
             const active = entry.id === selectedId;
             const pointer = active ? theme.fg("accent", "❯ ") : "  ";
             const padding = " ".repeat(Math.max(0, contentWidth - visibleWidth(text)) + 2);
@@ -104,7 +134,8 @@ export class DockView {
             gutter +
             theme.fg("dim", before) +
             cells.join(theme.fg("dim", " │ ")) +
-            theme.fg("dim", after);
+            theme.fg("dim", after) +
+            (hint && selected >= 0 ? HINT_GAP + hint : "");
 
         return [truncateToWidth(line, width)];
     }

@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock";
-import { DOCK_CELL_STRIDE, DockView, type VisibleDockItem } from "./dock-renderer.ts";
+import { DockView, type VisibleDockItem } from "./dock-renderer.ts";
 import {
     CELL_SEPARATOR,
     modelSegmentVariants,
@@ -89,25 +89,14 @@ export class DockFooter {
 
     /** The original single row: cells with the key hint on the right, nothing else. */
     private renderClassic(width: number, theme: Theme, input: DockFooterInput): string[] {
-        const count = Math.min(
-            input.entries.length,
-            Math.max(1, Math.floor((width - 1) / DOCK_CELL_STRIDE)),
-        );
-        const hint = KEY_HINTS.find(
-            (text) => width - visibleWidth(text) - 3 >= 1 + count * DOCK_CELL_STRIDE,
-        );
-        // Reserve the hint slot while blurred too, so focusing never shrinks or moves the cells.
-        const cellWidth = hint ? width - visibleWidth(hint) - 3 : width;
-        const row = this.cells.render(
+        return this.cells.render(
             input.entries,
-            cellWidth,
+            width,
             theme,
             input.selectedId,
             input.mode,
-        )[0];
-        if (row === undefined) return [];
-        if (input.selectedId === undefined || !hint) return [row];
-        return [row + "   " + theme.fg("dim", hint)];
+            KEY_HINTS.map((hint) => theme.fg("dim", hint)),
+        );
     }
 
     private renderRuled(width: number, theme: Theme, input: DockFooterInput): string[] {

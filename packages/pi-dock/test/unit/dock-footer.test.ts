@@ -26,6 +26,14 @@ function cells(...ids: string[]): DockFooterInput["entries"] {
     return ids.map((id) => ({ id, snapshot: textSnapshot(id) }));
 }
 
+/** Width-agnostic labels: each publishes one column, whatever allocation it is asked for. */
+function shortLabels(count: number): DockFooterInput["entries"] {
+    return Array.from({ length: count }, (_, index) => ({
+        id: `label-${index}`,
+        snapshot: { base: { render: () => ["x"], invalidate() {} } },
+    }));
+}
+
 function input(overrides: Partial<DockFooterInput> = {}): DockFooterInput {
     return {
         entries: cells("shells", "questions"),
@@ -51,6 +59,17 @@ function barColumns(row: string): number[] {
     let column = 0;
     for (const char of row) {
         if (char === "│") columns.push(column);
+        column += visibleWidth(char);
+    }
+    return columns;
+}
+
+/** The terminal column of every label, so a focus change must leave every cell where it was. */
+function labelColumns(row: string): number[] {
+    const columns: number[] = [];
+    let column = 0;
+    for (const char of row) {
+        if (char === "x") columns.push(column);
         column += visibleWidth(char);
     }
     return columns;
@@ -353,6 +372,37 @@ function renderStyle(
         status: replacesFooter(style) ? createStatus({ showProvider: true }) : undefined,
         ...overrides,
     });
+}
+
+/** Short cells take only the width they need, so the leftover columns can carry a hint. */
+function assertClassicShortLabels(width: number, labels: number, hint: string): void {
+    const entries = shortLabels(labels);
+    const selectedId = entries[0]!.id;
+    const focused = renderStyle("classic", width, { entries, selectedId })[0]!;
+    const blurred = renderStyle("classic", width, { entries })[0]!;
+
+    assert.ok(
+        visibleWidth(focused) <= width,
+        `focused row at ${width}: ${JSON.stringify(focused)}`,
+    );
+    assert.ok(
+        visibleWidth(blurred) <= width,
+        `blurred row at ${width}: ${JSON.stringify(blurred)}`,
+    );
+    assert.match(focused, new RegExp(` {3}${hint}$`), "the hint takes the leftover width");
+    assert.doesNotMatch(focused, /←→/, "the full hint needs more room than this");
+    assert.equal((focused.match(/x/g) ?? []).length, labels, "every label must stay visible");
+    assert.doesNotMatch(focused, /[‹›]/, "no label may be scrolled away");
+    assert.equal((focused.match(/❯/g) ?? []).length, 1, "one cell carries the pointer");
+    assert.equal(
+        focused.indexOf("❯"),
+        focused.indexOf("x") - 2,
+        "the pointer starts the selected cell",
+    );
+    assert.deepEqual(labelColumns(focused), labelColumns(blurred), "focus must not move a label");
+    assert.deepEqual(barColumns(focused), barColumns(blurred), "focus must not resize a cell");
+    assert.doesNotMatch(blurred, /❯/, "a blurred dock draws no pointer");
+    assert.doesNotMatch(blurred, /enter open/, "the hint is drawn only while focused");
 }
 
 describe("dock footer styles", () => {
@@ -784,6 +834,18 @@ describe("dock footer styles", () => {
                 renderStyle("classic", 30, { selectedId: "shells" })[0]!,
                 /enter open/,
             );
+        });
+
+        it("adds the minimal hint to two short labels at 30 columns", () => {
+            assertClassicShortLabels(30, 2, HINT_MINIMAL);
+        });
+
+        it("adds the minimal hint to three short labels at 40 columns", () => {
+            assertClassicShortLabels(40, 3, HINT_MINIMAL);
+        });
+
+        it("adds the short hint to six short labels at 80 columns", () => {
+            assertClassicShortLabels(80, 6, HINT_SHORT);
         });
 
         it("never draws a hint for an unfocused dock", () => {
