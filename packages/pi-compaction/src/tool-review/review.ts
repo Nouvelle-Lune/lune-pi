@@ -81,6 +81,7 @@ export async function reviewToolHistory(
     ctx: ExtensionContext,
     policy: CompactionPolicy,
     classifier: ClassifierModel<string>,
+    concurrency: number,
     signal: AbortSignal,
     progress: (update: ToolReviewProgress) => void,
 ): Promise<{
@@ -141,6 +142,7 @@ export async function reviewToolHistory(
                 signal: requestSignal,
                 maxRetries: 0,
             }),
+        concurrency,
         signal,
         (completedBatches, totalBatches) =>
             progress({

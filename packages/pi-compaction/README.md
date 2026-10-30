@@ -45,6 +45,8 @@ Choose **Follow session model** to use the current model and effort. Selecting a
 
 **Jev preprocessing** is off by default. Enable it to review tool history, then choose a Pi classifier, set **Drop confidence** and select **Deletable tools**. A whole call is removed only when its tool is permitted and every result fragment meets the threshold. A call that ran other tools, such as `codemode`, also needs a complete nested record in which every call succeeded and every tool is permitted; otherwise it stays in the summary input unchanged. Summary models and classifiers come from Pi's configured providers.
 
+**Parallel classifier requests** sets how many fragments the classifier reviews at once, from 1 to 16 (default 2). A higher value finishes the review sooner on long tool histories. Requests are not retried, and one rejected request cancels the compaction, so stay below your provider's rate limit.
+
 `Ctrl+G` switches global/project scope; `Ctrl+R` removes the selected override. Changes apply to the next compaction.
 
 ## Tool-history review

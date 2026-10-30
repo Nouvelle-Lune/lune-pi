@@ -47,6 +47,7 @@ test("runRequests snapshots provider results so a reused response object cannot 
     const results = await runRequests(
         contexts,
         classify,
+        2,
         new AbortController().signal,
         (completed) => {
             if (completed === 1) firstCompleted();
@@ -88,7 +89,13 @@ test("runRequests still validates the snapshot of a reused response object befor
     };
 
     await assert.rejects(
-        runRequests([contextWith(["a"])], classify, new AbortController().signal, () => undefined),
+        runRequests(
+            [contextWith(["a"])],
+            classify,
+            2,
+            new AbortController().signal,
+            () => undefined,
+        ),
         /invalid probability/,
     );
 });

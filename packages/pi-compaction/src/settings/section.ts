@@ -8,6 +8,7 @@ import {
     type SettingsChoiceSource,
 } from "@lune_99/pi-lune-extensions-core/panel";
 import { createDefinedSettingsSection } from "@lune_99/pi-lune-extensions-core/panel/host";
+import { MAX_CLASSIFIER_CONCURRENCY } from "../options.ts";
 import { compactionSchema, SETTINGS_ID, type CompactionSettingsView } from "./schema.ts";
 
 export const summaryModelChoices: SettingsChoiceSource<ModelReference | null> = modelChoices({
@@ -99,6 +100,10 @@ export function createCompactionPanel(getTools: ExtensionAPI["getAllTools"]) {
                         ? `${value.provider}/${value.id}`
                         : "Automatic · available Pi classifiers",
                 choiceSource: classifierChoices,
+            }),
+            field("classifierConcurrency", {
+                label: "Parallel classifier requests",
+                description: `How many fragments the classifier reviews at once (1–${MAX_CLASSIFIER_CONCURRENCY}). Higher values finish the review sooner but reach provider rate limits faster; a rejected request cancels the compaction.`,
             }),
             field(["policy", "deleteThreshold"], {
                 label: "Drop confidence",

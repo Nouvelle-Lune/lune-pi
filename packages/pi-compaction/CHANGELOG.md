@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Review entry and checkpoint metadata**: Save a `Tool review` entry next to Pi's compaction summary with disjoint removal counts and the summary-input size; Ctrl+O adds the classifier, reviewed and protected calls, and the split between per-result truncation and classifier drops. Each checkpoint records the summary model, effective thinking level and review statistics under `details.luneCompaction`.
 - **Embedding API**: `installCompaction` and `createCompactionExtension` accept resolved options from the host instead of reading settings; returning `null` leaves native Pi compaction untouched. `CompactionController.getRun()` returns an isolated snapshot of the current run.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
+- **Parallel classifier requests.** Set how many fragments the tool-history review classifies at once (1–16, default 2) in the Compaction settings. Raise it to finish long reviews sooner; a rate-limited request still cancels the compaction. Embedded hosts pass the value as `jev.concurrency`.
 
 ### Changed
 

@@ -136,6 +136,7 @@ function jevOptions(): JevOptions {
     return {
         enabled: true,
         model: { provider: "registry-jev", id: "jev-latest" },
+        concurrency: 2,
     };
 }
 
