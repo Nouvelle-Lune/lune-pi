@@ -1,0 +1,42 @@
+{
+    "schemaVersion": 1,
+    "change": "unify-classifier-menu-copy",
+    "createdAt": "2026-10-30T08:05:18.873Z",
+    "intent": "Unify the classifier selection copy in the Compaction and Subagents settings menus, their unavailable-classifier errors, and the Subagents settings docs; no behavior change.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "150684e68bbe54c19c278fa8b6dfbe0f40aa15f6",
+    "headRev": "b209db47267fc928455dea5803f5c88ea20b0b32",
+    "files": [
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/docs/compaction-settings.png",
+        "packages/pi-compaction/docs/compaction-settings.svg",
+        "packages/pi-compaction/src/settings/section.ts",
+        "packages/pi-compaction/src/tool-review/classification.ts",
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/auto-model.ts",
+        "packages/pi-subagent/src/settings/panel.ts",
+        "packages/pi-subagent/test/unit/agents-menu.test.ts",
+        "packages/pi-subagent/test/unit/auto-model.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T08:05:36.514Z",
+            "scope": "full",
+            "base": "150684e68bbe54c19c278fa8b6dfbe0f40aa15f6",
+            "head": "b209db47267fc928455dea5803f5c88ea20b0b32",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-30T08:06:36.431Z"
+}
