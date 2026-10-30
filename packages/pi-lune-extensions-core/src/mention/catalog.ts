@@ -1,6 +1,6 @@
-import { dirname, join, resolve } from "node:path";
-import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { ExternalSessions } from "./external.ts";
+import { PiSessions } from "./pi.ts";
+import { SessionIndex, sessionIndexFile } from "./session-index.ts";
 import type { LocalSession } from "./session.ts";
 
 /** A list older than this is reloaded in the background on the next lookup. */
@@ -9,22 +9,23 @@ const REFRESH_AFTER_MS = 60_000;
 /**
  * Local Pi, Codex and Claude Code main sessions, newest activity first.
  *
- * Listing reads every session file (about a second for a few hundred sessions), so lookups
- * serve the cached list and reload it in the background. The owner disposes the catalog on
- * session shutdown; a load that finishes later is discarded.
+ * Every load checks each session file and reads only those that changed since the saved
+ * index. Lookups serve the cached list and reload it in the background. The owner disposes
+ * the catalog on session shutdown; a load that finishes later is discarded.
  */
 export class SessionCatalog {
-    private readonly sessionDir: string;
     private readonly onBackgroundError: (error: unknown) => void;
     private readonly abort = new AbortController();
-    private readonly external = new ExternalSessions();
+    private readonly index = new SessionIndex(sessionIndexFile());
+    private readonly pi: PiSessions;
+    private readonly external = new ExternalSessions(this.index);
     private sessions: readonly LocalSession[] = [];
     private loaded = false;
     private loadedAt = 0;
     private loading: Promise<readonly LocalSession[]> | undefined;
 
     constructor(sessionDir: string, onBackgroundError: (error: unknown) => void) {
-        this.sessionDir = sessionDir;
+        this.pi = new PiSessions(sessionDir, this.index);
         this.onBackgroundError = onBackgroundError;
     }
 
@@ -44,26 +45,31 @@ export class SessionCatalog {
         return this.loaded ? this.snapshot() : this.reload();
     }
 
+    /**
+     * Settles when the first load does or when `signal` aborts. Whoever started the load
+     * handles its failure, so a waiting caller only reads snapshot() again.
+     */
+    async whenLoaded(signal: AbortSignal): Promise<void> {
+        if (this.loaded) return;
+        this.snapshot();
+        const loading = this.loading;
+        if (!loading || signal.aborted) return;
+        await new Promise<void>((resolve) => {
+            const settle = () => {
+                signal.removeEventListener("abort", settle);
+                resolve();
+            };
+            signal.addEventListener("abort", settle, { once: true });
+            loading.then(settle, settle);
+        });
+    }
+
     /** Concurrent callers share one load. */
     reload(): Promise<readonly LocalSession[]> {
         this.loadedAt = Date.now();
-        this.loading ??= Promise.all([
-            listSessions(this.sessionDir, this.abort.signal),
-            this.external.list(this.abort.signal, this.onBackgroundError),
-        ])
-            .then(([pi, external]) => {
-                this.abort.signal.throwIfAborted();
-                const sessions = [
-                    ...pi.map((session): LocalSession => ({ ...session, source: "pi" })),
-                    ...external,
-                ].sort((left, right) => right.modified.getTime() - left.modified.getTime());
-                this.sessions = sessions;
-                this.loaded = true;
-                return sessions;
-            })
-            .finally(() => {
-                this.loading = undefined;
-            });
+        this.loading ??= this.load().finally(() => {
+            this.loading = undefined;
+        });
         return this.loading;
     }
 
@@ -71,14 +77,29 @@ export class SessionCatalog {
         this.abort.abort();
         this.external.clear();
     }
-}
 
-function listSessions(sessionDir: string, signal: AbortSignal) {
-    // Matches the "all" scope of /resume: the default store keeps one folder per project under
-    // the agent's sessions root, and a custom session directory holds every session itself.
-    const root = join(getAgentDir(), "sessions");
-    const custom = sessionDir !== "" && resolve(dirname(sessionDir)) !== resolve(root);
-    return custom
-        ? SessionManager.listAll(sessionDir, undefined, signal)
-        : SessionManager.listAll(undefined, signal);
+    private async load(): Promise<readonly LocalSession[]> {
+        const signal = this.abort.signal;
+        // A failed index only costs a full read; the scan below writes a new one.
+        await this.index.load(signal).catch((error: unknown) => this.report(error));
+        this.index.beginScan();
+        const [pi, external] = await Promise.all([
+            this.pi.list(signal, this.onBackgroundError),
+            this.external.list(signal, this.onBackgroundError),
+        ]);
+        signal.throwIfAborted();
+        await this.index.endScan().catch((error: unknown) => this.report(error));
+        signal.throwIfAborted();
+        const sessions = [...pi, ...external].sort(
+            (left, right) => right.modified.getTime() - left.modified.getTime(),
+        );
+        this.sessions = sessions;
+        this.loaded = true;
+        return sessions;
+    }
+
+    private report(error: unknown): void {
+        this.abort.signal.throwIfAborted();
+        this.onBackgroundError(error);
+    }
 }

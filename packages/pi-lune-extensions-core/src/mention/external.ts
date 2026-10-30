@@ -10,26 +10,25 @@ import {
     type LocalSession,
     type SessionSource,
 } from "./session.ts";
+import { fileVersion, type SessionIndex } from "./session-index.ts";
 
 type ExternalSource = Exclude<SessionSource, "pi">;
 
-interface CachedSession {
-    version: string;
-    session?: LocalSession;
-}
-
-/** File metadata caches belong to the running Pi session, just like the combined catalog. */
+/** Parsed sessions live in the shared index; the Codex title index is cached per Pi session. */
 export class ExternalSessions {
     private readonly codexHome = resolve(process.env["CODEX_HOME"] ?? join(homedir(), ".codex"));
     private readonly claudeHome = resolve(
         process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude"),
     );
-    private readonly cached = new Map<string, CachedSession>();
+    private readonly index: SessionIndex;
     private titleIndex: { version: string; names: Map<string, string> } | undefined;
+
+    constructor(index: SessionIndex) {
+        this.index = index;
+    }
 
     async list(signal: AbortSignal, report: (error: unknown) => void): Promise<LocalSession[]> {
         const errors: Error[] = [];
-        const seen = new Set<string>();
         const sources: ExternalSource[] = ["codex", "claude"];
         const results = await Promise.all(
             sources.map(async (source) => {
@@ -40,31 +39,27 @@ export class ExternalSessions {
                     // One file per source at a time bounds memory when rollouts contain large tool results.
                     for (const path of paths) {
                         signal.throwIfAborted();
-                        seen.add(path);
                         try {
-                            const stats = await stat(path);
-                            const version = `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
-                            let cached = this.cached.get(path);
-                            if (cached?.version !== version) {
-                                cached = { version };
+                            const version = fileVersion(await stat(path));
+                            let entry = this.index.get(path, version);
+                            if (!entry) {
                                 const content = await readFile(path, { encoding: "utf8", signal });
-                                cached.session = parseExternalSession(
-                                    source,
-                                    content,
-                                    path,
-                                )?.session;
-                                if (!signal.aborted) this.cached.set(path, cached);
+                                entry = {
+                                    version,
+                                    session: parseExternalSession(source, content, path)?.session,
+                                };
+                                this.index.set(path, entry);
                             }
-                            if (cached.session) {
+                            let session = entry.session;
+                            if (session) {
                                 const name =
-                                    source === "codex"
-                                        ? names.get(cached.session.id)
-                                        : cached.session.name;
-                                if (name !== cached.session.name) {
-                                    cached.session = { ...cached.session, name };
+                                    source === "codex" ? names.get(session.id) : session.name;
+                                if (name !== session.name) {
+                                    session = { ...session, name };
+                                    this.index.set(path, { version, session });
                                 }
                                 // Stable objects preserve autocomplete's existing WeakMap search cache.
-                                sessions.push(cached.session);
+                                sessions.push(session);
                             }
                         } catch (error) {
                             signal.throwIfAborted();
@@ -86,9 +81,6 @@ export class ExternalSessions {
             }),
         );
         signal.throwIfAborted();
-        for (const path of this.cached.keys()) {
-            if (!seen.has(path)) this.cached.delete(path);
-        }
         if (errors.length > 0) {
             report(new AggregateError(errors, errors.map((error) => error.message).join("\n")));
         }
@@ -96,7 +88,6 @@ export class ExternalSessions {
     }
 
     clear(): void {
-        this.cached.clear();
         this.titleIndex = undefined;
     }
 

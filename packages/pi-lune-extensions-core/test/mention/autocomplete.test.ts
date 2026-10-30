@@ -10,6 +10,7 @@ import type {
 } from "@earendil-works/pi-tui";
 import { createMentionAutocomplete, SESSION_TRIGGER } from "../../src/mention/autocomplete.ts";
 import { SessionCatalog } from "../../src/mention/catalog.ts";
+import { PiSessions } from "../../src/mention/pi.ts";
 import {
     claudeMessage,
     codexMeta,
@@ -57,12 +58,6 @@ async function environment(
     const root = await mkdtemp(path.join(os.tmpdir(), "mention-autocomplete-"));
     const externalHomes = isolateExternalSessions(t, root);
     t.after(() => rm(root, { recursive: true, force: true }));
-    const previous = process.env["PI_CODING_AGENT_DIR"];
-    process.env["PI_CODING_AGENT_DIR"] = path.join(root, "agent");
-    t.after(() => {
-        if (previous === undefined) delete process.env["PI_CODING_AGENT_DIR"];
-        else process.env["PI_CODING_AGENT_DIR"] = previous;
-    });
     const sessionDir = path.join(root, "custom-sessions");
     await mkdir(sessionDir, { recursive: true });
     const now = Date.now();
@@ -491,4 +486,104 @@ test("no matches from any source returns null", async (t) => {
     const env = await environment(t, { files: null });
 
     assert.equal(await env.suggest("@nothing"), null);
+});
+
+/** Holds the Pi listing until released, as slow session storage would. */
+function holdPiListing(t: TestContext) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    const original = PiSessions.prototype.list;
+    t.mock.method(
+        PiSessions.prototype,
+        "list",
+        async function (this: PiSessions, signal: AbortSignal, report: (error: unknown) => void) {
+            await gate;
+            return original.call(this, signal, report);
+        },
+    );
+    return release;
+}
+
+const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** A bounded wait, so a request that never settles fails instead of hanging the suite. */
+function within<T>(promise: Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("the request did not settle")), 5_000);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+test("@@ before the first load waits for the load and returns the session rows", async (t) => {
+    const env = await environment(t, {
+        sessions: [{ id: "alpha-session-1", name: "alpha" }],
+        load: false,
+    });
+    const release = holdPiListing(t);
+
+    let settled = false;
+    const pending = env.suggest("@@").finally(() => {
+        settled = true;
+    });
+    await tick();
+    const settledWhileLoading = settled;
+    release();
+    const actual = await within(pending);
+
+    assert.equal(settledWhileLoading, false);
+    assert.deepEqual(values(actual), [mentionValue({ id: "alpha-session-1" })]);
+});
+
+test("aborting an @@ request during the wait returns null without waiting for the load", async (t) => {
+    const env = await environment(t, {
+        sessions: [{ id: "alpha-session-1", name: "alpha" }],
+        load: false,
+    });
+    const release = holdPiListing(t);
+    const controller = new AbortController();
+
+    const pending = env.suggest("@@", controller.signal);
+    await tick();
+    controller.abort();
+    const actual = await within(pending);
+
+    assert.equal(actual, null);
+    // The load keeps running for the next request; let it finish before cleanup.
+    release();
+    await env.catalog.reload();
+});
+
+test("@@ returns null when the first load failed instead of waiting forever", async (t) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "mention-autocomplete-failed-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    isolateExternalSessions(t, root);
+    const errors: unknown[] = [];
+    const catalog = new SessionCatalog(path.join(root, "sessions"), (error) => errors.push(error));
+    t.after(() => catalog.dispose());
+    t.mock.method(PiSessions.prototype, "list", async () => {
+        throw new Error("disk gone");
+    });
+    const provider: AutocompleteProvider = {
+        async getSuggestions() {
+            return null;
+        },
+        applyCompletion: () => ({ lines: [], cursorLine: 0, cursorCol: 0 }),
+    };
+    const mention = createMentionAutocomplete(provider, { catalog, currentSessionFile: undefined });
+
+    const actual = await within(
+        mention.getSuggestions(["@@"], 0, 2, {
+            signal: new AbortController().signal,
+            force: false,
+        }),
+    );
+
+    assert.equal(actual, null);
+    assert.deepEqual(
+        errors.map((error) => (error as Error).message),
+        ["disk gone"],
+    );
 });

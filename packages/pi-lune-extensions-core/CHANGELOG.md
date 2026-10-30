@@ -97,6 +97,10 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Session mentions keep an index on disk.** Core saves what it read from each Pi, Codex and
+  Claude Code session file in `<agentDir>/lune-cache/session-index.json` (owner-only, since it
+  holds message text) and reads a file again only when it changes. A new session now loads the
+  list in tens of milliseconds instead of reading every session file again.
 - **Release metadata and README badges.** Prepare version 0.2.0 for consumers of the new Panel menu API, including Lune Subagent. Add npm version, weekly download and license badges to match the other package READMEs.
 - **Session mention copies use the system temporary directory.** Store filtered transcripts
   under `<os.tmpdir()>/pi-lune-session-refs/` so the operating system can reclaim them according
@@ -164,6 +168,9 @@ All notable changes are documented here using
 
 ### Fixed
 
+- **`@@` lists sessions on the first try.** Typing `@@` before the session list had loaded
+  showed nothing until you typed it again. `@@` now waits for the first load, and the next
+  keystroke ends the wait; a plain `@` still shows file matches at once.
 - **Session mentions expose copies only.** The Markdown reference now points to a complete
   JSONL copy beside it in the system temporary directory, so editing that file cannot modify
   the original session. Projection runs in memory, preserving both files even when Pi upgrades

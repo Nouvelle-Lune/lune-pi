@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { SessionManager, type InputEventResult } from "@earendil-works/pi-coding-agent";
 import type { MentionNotice } from "../harness/mention-runtime.ts";
 import { createMentionHost } from "../harness/mention-runtime.ts";
+import { PiSessions } from "../../src/mention/pi.ts";
 import { SessionFile } from "../harness/session-fixtures.ts";
 
 const execFileAsync = promisify(execFile);
@@ -179,7 +180,7 @@ for (const { scenario, lateFailure } of scenarioCases) {
 
 test("a session list failure during startup is reported through the active UI", async (t) => {
     const environment = await isolatedEnvironment(t);
-    t.mock.method(SessionManager, "listAll", async () => {
+    t.mock.method(PiSessions.prototype, "list", async () => {
         throw new Error("catalog read failed");
     });
     const host = await createMentionHost({
@@ -205,7 +206,7 @@ test("a session list failure after replacement is reported through the new sessi
         join(environment.sessionDir, `2026-01-01T00-00-00-000Z_${TARGET_ID}.jsonl`),
         target.jsonl(),
     );
-    const listAll = t.mock.method(SessionManager, "listAll");
+    const list = t.mock.method(PiSessions.prototype, "list");
     const host = await createMentionHost({
         cwd: environment.cwd,
         agentDir: environment.agentDir,
@@ -219,7 +220,7 @@ test("a session list failure after replacement is reported through the new sessi
         "interactive",
     );
     assert.equal(firstMention.action, "transform");
-    listAll.mock.mockImplementation(async () => {
+    list.mock.mockImplementation(async () => {
         throw new Error("replacement scan failed");
     });
 

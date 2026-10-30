@@ -36,11 +36,9 @@ async function setup(
     const root = await mkdtemp(path.join(os.tmpdir(), "session-mention-"));
     const externalHomes = isolateExternalSessions(t, root);
     t.after(() => rm(root, { recursive: true, force: true }));
-    const agentDir = path.join(root, "agent");
     const tempDir = path.join(root, options.tempDirName ?? "tmp");
     // Cover both POSIX and Windows temp-directory precedence without sharing real temp files.
     const directories = {
-        PI_CODING_AGENT_DIR: agentDir,
         TMPDIR: tempDir,
         TMP: tempDir,
         TEMP: tempDir,
