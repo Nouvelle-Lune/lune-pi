@@ -31,12 +31,7 @@ export class SessionCatalog {
 
     /** The cached list, empty before the first load. A stale list starts a background reload. */
     snapshot(): readonly LocalSession[] {
-        const stale = Date.now() - this.loadedAt > REFRESH_AFTER_MS;
-        if (stale && !this.loading && !this.abort.signal.aborted) {
-            this.reload().catch((error: unknown) => {
-                if (!this.abort.signal.aborted) this.onBackgroundError(error);
-            });
-        }
+        if (Date.now() - this.loadedAt > REFRESH_AFTER_MS) this.refreshInBackground();
         return this.sessions;
     }
 
@@ -48,10 +43,13 @@ export class SessionCatalog {
     /**
      * Settles when the first load does or when `signal` aborts. Whoever started the load
      * handles its failure, so a waiting caller only reads snapshot() again.
+     *
+     * A failed first load is retried here. snapshot() only retries a stale list, and `@@`
+     * would otherwise stay empty for a minute after a transient read error.
      */
     async whenLoaded(signal: AbortSignal): Promise<void> {
         if (this.loaded) return;
-        this.snapshot();
+        this.refreshInBackground();
         const loading = this.loading;
         if (!loading || signal.aborted) return;
         await new Promise<void>((resolve) => {
@@ -96,6 +94,13 @@ export class SessionCatalog {
         this.sessions = sessions;
         this.loaded = true;
         return sessions;
+    }
+
+    private refreshInBackground(): void {
+        if (this.loading || this.abort.signal.aborted) return;
+        this.reload().catch((error: unknown) => {
+            if (!this.abort.signal.aborted) this.onBackgroundError(error);
+        });
     }
 
     private report(error: unknown): void {
