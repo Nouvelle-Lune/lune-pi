@@ -62,7 +62,7 @@ describe("dock footer", () => {
 
         assert.equal(lines.length, 5);
         assert.equal(lines[0], rule(80));
-        assert.match(lines[1]!, /^ shells │ questions/);
+        assert.match(lines[1]!, /^ {3}shells +│ {3}questions/);
         assert.equal(lines[2], rule(80), "an unfocused dock draws a plain rule under its cells");
         assert.match(lines[3]!, /\/work\/project/);
         assert.equal(lines[4], rule(80));
@@ -164,7 +164,7 @@ describe("dock footer", () => {
 
         assert.equal(visibleWidth(dockRow!), 80);
         assert.match(dockRow!, / │ y+\.\.\.$/, "the cells keep their half of the row");
-        assert.match(dockRow!, /^ shells │ questions/);
+        assert.match(dockRow!, /^ {3}shells +│ {3}questions/);
     });
 
     it("draws no model below 40 columns, so the cells keep the whole row", () => {
@@ -215,8 +215,13 @@ describe("dock footer", () => {
         const focused = render(80, { selectedId: "questions" })[1]!;
         const unfocused = render(80)[1]!;
 
-        assert.ok(focused.startsWith("❯"));
-        assert.ok(unfocused.startsWith(" "));
+        assert.match(focused, /^ {3}shells +│ ❯ questions/, "the mark sits at the cell start");
+        assert.equal(
+            focused.replace("❯", " "),
+            unfocused,
+            "blurred cells reserve the same columns",
+        );
+        assert.doesNotMatch(unfocused, /❯/, "a blurred dock draws no pointer");
     });
 
     describe("key hints", () => {
@@ -303,11 +308,11 @@ describe("dock footer", () => {
                 footer.render(39, identityTheme, input({ entries, selectedId }))[1]!,
             );
 
-        assert.match(dockRow("item-5"), /^❯‹3 item-3 │ item-4 │ item-5/);
+        assert.equal(dockRow("item-5"), " ‹3   item-3   │   item-4   │ ❯ it...  ");
 
-        assert.match(
+        assert.equal(
             dockRow("item-4"),
-            /^❯‹3 item-3 │ item-4 │ item-5/,
+            " ‹3   item-3   │ ❯ item-4   │   it...  ",
             "selecting inside the window must not scroll it",
         );
     });
@@ -461,7 +466,7 @@ describe("dock footer styles", () => {
 
             assert.equal(lines.length, 6);
             assert.match(lines[0]!, /^╭─+╮$/);
-            assert.match(lines[1]!, /^│ shells │ questions .* │ +claude-test • high │$/);
+            assert.match(lines[1]!, /^│ {3}shells +│ {3}questions .* │ +claude-test • high │$/);
             assert.ok(
                 barColumns(lines[3]!).includes(barColumns(lines[1]!).at(-2)!),
                 "the model bar continues an info row bar",
@@ -476,7 +481,7 @@ describe("dock footer styles", () => {
         it("marks the selected cell inside the border", () => {
             const [, dockRow] = renderStyle("boxed", 80, { selectedId: "shells" });
 
-            assert.match(dockRow!, /^│❯shells │ questions/);
+            assert.match(dockRow!, /^│ ❯ shells +│ {3}questions/);
         });
 
         it("draws the key hints on the rule under the cells while focused", () => {
@@ -549,7 +554,10 @@ describe("dock footer styles", () => {
             const lines = renderStyle("compact", 120);
 
             assert.equal(lines.length, 2);
-            assert.match(lines[0]!, /^ shells │ questions .* │ +\(anthropic\) claude-test • high$/);
+            assert.match(
+                lines[0]!,
+                /^ {3}shells +│ {3}questions .* │ +\(anthropic\) claude-test • high$/,
+            );
             assert.match(lines[1]!, /\/work\/project/);
             assert.doesNotMatch(lines.join("\n"), /[─╭╰├]/);
         });
@@ -567,7 +575,7 @@ describe("dock footer styles", () => {
             const focused = renderStyle("compact", 100, { selectedId: "shells" });
             const unfocused = renderStyle("compact", 100);
 
-            assert.match(focused[0]!, new RegExp(`^❯shells.* │ ${HINT_FULL}$`));
+            assert.match(focused[0]!, new RegExp(`^ ❯ shells.* │ ${HINT_FULL}$`));
             assert.doesNotMatch(focused[0]!, /claude-test/);
             assert.match(unfocused[0]!, /claude-test/);
             assert.doesNotMatch(unfocused[0]!, /enter open/);
@@ -620,7 +628,7 @@ describe("dock footer styles", () => {
             assert.equal(lines.length, 1);
             assert.match(
                 lines[0]!,
-                /^ shells │ questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/,
+                /^ {3}shells +│ {3}questions .* │ claude-test • high │ {2}25k\/200k · 12\.3%$/,
             );
             assert.doesNotMatch(lines[0]!, /\/work\/project/);
         });
@@ -677,13 +685,13 @@ describe("dock footer styles", () => {
             const [row] = renderStyle("minimal", 100, {}, { showModel: false, showUsage: false });
 
             assert.doesNotMatch(row!, /claude-test|12\.3%/);
-            assert.equal(row!.trimEnd(), " shells │ questions");
+            assert.match(row!, /^ {3}shells +│ {3}questions *$/);
         });
 
         it("shows the key hint in place of the model and context while focused", () => {
             const [row] = renderStyle("minimal", 100, { selectedId: "shells" });
 
-            assert.match(row!, new RegExp(`^❯shells.* │ ${HINT_FULL}$`));
+            assert.match(row!, new RegExp(`^ ❯ shells.* │ ${HINT_FULL}$`));
             assert.doesNotMatch(row!, /claude-test|12\.3%/);
         });
 
@@ -741,15 +749,26 @@ describe("dock footer styles", () => {
         it("draws only the cells, with no frame and no statistics", () => {
             const lines = renderStyle("classic", 80);
 
-            assert.deepEqual(lines, [" shells │ questions"]);
+            assert.equal(lines.length, 1);
+            assert.match(lines[0]!, /^ {3}shells +│ {3}questions *$/, "classic draws only cells");
+            assert.doesNotMatch(lines[0]!, /claude-test|12\.3%|\/work\/project|[─╭╰├╮╯]/);
         });
 
         it("right-aligns the key hint to the full width while focused", () => {
             const lines = renderStyle("classic", 100, { selectedId: "shells" });
 
             assert.equal(lines.length, 1);
-            assert.match(lines[0]!, new RegExp(`^❯shells │ questions +${HINT_FULL}$`));
+            assert.match(lines[0]!, new RegExp(`^ ❯ shells +│ {3}questions +${HINT_FULL}$`));
             assert.equal(visibleWidth(lines[0]!), 100);
+        });
+
+        it("reserves the hint slot while blurred, so focus never moves the cells", () => {
+            const blurred = renderStyle("classic", 100)[0]!;
+            const focused = renderStyle("classic", 100, { selectedId: "shells" })[0]!;
+
+            assert.equal(focused.slice(0, blurred.length).replace("❯", " "), blurred);
+            assert.equal(focused.slice(blurred.length), `   ${HINT_FULL}`);
+            assert.equal(visibleWidth(focused), 100);
         });
 
         it("degrades the hint and drops it when it leaves less than a gap of three", () => {
@@ -792,7 +811,7 @@ describe("dock footer styles", () => {
             const [, dockRow] = renderStyle("ruled", 80, {}, { showModel: false });
 
             assert.doesNotMatch(dockRow!, /claude-test/);
-            assert.match(dockRow!, /^ shells │ questions +$/);
+            assert.match(dockRow!, /^ {3}shells +│ {3}questions +$/);
         });
 
         it("omit the dock row when there are neither cells nor a model to show", () => {

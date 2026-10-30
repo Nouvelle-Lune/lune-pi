@@ -2,6 +2,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { LuneDockSnapshot, LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock";
 
+export const DOCK_CELL_STRIDE = 12;
+
 export interface VisibleDockItem {
     id: string;
     snapshot: LuneDockSnapshot;
@@ -39,7 +41,10 @@ export class DockView {
         const anchor = Math.max(0, selected);
 
         // The 12-column stride estimates how many cells fit; keep one visible when the row is too narrow to meet it.
-        const count = Math.min(entries.length, Math.max(1, Math.floor((width - 1) / 12)));
+        const count = Math.min(
+            entries.length,
+            Math.max(1, Math.floor((width - 1) / DOCK_CELL_STRIDE)),
+        );
 
         // Keep the current window stable until selection leaves it, then move only enough to reveal that cell.
         this.start = Math.min(this.start, anchor, entries.length - count);
@@ -54,15 +59,17 @@ export class DockView {
 
         const end = this.start + count;
 
-        const before = this.start > 0 ? `‹${this.start} ` : "";
+        let before = this.start > 0 ? `‹${this.start} ` : "";
+        let after = end < entries.length ? ` ${entries.length - end}›` : "";
+        const gutter = width > 1 ? " " : "";
 
-        const after = end < entries.length ? ` ${entries.length - end}›` : "";
+        // Overflow counts must leave at least one column per cell for its focus marker.
+        if (gutter.length + visibleWidth(before + after) + 3 * (count - 1) + count > width) {
+            before = "";
+            after = "";
+        }
 
-        // The gutter is one column either way, so focus never changes a contribution's allocation.
-        const gutter = selected >= 0 ? theme.fg("accent", "❯") : " ";
-
-        // Markers are ANSI-wrapped, so budget visible columns and keep 3 in step with the separator below.
-        const overhead = 1 + visibleWidth(before + after) + 3 * (count - 1);
+        const overhead = gutter.length + visibleWidth(before + after) + 3 * (count - 1);
 
         const available = Math.max(0, width - overhead);
 
@@ -70,16 +77,27 @@ export class DockView {
             // Leftmost cells absorb the remainder so allocation stays independent of the selection.
             const allocated = Math.floor(available / count) + (index < available % count ? 1 : 0);
 
-            const lines = resolveSnapshotLevel(entry.snapshot, mode).render(allocated);
+            // Reserve the pointer and padding even while blurred so focus cannot move the cells.
+            const contentWidth = Math.max(0, allocated - 4);
+            const lines = resolveSnapshotLevel(entry.snapshot, mode).render(contentWidth);
 
             // A level must publish one physical line; wrapping would corrupt the host's single-row widget.
             if (lines.length !== 1 || /[\r\n]/.test(lines[0]!)) {
                 throw new Error(`Lune snapshot ${entry.id} (${mode}) must render exactly one line`);
             }
             // A level may overflow its allocation: Dock owns the width budget, not the plugin.
-            const text = truncateToWidth(lines[0]!, allocated);
-            // Background-only highlight keeps a selected cell exactly as wide as an unfocused one.
-            return entry.id === selectedId ? theme.bg("selectedBg", text) : text;
+            const text = truncateToWidth(lines[0]!, contentWidth);
+            const active = entry.id === selectedId;
+            const pointer = active ? theme.fg("accent", "❯ ") : "  ";
+            const padding = " ".repeat(Math.max(0, contentWidth - visibleWidth(text)) + 2);
+            const cell = truncateToWidth(pointer + text + padding, allocated, "");
+            if (!active) return cell;
+
+            // Reapply selection after ANSI style changes so plugin resets cannot clear its background.
+            return cell
+                .split(/(\x1b\[[\d;:]*m)/)
+                .map((part, index) => (index % 2 === 0 ? theme.bg("selectedBg", part) : part))
+                .join("");
         });
 
         const line =
