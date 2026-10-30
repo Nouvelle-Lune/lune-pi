@@ -90,7 +90,12 @@ export function registerTheme(
                 isPaletteName(appliedPalette) && view.get("paletteBackground")
                     ? palettes[appliedPalette].definition.vars
                     : undefined;
-            setTerminalColors(terminal, vars && { background: vars.bg, foreground: vars.text });
+            // An empty bg means the palette leaves the page to the terminal; painting an empty
+            // OSC 11 value would clear the profile color that a previous palette replaced.
+            setTerminalColors(
+                terminal,
+                vars?.bg ? { background: vars.bg, foreground: vars.text } : undefined,
+            );
         };
         const applyPalette = (name: PaletteName) => {
             previousTheme ??= capturePalette(context.ui.theme, (name) => context.ui.getTheme(name));

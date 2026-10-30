@@ -2,7 +2,7 @@
 
 # Pi Lune Core Theme
 
-Opt-in Lune appearance for Pi: the ice-blue pixel-moon header, seven moonlit palettes, Lune
+Opt-in Lune appearance for Pi: the ice-blue pixel-moon header, eight moonlit palettes, Lune
 tool cards and call trees, rich edit/write diffs, Markdown enhancements and a `/context`
 inspector. It is an independent extension built on
 `@lune_99/pi-lune-extensions-core`'s Settings and Panel infrastructure, so Core and its
@@ -127,28 +127,31 @@ longer exist.
 Choose a palette under **Style · Color palette**, or select its theme name through Pi's
 native theme selector:
 
-| Label             | Theme name        | Appearance |
-| ----------------- | ----------------- | ---------- |
-| Lune Core Dark    | `pi-core-dark`    | dark       |
-| Lune Core Light   | `pi-core-light`   | light      |
-| Lune Core Aurora  | `pi-core-aurora`  | dark       |
-| Lune Core Eclipse | `pi-core-eclipse` | dark       |
-| Lune Core Nebula  | `pi-core-nebula`  | dark       |
-| Lune Core Dawn    | `pi-core-dawn`    | light      |
-| Lune Core Mist    | `pi-core-mist`    | light      |
+| Label                | Theme name           | Appearance |
+| -------------------- | -------------------- | ---------- |
+| Lune Core Dark       | `pi-core-dark`       | dark       |
+| Lune Core Dark Plain | `pi-core-dark-plain` | dark       |
+| Lune Core Light      | `pi-core-light`      | light      |
+| Lune Core Aurora     | `pi-core-aurora`     | dark       |
+| Lune Core Eclipse    | `pi-core-eclipse`    | dark       |
+| Lune Core Nebula     | `pi-core-nebula`     | dark       |
+| Lune Core Dawn       | `pi-core-dawn`       | light      |
+| Lune Core Mist       | `pi-core-mist`       | light      |
 
 Each palette is built around its own five-step crescent gradient, which also tints the
 header moon and thinking levels, and keeps separate success, error and warning tones.
+The Plain variant uses the Dark colors without panel fills or a terminal background.
 **Inherit Pi theme** keeps the current palette without changing it.
 
 Pi themes only color text and cards; everything else shows the terminal's default
 background, so a light palette on a dark terminal profile would read as dark text on
-black. While the theme applies a Lune palette, **Style · Palette background**
+black. While the theme applies a Lune palette with a background, **Style · Palette background**
 (`paletteBackground`, on by default) sets the terminal's default background and text
 colors to the palette's (OSC 11/10) and restores the profile's colors (OSC 111/110)
 when the palette changes to **Inherit**, the theme turns off or Pi exits. Terminals
 without OSC 11 support keep their own colors, and a palette chosen through Pi's native
-theme selector does not paint the background.
+theme selector does not paint the background. The Plain palette has no background, so
+it leaves the terminal's colors alone and its panels stay transparent.
 
 Standard `mermaid` fences follow Pi's **Mermaid diagrams** setting; choose **final**
 there for stable streamed replies. Additional dialect fences such as

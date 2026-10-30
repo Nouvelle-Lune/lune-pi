@@ -14,7 +14,7 @@ node .pi/skills/capture-readme-previews/scripts/capture-readme-previews.mjs \
   --output .scratch/readme-previews/review
 ```
 
-The command opens dedicated Ghostty windows, records the full walkthrough as `walkthrough.mp4`, extracts the question interaction as `walkthrough.gif`, and takes PNG screenshots of the workspace and plugin panels. Each of the seven themes gets a fresh Pi process, so its startup palette and terminal background are captured together. Inspect the staged output before writing it to `docs/previews`; that explicit output also updates the corresponding package README images. `capture.json` records the capture method, terminal geometry, package versions and source entry hashes.
+The command opens dedicated Ghostty windows, records the full walkthrough as `walkthrough.mp4`, extracts the question interaction as `walkthrough.gif`, and takes PNG screenshots of the workspace and plugin panels. Each palette gets a fresh Pi process, so its startup palette and terminal background are captured together. Inspect the staged output before writing it to `docs/previews`; that explicit output also updates the corresponding package README images. `capture.json` records the capture method, terminal geometry, package versions and source entry hashes.
 
 The terminal profile uses Menlo at 12 points and requests 128 columns by 44 rows. The actual dimensions depend on the display and are recorded in the manifest. The script uses temporary agent settings and a sample project; raw PTY output, an asciicast input/output trace and lifecycle events remain under `.scratch/real-demo/` for diagnosis. It does not use the user's credentials or make model API requests.
 

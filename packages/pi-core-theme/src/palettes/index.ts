@@ -1,5 +1,6 @@
 import aurora from "./pi-core-aurora.json" with { type: "json" };
 import dark from "./pi-core-dark.json" with { type: "json" };
+import darkPlain from "./pi-core-dark-plain.json" with { type: "json" };
 import dawn from "./pi-core-dawn.json" with { type: "json" };
 import eclipse from "./pi-core-eclipse.json" with { type: "json" };
 import light from "./pi-core-light.json" with { type: "json" };
@@ -9,7 +10,7 @@ import nebula from "./pi-core-nebula.json" with { type: "json" };
 export interface PaletteDefinition {
     readonly name: string;
     readonly appearance: string;
-    /** `bg` and `text` also paint the terminal; `moon1`…`moon5` tint the header crescent top to bottom. */
+    /** A non-empty `bg` paints the terminal together with `text`; `moon1`…`moon5` tint the crescent top to bottom. */
     readonly vars: Readonly<Record<string, string>>;
     readonly colors: Readonly<Record<string, string>>;
 }
@@ -26,6 +27,11 @@ export const palettes = {
         label: "Lune Core Dark",
         description: "Moonlight blues on midnight navy",
         definition: dark,
+    },
+    "pi-core-dark-plain": {
+        label: "Lune Core Dark Plain",
+        description: "Moonlight blues without panel or terminal backgrounds",
+        definition: darkPlain,
     },
     "pi-core-light": {
         label: "Lune Core Light",

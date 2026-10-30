@@ -37,6 +37,9 @@ All notable changes are documented here using
   Lune Core Dark and Light under **Style · Color palette**. Each has its own crescent
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
+- **No-background palette.** `pi-core-dark-plain` keeps the Dark text, status and syntax
+  colors but leaves panel fills and the terminal background to the terminal, for customized
+  terminal profiles. It is also a standalone Pi theme.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
 - **Cmd+click paths and links.** When the terminal supports OSC 8 links, explicit Markdown
   file links, inline-code paths and path-tool headings open existing files and directories.

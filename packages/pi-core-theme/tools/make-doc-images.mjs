@@ -66,7 +66,11 @@ function gallery() {
     const lines = [];
     const rowBackgrounds = [];
     for (const { label, description, definition } of Object.values(palettes)) {
-        const theme = makeTheme(definition);
+        // Palettes without a background are captured over the terminal profile they expect.
+        const pageBackground =
+            definition.vars.bg ||
+            (definition.appearance === "light" ? light.vars.bg : dark.vars.bg);
+        const theme = makeTheme(definition, pageBackground);
         // The header's first five rows open with the one-column indent and the ten-column crescent.
         const moon = createLuneHeader(theme, options)
             .render(120)
@@ -90,7 +94,7 @@ function gallery() {
         ];
         const band = ["", ...moon.map((line, row) => `${line}    ${info[row]}`), ""];
         lines.push(...band);
-        rowBackgrounds.push(...band.map(() => definition.vars.bg));
+        rowBackgrounds.push(...band.map(() => pageBackground));
     }
     return { lines, rowBackgrounds };
 }
@@ -124,7 +128,7 @@ writeFrames(root, [
     },
     {
         name: "theme-palettes",
-        title: "pi — seven moonlit palettes",
+        title: "pi — eight moonlit palettes",
         theme,
         background: dark.vars.bg,
         ...gallery(),

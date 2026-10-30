@@ -15,6 +15,7 @@ import { getThemeByName } from "../../../node_modules/@earendil-works/pi-coding-
 
 const expectedNames = [
     "pi-core-dark",
+    "pi-core-dark-plain",
     "pi-core-light",
     "pi-core-aurora",
     "pi-core-eclipse",
@@ -24,7 +25,7 @@ const expectedNames = [
 ];
 const literalColor = /^(#[0-9a-fA-F]{6}|\d{1,3}|)$/;
 
-test("the registry exposes the seven Lune palettes in settings order", () => {
+test("the registry exposes the eight Lune palettes in settings order", () => {
     const actual = [...paletteNames];
     assert.deepEqual(actual, expectedNames);
     for (const name of expectedNames) assert.ok(isPaletteName(name));
@@ -40,8 +41,10 @@ for (const name of expectedNames as (keyof typeof palettes)[]) {
         assert.equal(definition.name, name);
         assert.ok(["dark", "light"].includes(definition.appearance));
         assert.equal(paletteAppearance(name), definition.appearance);
-        for (const key of ["bg", "text", "moon1", "moon2", "moon3", "moon4", "moon5"])
+        for (const key of ["text", "moon1", "moon2", "moon3", "moon4", "moon5"])
             assert.match(definition.vars[key] ?? "", /^#[0-9a-fA-F]{6}$/, `var ${key}`);
+        // An empty background is the terminal default; the plain palettes leave the page alone.
+        assert.match(definition.vars.bg ?? "", /^(#[0-9a-fA-F]{6}|)$/, "var bg");
         for (const [token, value] of Object.entries(definition.colors)) {
             const resolved = definition.vars[value as string] ?? value;
             assert.match(String(resolved), literalColor, `color ${token} -> ${String(value)}`);
@@ -55,6 +58,27 @@ for (const name of expectedNames as (keyof typeof palettes)[]) {
         assert.equal(theme.appearance, palettes[name].definition.appearance);
     });
 }
+
+test("plain palettes leave every background to the terminal", () => {
+    const backgroundTokens = [
+        "selectedBg",
+        "searchMatchBg",
+        "userMessageBg",
+        "customMessageBg",
+        "toolPendingBg",
+        "toolSuccessBg",
+        "toolErrorBg",
+    ];
+    const name = "pi-core-dark-plain" as const;
+    const definition: PaletteDefinition = palettes[name].definition;
+    assert.equal(definition.vars.bg, "", `${name} must not paint the terminal background`);
+    for (const token of backgroundTokens)
+        assert.equal(
+            definition.vars[definition.colors[token]!] ?? definition.colors[token],
+            "",
+            `${name} ${token}`,
+        );
+});
 
 test("package.json lists exactly the palette files as Pi themes", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {

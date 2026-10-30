@@ -117,7 +117,7 @@ export function createThemePanel(header: HeaderOptions) {
             field("paletteBackground", {
                 label: "Style · Palette background",
                 description:
-                    "Paint the terminal background and default text with the palette's own colors, so dark and light palettes look right on any terminal profile. Off keeps the terminal's colors.",
+                    "Paint the terminal background and default text with the palette's own colors, so dark and light palettes look right on any terminal profile. Off keeps the terminal's colors, as the Plain palettes always do.",
             }),
             field("excludeRenderers", {
                 label: "Style · Native tools",
