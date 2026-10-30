@@ -108,9 +108,6 @@ export function riskText(risk: AutoRisk): string {
         : `not high risk (${formatPercent(risk.probability)})`;
 }
 
-/** One entry of a `tasks` call: the run it started, or why it did not start. */
-export type StartOutcome = { run: Run } | { error: string };
-
 export function formatStarted(run: Run): string {
     return [
         startedHeading(run),
@@ -119,42 +116,6 @@ export function formatStarted(run: Run): string {
         ...workspaceLines(run),
         "The run works in the background. A message arrives when its turn ends.",
     ].join("\n");
-}
-
-/** A `tasks` call: a summary, then one block per entry, named by its index in `tasks`. */
-export function formatStartedBatch(outcomes: readonly StartOutcome[]): string {
-    const started = outcomes.flatMap((outcome) => ("run" in outcome ? [outcome.run] : []));
-    const failed = outcomes.flatMap((outcome, index) =>
-        "error" in outcome ? [`tasks[${index}]`] : [],
-    );
-    const blocks = outcomes.map((outcome, index) =>
-        "error" in outcome
-            ? `tasks[${index}] failed: ${outcome.error}`
-            : [
-                  `tasks[${index}]: ${startedHeading(outcome.run)}`,
-                  ...titleLines(outcome.run),
-                  ...startValueLines(outcome.run),
-                  ...workspaceLines(outcome.run),
-              ].join("\n"),
-    );
-
-    if (started.length === 0) {
-        return ["No run started; every entry of tasks failed.", ...blocks].join("\n\n");
-    }
-
-    const count = started.length === outcomes.length ? "" : `${started.length} of `;
-    const summary =
-        `Started ${count}${outcomes.length} run${outcomes.length === 1 ? "" : "s"}: ` +
-        `${started.map((run) => run.id).join(", ")}.` +
-        (failed.length > 0 ? ` Failed: ${failed.join(", ")}.` : "");
-
-    return [
-        summary,
-        ...blocks,
-        started.length === 1
-            ? "The run works in the background. A message arrives when its turn ends."
-            : "The runs work in the background. A message arrives when each run's turn ends.",
-    ].join("\n\n");
 }
 
 /** One run in full: everything `subagent_status` knows, the last turn's whole report included. */
