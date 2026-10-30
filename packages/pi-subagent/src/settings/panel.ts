@@ -126,11 +126,11 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                 choiceSource: allowedModelChoices,
             }),
             field("autoClassifier", {
-                label: "Auto classifier",
+                label: "Classifier model",
                 description:
-                    "A Pi classifier that rates each task of a run started with model auto; the " +
-                    "rating picks the tier's model and, unless the start sets it, the thinking " +
-                    "level. Without one, auto runs use the main session's model and thinking.",
+                    "The Pi classifier that rates each task of a run started with model auto and " +
+                    "picks the tier's model and the thinking level, unless the call or definition " +
+                    "sets it. None: auto runs use the main session's model and thinking.",
                 formatValue: (value) =>
                     value ? `${value.provider}/${value.id}` : "None · main session model",
                 choiceSource: classifierChoices,

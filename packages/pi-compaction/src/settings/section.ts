@@ -28,10 +28,10 @@ export const classifierChoices: SettingsChoiceSource<ModelReference | null> = mo
     specialChoices: (_context, entries) => [
         {
             value: null,
-            label: "Automatic",
+            label: "Automatic · first available classifier",
             description: entries.length
                 ? `Use the first available Pi classifier at runtime (${entries[0]!.provider}/${entries[0]!.id} currently).`
-                : "No classifier is available. Configure a provider in Pi with /login or environment credentials, then press Ctrl+R to refresh.",
+                : "No classifier is available. Configure a classifier provider in Pi with /login or its environment credentials, then press Ctrl+R to refresh.",
         },
     ],
 });
@@ -95,10 +95,13 @@ export function createCompactionPanel(getTools: ExtensionAPI["getAllTools"]) {
             }),
             field("classifier", {
                 label: "Classifier model",
+                description:
+                    "The Pi classifier that rates each permitted tool output fragment. Automatic " +
+                    "uses the first available one.",
                 formatValue: (value) =>
                     value
                         ? `${value.provider}/${value.id}`
-                        : "Automatic · available Pi classifiers",
+                        : "Automatic · first available classifier",
                 choiceSource: classifierChoices,
             }),
             field("classifierConcurrency", {
