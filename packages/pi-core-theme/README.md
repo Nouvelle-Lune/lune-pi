@@ -54,7 +54,7 @@ Choose automatic, split or unified diffs in the Theme tab. Tune indicators, wrap
 | ------------------------------------------------------------------------- |
 | [![Mist](docs/palettes/pi-core-mist.png)](docs/palettes/pi-core-mist.png) |
 
-These screenshots show actual Pi sessions in Ghostty, with each palette enabled from startup. The Claude Code, Cursor and Codex styles are not pictured yet.
+These screenshots show actual Pi sessions in Ghostty, with each palette enabled from startup and **Palette background** on. The Claude Code, Cursor and Codex styles are not pictured yet.
 
 Choose a palette in the Theme tab, or **Inherit Pi theme** to keep your current one:
 

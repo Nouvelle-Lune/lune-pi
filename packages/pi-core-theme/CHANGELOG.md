@@ -112,10 +112,10 @@ All notable changes are documented here using
   frame renders, and the incoming instance adopts it instead of rebuilding it.
 - **Dark and light palettes looking swapped.** Pi themes leave the page background to the
   terminal, so `pi-core-light` on a dark profile showed dark text on black, and
-  `pi-core-dark` washed out on a light one. While a Lune palette is applied, the theme now
-  sets the terminal's default background and text to the palette's (OSC 11/10) and restores
-  the profile's colors when the palette is turned off or Pi exits. Turn
-  **Style · Palette background** (`paletteBackground`) off to keep the terminal's colors.
+  `pi-core-dark` washed out on a light one. While a Lune palette is applied and
+  **Style · Palette background** (`paletteBackground`) is on, the theme sets the terminal's
+  default background and text to the palette's (OSC 11/10) and restores the profile's colors
+  when the palette is turned off or Pi exits.
 - **Style resets in clipped summaries.** Summaries clip plain text instead of
   `truncateToWidth`, whose trailing ANSI reset ended the card's own styling early.
 - **Lag in long sessions.** Moving the pointer in fullscreen no longer re-renders every
