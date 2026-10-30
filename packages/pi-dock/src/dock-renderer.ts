@@ -16,6 +16,23 @@ export function resolveSnapshotLevel(snapshot: LuneDockSnapshot, mode: LuneDockD
     return snapshot.base;
 }
 
+function renderCellText(entry: VisibleDockItem, mode: LuneDockDisplayMode, width: number): string {
+    const lines = resolveSnapshotLevel(entry.snapshot, mode).render(width);
+    // A level must publish one physical line; wrapping would corrupt the host's single-row widget.
+    if (lines.length !== 1 || /[\r\n]/.test(lines[0]!)) {
+        throw new Error(`Lune snapshot ${entry.id} (${mode}) must render exactly one line`);
+    }
+    return truncateToWidth(lines[0]!, width);
+}
+
+function highlight(theme: Theme, text: string): string {
+    // Reapply selection after ANSI style changes so plugin resets cannot clear its background.
+    return text
+        .split(/(\x1b\[[\d;:]*m)/)
+        .map((part, index) => (index % 2 === 0 ? theme.bg("selectedBg", part) : part))
+        .join("");
+}
+
 /** Components own their text and styling; this view adds only placement and focus chrome. */
 export class DockView {
     /** The controller keeps one view across widget rebuilds, so the window survives a re-created component. */
@@ -54,40 +71,37 @@ export class DockView {
 
         const end = this.start + count;
 
-        const before = this.start > 0 ? `‹${this.start} ` : "";
+        let before = this.start > 0 ? `‹${this.start} ` : "";
+        let after = end < entries.length ? ` ${entries.length - end}›` : "";
 
-        const after = end < entries.length ? ` ${entries.length - end}›` : "";
+        // Overflow counts must leave the existing gutter available for the selected cell's marker.
+        if (selected >= 0 && 1 + visibleWidth(before + after) + 3 * (count - 1) >= width) {
+            before = "";
+            after = "";
+        }
 
-        // The gutter is one column either way, so focus never changes a contribution's allocation.
-        const gutter = selected >= 0 ? theme.fg("accent", "❯") : " ";
-
-        // Markers are ANSI-wrapped, so budget visible columns and keep 3 in step with the separator below.
         const overhead = 1 + visibleWidth(before + after) + 3 * (count - 1);
-
         const available = Math.max(0, width - overhead);
+        const pointer = selected >= 0 ? highlight(theme, theme.fg("accent", "❯")) : "";
 
         const cells = entries.slice(this.start, end).map((entry, index) => {
             // Leftmost cells absorb the remainder so allocation stays independent of the selection.
             const allocated = Math.floor(available / count) + (index < available % count ? 1 : 0);
-
-            const lines = resolveSnapshotLevel(entry.snapshot, mode).render(allocated);
-
-            // A level must publish one physical line; wrapping would corrupt the host's single-row widget.
-            if (lines.length !== 1 || /[\r\n]/.test(lines[0]!)) {
-                throw new Error(`Lune snapshot ${entry.id} (${mode}) must render exactly one line`);
-            }
-            // A level may overflow its allocation: Dock owns the width budget, not the plugin.
-            const text = truncateToWidth(lines[0]!, allocated);
-            // Background-only highlight keeps a selected cell exactly as wide as an unfocused one.
-            return entry.id === selectedId ? theme.bg("selectedBg", text) : text;
+            const text = renderCellText(entry, mode, allocated);
+            const active = entry.id === selectedId;
+            // Reuse the gutter or separator's final blank column instead of adding space to a cell.
+            const prefix =
+                index === 0
+                    ? active
+                        ? pointer
+                        : " "
+                    : active
+                      ? theme.fg("dim", " │") + pointer
+                      : theme.fg("dim", " │ ");
+            return prefix + (active ? highlight(theme, text) : text);
         });
 
-        const line =
-            gutter +
-            theme.fg("dim", before) +
-            cells.join(theme.fg("dim", " │ ")) +
-            theme.fg("dim", after);
-
+        const line = theme.fg("dim", before) + cells.join("") + theme.fg("dim", after);
         return [truncateToWidth(line, width)];
     }
 }

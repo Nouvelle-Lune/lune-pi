@@ -60,9 +60,10 @@ read when the session starts.
 
 Every cell composes exactly one physical row. Plugins own their complete text, markers and theme
 styling. Dock selects a level, allocates horizontal width, separates cells with a dim bar and
-highlights the selected contribution. Focus adds `❯` and puts the key hints on the rule under the
-cells, so they never change a cell's width allocation. With no contributions the model and info
-rows still render.
+highlights the selected contribution. Focus places `❯` directly beside the selected module using
+existing space, so module spacing and content widths stay the same. The highlight preserves plugin
+status colors. In `ruled` and `boxed`, key hints ride the rule under the cells. With no contributions
+the model and info rows still render.
 
 Pi allows one custom footer: if another extension installs its own after the dock, that footer
 replaces the dock's; choose the `classic` style or turn the dock off to avoid the clash. The

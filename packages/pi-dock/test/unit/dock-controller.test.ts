@@ -111,7 +111,11 @@ describe("dock controller", () => {
         for (const line of lines) {
             assert.ok(visibleWidth(line) <= 14, `row exceeds terminal width: ${line}`);
         }
-        assert.match(dockRowOf(component, 14), /^❯/, "the dock row must still show the focus mark");
+        assert.match(
+            dockRowOf(component, 14),
+            /^‹2 ❯modu/,
+            "the dock row must keep the focus mark beside the scrolled-in cell",
+        );
         assert.equal(component.focused, true, "overflow must preserve the dock's keyboard focus");
     });
 
