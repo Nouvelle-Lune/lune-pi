@@ -51,13 +51,10 @@ function createSelectionTheme(): {
     return { theme, backgrounds, accents };
 }
 
-/** The columns the blurred row gives the cell holding `text`, marker and padding included. */
+/** The blank column before the cell plus the cell's text: exactly what selection may paint. */
 function cellSpan(row: string, text: string): { start: number; width: number } {
     const plain = stripTerminalSequences(row);
-    const content = plain.indexOf(text);
-    const separator = plain.indexOf(" │ ", content);
-    const start = content - 2;
-    return { start, width: (separator < 0 ? plain.length : separator) - start };
+    return { start: plain.indexOf(text) - 1, width: visibleWidth(text) + 1 };
 }
 
 function highlightedWidth(backgrounds: readonly string[]): number {
@@ -83,11 +80,9 @@ describe("dock renderer", () => {
     });
 
     it("composes one row from plugin-rendered cells joined by a dim separator", () => {
-        const lines = renderDockLine([shell, ask], 120, identityTheme, undefined, "full");
-
-        assert.equal(lines.length, 1);
-        assert.match(lines[0]!, /^ {3}● Shell · 3 running · npm test · 14s +│ {3}○ Ask +$/);
-        assert.equal(visibleWidth(lines[0]!), 120, "the cells pad out their whole allocation");
+        assert.deepEqual(renderDockLine([shell, ask], 120, identityTheme, undefined, "full"), [
+            " ● Shell · 3 running · npm test · 14s │ ○ Ask",
+        ]);
     });
 
     it("never exceeds the requested width, including with wide characters", () => {
@@ -145,46 +140,57 @@ describe("dock renderer", () => {
     it("scrolls the window only as far as the selection needs", () => {
         const entries = modules(6);
         const view = new DockView();
-        const row = (selectedId?: string) => view.render(entries, 40, identityTheme, selectedId)[0];
+        const row = (selectedId?: string) =>
+            view.render(entries, 40, identityTheme, selectedId)[0]!;
 
-        assert.equal(row(), "   item0    │   item1    │   item2    3›");
+        assert.equal(row(), " item0 │ item1 │ item2 3›");
         assert.equal(
             row("item-1"),
-            "   item0    │ ❯ item1    │   item2    3›",
+            " item0 │❯item1 │ item2 3›",
             "selecting inside the window must not scroll it",
         );
         assert.equal(
             row("item-3"),
-            " ‹1   item1   │   item2   │ ❯ item3   2›",
+            "‹1  item1 │ item2 │❯item3 2›",
             "a selection past the edge must scroll by one cell and count both sides",
         );
         assert.equal(
             row("item-5"),
-            " ‹3   item3    │   item4    │ ❯ item5   ",
+            "‹3  item3 │ item4 │❯item5",
             "the selected cell must stay inside the window",
         );
         assert.equal(
             row("item-0"),
-            " ❯ item0    │   item1    │   item2    3›",
+            "❯item0 │ item1 │ item2 3›",
             "selecting before the window must scroll back to the start",
         );
     });
 
-    it("places the focus mark at the selected cell start and reserves its columns in every cell", () => {
-        const entries = modules(3);
+    it("moves the focus mark into the blank column before the selected cell", () => {
+        const entries = modules(6);
         const view = new DockView();
-        const blurred = view.render(entries, 60, identityTheme)[0]!;
-        const focused = view.render(entries, 60, identityTheme, "item-1")[0]!;
+        const focused = view.render(entries, 120, identityTheme, "item-5")[0]!;
+        const first = view.render(entries, 120, identityTheme, "item-0")[0]!;
+        const unfocused = view.render(entries, 120, identityTheme)[0]!;
 
-        assert.equal(focused, "   item0            │ ❯ item1            │   item2          ");
-        assert.equal(visibleWidth(focused), 60);
-        assert.equal(focused.replace("❯", " "), blurred, "focus must not move any other cell");
-        assert.equal(focused.indexOf("❯"), blurred.indexOf("item1") - 2);
-        assert.doesNotMatch(blurred, /❯/, "a blurred dock draws no pointer");
-        assert.doesNotMatch(focused, /enter open/, "key hints belong to the footer row");
+        assert.match(focused, /^ item0 │ item1 │ item2 │ item3 │ item4 │❯item5$/);
+        assert.match(first, /^❯item0 │ item1/);
+        assert.equal(unfocused, " item0 │ item1 │ item2 │ item3 │ item4 │ item5");
+        assert.equal(focused.replace("❯", " "), unfocused, "the mark must not add a column");
+        assert.equal(
+            focused.indexOf("❯"),
+            unfocused.indexOf("item5") - 1,
+            "the mark abuts the selected cell",
+        );
+        assert.doesNotMatch(focused, /enter open/, "key hints belong to the footer rule");
+        assert.equal(
+            focused.length,
+            focused.trimEnd().length,
+            "the row must not be padded out to the terminal width",
+        );
     });
 
-    it("fills the selected cell's whole allocation with its background and keeps its colors", () => {
+    it("paints only the selected cell's pointer and text with its background", () => {
         const colored = {
             id: "warn",
             snapshot: { base: textComponent("\x1b[33m◐\x1b[39m Shell") },
@@ -193,22 +199,28 @@ describe("dock renderer", () => {
         const blurredRow = new DockView().render(entries, 60, identityTheme)[0]!;
         const recording = createSelectionTheme();
         const focusedRow = new DockView().render(entries, 60, recording.theme, "warn")[0]!;
-        const cell = cellSpan(blurredRow, "◐");
+        const cell = cellSpan(blurredRow, "◐ Shell");
+        const plain = stripTerminalSequences(focusedRow);
 
-        assert.deepEqual(recording.accents, ["❯ "], "only the pointer takes the accent color");
-        assert.ok(recording.backgrounds[0]!.startsWith("❯ "), "the pointer opens the highlight");
+        assert.deepEqual(recording.accents, ["❯"], "only the pointer takes the accent color");
+        assert.ok(recording.backgrounds[0]!.startsWith("❯"), "the pointer opens the highlight");
         assert.equal(highlightedWidth(recording.backgrounds), cell.width);
         assert.equal(
-            stripTerminalSequences(focusedRow).indexOf("❯"),
+            plain.indexOf("❯"),
             cell.start,
-            "the marker sits at the cell start",
+            "the marker sits in the blank column before the cell",
+        );
+        assert.equal(plain.slice(cell.start, cell.start + cell.width), "❯◐ Shell");
+        assert.equal(
+            plain.slice(cell.start + cell.width, cell.start + cell.width + 3),
+            " │ ",
+            "the highlight must not spill into the separator",
         );
         assert.match(
             focusedRow,
             /\x1b\[33m◐\x1b\[39m Shell/,
             "the status foreground colors survive the highlight",
         );
-        assert.match(recording.backgrounds.at(-1)!, / +$/, "the highlight covers the padding");
         assert.equal((focusedRow.match(/❯/g) ?? []).length, 1, "unselected cells draw no pointer");
 
         const blurred = createSelectionTheme();
@@ -225,30 +237,50 @@ describe("dock renderer", () => {
 
         assert.ok(recording.backgrounds.length > 1, "a reset must split the highlight");
         assert.ok(focusedRow.includes("a\x1b[0mb"), "the plugin's own output is unchanged");
-        assert.equal(highlightedWidth(recording.backgrounds), cellSpan(blurredRow, "a").width);
+        assert.equal(highlightedWidth(recording.backgrounds), cellSpan(blurredRow, "ab").width);
     });
 
-    it("keeps the selected marker visible in one row at narrow widths", () => {
+    it("keeps short cells together as the terminal grows", () => {
+        const entries = modules(3);
+        const narrow = new DockView().render(entries, 60, identityTheme, "item-1")[0]!;
+        const wide = new DockView().render(entries, 200, identityTheme, "item-1")[0]!;
+        const blurred = new DockView().render(entries, 200, identityTheme)[0]!;
+        const recording = createSelectionTheme();
+        const highlighted = new DockView().render(entries, 200, recording.theme, "item-1")[0]!;
+
+        assert.equal(wide, narrow, "a wider terminal must not stretch the cells");
+        assert.equal(wide, " item0 │❯item1 │ item2");
+        assert.doesNotMatch(wide, / {4,}/, "cells must stay together, without blank gaps");
+        assert.equal(stripTerminalSequences(highlighted), wide);
+        assert.equal(
+            highlightedWidth(recording.backgrounds),
+            cellSpan(blurred, "item1").width,
+            "the background covers only the compact cell",
+        );
+    });
+
+    it("keeps the focus mark beside its cell at narrow widths", () => {
         const entries = modules(6);
-        const view = new DockView();
+        const row = (width: number) =>
+            stripTerminalSequences(
+                new DockView().render(entries, width, identityTheme, "item-2")[0]!,
+            );
 
         for (const width of [1, 2, 3, 5, 7, 8, 12, 14]) {
-            const lines = view.render(entries, width, identityTheme, "item-2");
-            assert.equal(lines.length, 1, `width ${width} must still produce one row`);
-            const row = stripTerminalSequences(lines[0]!);
-            assert.ok(visibleWidth(row) <= width, `width ${width}: ${JSON.stringify(row)}`);
-            assert.ok(
-                row.includes("❯"),
-                `width ${width} must keep the marker: ${JSON.stringify(row)}`,
+            const line = row(width);
+            assert.ok(visibleWidth(line) <= width, `width ${width}: ${JSON.stringify(line)}`);
+            assert.match(
+                line,
+                /^(?:‹2 )?❯/,
+                `width ${width} must keep the mark beside the selected cell`,
             );
         }
 
-        // Below eight columns the overflow counts would push the marker aside, so they give way.
-        const narrow = stripTerminalSequences(view.render(entries, 7, identityTheme, "item-2")[0]!);
-        const wider = stripTerminalSequences(view.render(entries, 8, identityTheme, "item-2")[0]!);
-
-        assert.doesNotMatch(narrow, /[‹›]/);
-        assert.match(wider, /^ ‹2 ❯/);
+        // Below eight columns the overflow counts would leave no room for the cell's text.
+        assert.equal(row(7), "❯item2");
+        assert.equal(row(8), "‹2 ❯. 3›");
+        assert.equal(row(12), "‹2 ❯item2 3›");
+        assert.equal(row(14), "‹2 ❯item2 3›", "a wider row must not stretch the cells");
     });
 
     it("rejects a level that does not publish exactly one physical line", () => {

@@ -240,17 +240,16 @@ describe("dock settings panel previews", () => {
 
         const text = previewLines(field("style"), "ruled", 100).join("\n");
 
-        assert.match(text, /❯ ○ Shell/);
+        assert.match(text, /❯○ Shell/);
         assert.match(text, /enter open/);
     });
 
     it("shows the candidate presentation level", async (t) => {
         const { field } = await openSection(t);
 
-        // The cell chrome and padding take four columns, so the preview needs room for the full sample.
-        const base = previewLines(field("displayMode"), "base", 160).join("\n");
-        const detail = previewLines(field("displayMode"), "detail", 160).join("\n");
-        const full = previewLines(field("displayMode"), "full", 160).join("\n");
+        const base = previewLines(field("displayMode"), "base", 120).join("\n");
+        const detail = previewLines(field("displayMode"), "detail", 120).join("\n");
+        const full = previewLines(field("displayMode"), "full", 120).join("\n");
 
         assert.match(base, /○ Shell/);
         assert.doesNotMatch(base, /running/);

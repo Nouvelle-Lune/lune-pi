@@ -89,14 +89,14 @@ export class DockFooter {
 
     /** The original single row: cells with the key hint on the right, nothing else. */
     private renderClassic(width: number, theme: Theme, input: DockFooterInput): string[] {
-        return this.cells.render(
-            input.entries,
-            width,
-            theme,
-            input.selectedId,
-            input.mode,
-            KEY_HINTS.map((hint) => theme.fg("dim", hint)),
-        );
+        const row = this.cells.render(input.entries, width, theme, input.selectedId, input.mode)[0];
+        if (row === undefined) return [];
+        if (input.selectedId === undefined) return [row];
+        for (const hint of KEY_HINTS) {
+            const gap = width - visibleWidth(row) - visibleWidth(hint);
+            if (gap >= 3) return [row + " ".repeat(gap) + theme.fg("dim", hint)];
+        }
+        return [row];
     }
 
     private renderRuled(width: number, theme: Theme, input: DockFooterInput): string[] {

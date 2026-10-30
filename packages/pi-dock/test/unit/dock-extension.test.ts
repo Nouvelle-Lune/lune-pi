@@ -266,10 +266,10 @@ describe("dock extension live settings", () => {
         registerContribution(t, f.ui, "questions");
         await f.start();
         await settle();
-        assert.match(f.render()[1]!, /^ {3}shells +│ {3}questions/);
+        assert.match(f.render()[1]!, /^ shells │ questions/);
 
         await f.field("order").set({ questions: -1 }, "global");
-        assert.match(f.render()[1]!, /^ {3}questions +│ {3}shells/);
+        assert.match(f.render()[1]!, /^ questions │ shells/);
 
         await f.field("hidden").set(["shells"], "global");
         assert.match(f.render()[1]!, /questions/);

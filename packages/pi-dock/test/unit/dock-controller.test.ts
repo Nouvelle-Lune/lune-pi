@@ -85,7 +85,7 @@ describe("dock controller", () => {
         assert.equal(lines.length, 5, "rule, dock row, rule, info row, rule");
         assert.match(
             dockRowOf(componentOf(ui)),
-            /^ {3}2 shells +│ {3}1 question +│ +claude-test • medium$/,
+            /^ 2 shells │ 1 question +│ +claude-test • medium$/,
         );
         assert.deepEqual(
             ui.widgetCalls
@@ -113,8 +113,8 @@ describe("dock controller", () => {
         }
         assert.match(
             dockRowOf(component, 14),
-            /^ ‹2 ❯ /,
-            "the dock row must still show the focus mark",
+            /^‹2 ❯modu/,
+            "the dock row must keep the focus mark beside the scrolled-in cell",
         );
         assert.equal(component.focused, true, "overflow must preserve the dock's keyboard focus");
     });
@@ -793,13 +793,13 @@ describe("dock controller settings", () => {
         const { ui, ctx, registry, controller } = createTestContext();
         for (const id of ["first", "second"]) registerContribution(registry, ctx.ui, id);
         await settle();
-        assert.match(dockRowOf(componentOf(ui)), /^ {3}first +│ {3}second/);
+        assert.match(dockRowOf(componentOf(ui)), /^ first │ second/);
 
         controller.configure(createControllerSettings({ order: { first: 1 } }));
-        assert.match(dockRowOf(componentOf(ui)), /^ {3}second +│ {3}first/);
+        assert.match(dockRowOf(componentOf(ui)), /^ second │ first/);
 
         controller.configure(createControllerSettings({ hidden: ["second"] }));
-        assert.match(dockRowOf(componentOf(ui)), /^ {3}first +│/);
+        assert.match(dockRowOf(componentOf(ui)), /^ first +│/);
         assert.doesNotMatch(dockRowOf(componentOf(ui)), /second/);
     });
 
@@ -895,11 +895,7 @@ describe("dock controller footer ownership by style", () => {
         await settle();
 
         assert.equal(controller.collectStatus(), undefined);
-        const lines = componentOf(ui).render(80).map(stripTerminalSequences);
-
-        assert.equal(lines.length, 1);
-        assert.equal(lines[0]!.trimEnd(), "   shells", "classic draws the cell row only");
-        assert.doesNotMatch(lines[0]!, /claude-test|\/work\/project/);
+        assert.deepEqual(componentOf(ui).render(80).map(stripTerminalSequences), [" shells"]);
     });
 
     it("renders no rows after detach in the classic style either", () => {

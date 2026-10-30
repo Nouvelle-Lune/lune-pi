@@ -94,7 +94,6 @@
 
 - **The speed segment uses the thinking level's bullet.** `model • max • 48.2 tok/s` replaces the
   mixed `·` and `•` separators in the model segment.
-- **Clearer Dock selection.** The focus arrow follows the selected module, and its background
-  fills the whole cell while preserving status colors. Reserved padding keeps neighboring cells
-  in place when selection changes. Classic fits shortcut hints beside short labels without hiding
-  visible modules.
+- **Clearer Dock selection.** The focus arrow sits beside the selected module, with a
+  background that preserves plugin status colors. Modules keep their original spacing, content
+  width and shortcut behavior.

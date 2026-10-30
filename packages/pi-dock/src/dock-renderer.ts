@@ -2,12 +2,6 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { LuneDockSnapshot, LuneDockDisplayMode } from "@lune_99/pi-lune-extensions-core/dock";
 
-const CELL_CHROME_WIDTH = 4;
-const CELL_SEPARATOR_WIDTH = 3;
-const MIN_CONTENT_WIDTH = 5;
-const DOCK_CELL_STRIDE = CELL_CHROME_WIDTH + CELL_SEPARATOR_WIDTH + MIN_CONTENT_WIDTH;
-const HINT_GAP = "   ";
-
 export interface VisibleDockItem {
     id: string;
     snapshot: LuneDockSnapshot;
@@ -31,6 +25,14 @@ function renderCellText(entry: VisibleDockItem, mode: LuneDockDisplayMode, width
     return truncateToWidth(lines[0]!, width);
 }
 
+function highlight(theme: Theme, text: string): string {
+    // Reapply selection after ANSI style changes so plugin resets cannot clear its background.
+    return text
+        .split(/(\x1b\[[\d;:]*m)/)
+        .map((part, index) => (index % 2 === 0 ? theme.bg("selectedBg", part) : part))
+        .join("");
+}
+
 /** Components own their text and styling; this view adds only placement and focus chrome. */
 export class DockView {
     /** The controller keeps one view across widget rebuilds, so the window survives a re-created component. */
@@ -42,7 +44,6 @@ export class DockView {
         theme: Theme,
         selectedId?: string,
         mode: LuneDockDisplayMode = "detail",
-        hintCandidates: readonly string[] = [],
     ): string[] {
         width = Math.max(0, Math.floor(width));
         if (entries.length === 0 || width === 0) {
@@ -55,10 +56,7 @@ export class DockView {
         const anchor = Math.max(0, selected);
 
         // The 12-column stride estimates how many cells fit; keep one visible when the row is too narrow to meet it.
-        const count = Math.min(
-            entries.length,
-            Math.max(1, Math.floor((width - 1) / DOCK_CELL_STRIDE)),
-        );
+        const count = Math.min(entries.length, Math.max(1, Math.floor((width - 1) / 12)));
 
         // Keep the current window stable until selection leaves it, then move only enough to reveal that cell.
         this.start = Math.min(this.start, anchor, entries.length - count);
@@ -75,68 +73,35 @@ export class DockView {
 
         let before = this.start > 0 ? `‹${this.start} ` : "";
         let after = end < entries.length ? ` ${entries.length - end}›` : "";
-        const gutter = width > 1 ? " " : "";
 
-        // Overflow counts must leave at least one column per cell for its focus marker.
-        if (
-            gutter.length +
-                visibleWidth(before + after) +
-                CELL_SEPARATOR_WIDTH * (count - 1) +
-                count >
-            width
-        ) {
+        // Overflow counts must leave the existing gutter available for the selected cell's marker.
+        if (selected >= 0 && 1 + visibleWidth(before + after) + 3 * (count - 1) >= width) {
             before = "";
             after = "";
         }
 
-        const overhead =
-            gutter.length + visibleWidth(before + after) + CELL_SEPARATOR_WIDTH * (count - 1);
+        const overhead = 1 + visibleWidth(before + after) + 3 * (count - 1);
         const available = Math.max(0, width - overhead);
-        const visible = entries.slice(this.start, end);
-        const allocate = (columns: number, index: number) =>
-            Math.floor(columns / count) + (index < columns % count ? 1 : 0);
-        const texts = visible.map((entry, index) =>
-            renderCellText(
-                entry,
-                mode,
-                Math.max(0, allocate(available, index) - CELL_CHROME_WIDTH),
-            ),
-        );
+        const pointer = selected >= 0 ? highlight(theme, theme.fg("accent", "❯")) : "";
 
-        // Short labels need only their actual width; hint reservation must not hide visible cells.
-        const minimumCellWidth =
-            CELL_CHROME_WIDTH + Math.min(MIN_CONTENT_WIDTH, Math.max(...texts.map(visibleWidth)));
-        const hint = hintCandidates.find(
-            (text) => available - visibleWidth(text) - HINT_GAP.length >= minimumCellWidth * count,
-        );
-        const cellColumns = available - (hint ? visibleWidth(hint) + HINT_GAP.length : 0);
-
-        const cells = visible.map((entry, index) => {
+        const cells = entries.slice(this.start, end).map((entry, index) => {
             // Leftmost cells absorb the remainder so allocation stays independent of the selection.
-            const allocated = allocate(cellColumns, index);
-            // Reserve the pointer and padding even while blurred so focus cannot move the cells.
-            const contentWidth = Math.max(0, allocated - CELL_CHROME_WIDTH);
-            const text = hint ? renderCellText(entry, mode, contentWidth) : texts[index]!;
+            const allocated = Math.floor(available / count) + (index < available % count ? 1 : 0);
+            const text = renderCellText(entry, mode, allocated);
             const active = entry.id === selectedId;
-            const pointer = active ? theme.fg("accent", "❯ ") : "  ";
-            const padding = " ".repeat(Math.max(0, contentWidth - visibleWidth(text)) + 2);
-            const cell = truncateToWidth(pointer + text + padding, allocated, "");
-            if (!active) return cell;
-
-            // Reapply selection after ANSI style changes so plugin resets cannot clear its background.
-            return cell
-                .split(/(\x1b\[[\d;:]*m)/)
-                .map((part, index) => (index % 2 === 0 ? theme.bg("selectedBg", part) : part))
-                .join("");
+            // Reuse the gutter or separator's final blank column instead of adding space to a cell.
+            const prefix =
+                index === 0
+                    ? active
+                        ? pointer
+                        : " "
+                    : active
+                      ? theme.fg("dim", " │") + pointer
+                      : theme.fg("dim", " │ ");
+            return prefix + (active ? highlight(theme, text) : text);
         });
 
-        const line =
-            gutter +
-            theme.fg("dim", before) +
-            cells.join(theme.fg("dim", " │ ")) +
-            theme.fg("dim", after) +
-            (hint && selected >= 0 ? HINT_GAP + hint : "");
-
+        const line = theme.fg("dim", before) + cells.join("") + theme.fg("dim", after);
         return [truncateToWidth(line, width)];
     }
 }
