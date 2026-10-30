@@ -4,9 +4,7 @@
     "createdAt": "2026-10-30T04:03:47.864Z",
     "intent": "Remove the unreleased no-background Lune Core Dark palette and the empty-background handling that existed only for it, leaving the theme with ten palettes and accurate docs and gallery assets.",
     "tier": "high",
-    "tierReasons": [
-        "packages/pi-core-theme/package.json"
-    ],
+    "tierReasons": ["packages/pi-core-theme/package.json"],
     "roundCap": 3,
     "minIndependentReviews": 2,
     "baseRev": "c4ab79e8d8a2c8c2a6aafbb929f6de4cc1e0dddb",
