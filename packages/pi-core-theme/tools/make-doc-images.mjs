@@ -128,7 +128,7 @@ writeFrames(root, [
     },
     {
         name: "theme-palettes",
-        title: "pi — eight moonlit palettes",
+        title: "pi — eleven palettes",
         theme,
         background: dark.vars.bg,
         ...gallery(),

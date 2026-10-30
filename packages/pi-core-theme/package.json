@@ -1,7 +1,7 @@
 {
     "name": "@lune_99/pi-core-theme",
     "version": "0.1.0",
-    "description": "Opt-in Lune appearance for Pi: pixel-moon header, eight moonlit palettes and Lune tool cards",
+    "description": "Opt-in Lune appearance for Pi: pixel-moon header, eleven palettes and Lune tool cards",
     "type": "module",
     "files": [
         "extension.ts",
@@ -23,7 +23,10 @@
             "./src/palettes/pi-core-eclipse.json",
             "./src/palettes/pi-core-nebula.json",
             "./src/palettes/pi-core-dawn.json",
-            "./src/palettes/pi-core-mist.json"
+            "./src/palettes/pi-core-mist.json",
+            "./src/palettes/pi-core-claude-code.json",
+            "./src/palettes/pi-core-cursor.json",
+            "./src/palettes/pi-core-codex.json"
         ],
         "image": "./docs/theme-overview.png"
     },

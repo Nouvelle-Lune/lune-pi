@@ -162,7 +162,7 @@ Each package has its own README with all settings and behavior.
 
 | Package                                                                                                  | What it gives you                                                                                                                             |
 | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and eight palettes.                   |
+| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and eleven palettes.                  |
 | **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.                     |
 | **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.                      |
 | **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                                         |
@@ -175,7 +175,7 @@ Each package has its own README with all settings and behavior.
 
 ## Palettes
 
-The painted palettes are captured in a fresh Pi process. Lune Core Dark Plain uses the same colors without panel or terminal backgrounds. Click an image to see it at full size.
+The pictured palettes are captured in a fresh Pi process. Lune Core Dark Plain uses the same colors without panel or terminal backgrounds, and three more follow the look of Claude Code, Cursor and Codex; the [Core Theme README](packages/pi-core-theme/README.md#palettes) lists them. Click an image to see it at full size.
 
 |                                       Dark                                        |                                        Light                                         |                                         Aurora                                          |                                          Eclipse                                           |
 | :-------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------: |
