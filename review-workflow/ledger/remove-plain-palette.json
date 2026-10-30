@@ -1,0 +1,45 @@
+{
+    "schemaVersion": 1,
+    "change": "remove-plain-palette",
+    "createdAt": "2026-10-30T04:03:47.864Z",
+    "intent": "Remove the unreleased no-background Lune Core Dark palette and the empty-background handling that existed only for it, leaving the theme with ten palettes and accurate docs and gallery assets.",
+    "tier": "high",
+    "tierReasons": ["packages/pi-core-theme/package.json"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "c4ab79e8d8a2c8c2a6aafbb929f6de4cc1e0dddb",
+    "headRev": "cbbd3aafa7a1d6d1e7af35ddf90f7b777351d1c1",
+    "files": [
+        "README.md",
+        "packages/pi-core-theme/CHANGELOG.md",
+        "packages/pi-core-theme/README.md",
+        "packages/pi-core-theme/docs/reference.md",
+        "packages/pi-core-theme/docs/theme-palettes.png",
+        "packages/pi-core-theme/docs/theme-palettes.svg",
+        "packages/pi-core-theme/package.json",
+        "packages/pi-core-theme/src/index.ts",
+        "packages/pi-core-theme/src/palettes/index.ts",
+        "packages/pi-core-theme/src/palettes/pi-core-dark-plain.json",
+        "packages/pi-core-theme/src/panel.ts",
+        "packages/pi-core-theme/test/palette-terminal.test.ts",
+        "packages/pi-core-theme/test/palettes.test.ts",
+        "packages/pi-core-theme/tools/doc-images.mjs",
+        "packages/pi-core-theme/tools/make-doc-images.mjs"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T04:03:50.998Z",
+            "scope": "full",
+            "base": "c4ab79e8d8a2c8c2a6aafbb929f6de4cc1e0dddb",
+            "head": "cbbd3aafa7a1d6d1e7af35ddf90f7b777351d1c1",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-30T04:05:28.061Z"
+}

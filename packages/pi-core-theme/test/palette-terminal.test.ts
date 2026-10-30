@@ -121,27 +121,6 @@ test("paletteBackground off never paints the terminal", async (t) => {
     assert.deepEqual(runtime.writes, []);
 });
 
-test("a palette without a background never paints the terminal", async (t) => {
-    const runtime = await fixture(t);
-    await runtime.writeScope("global", {
-        enabled: true,
-        mode: "off",
-        palette: "pi-core-dark-plain",
-    });
-    await runtime.emit("session_start");
-    assert.equal(runtime.ui.theme.name, "pi-core-dark-plain");
-    assert.deepEqual(runtime.writes, []);
-});
-
-test("switching to a palette without a background restores the profile colors", async (t) => {
-    const runtime = await fixture(t);
-    await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
-    await runtime.emit("session_start");
-    await runtime.field("Style · Color palette").set("pi-core-dark-plain", "global");
-    assert.equal(runtime.ui.theme.name, "pi-core-dark-plain");
-    assert.deepEqual(runtime.writes, [LIGHT_PAINT, RESET]);
-});
-
 test("disabling Core resets the terminal", async (t) => {
     const runtime = await fixture(t);
     await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
