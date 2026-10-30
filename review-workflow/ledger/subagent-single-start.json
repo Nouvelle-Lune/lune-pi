@@ -1,0 +1,43 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-single-start",
+    "createdAt": "2026-10-30T06:30:26.581Z",
+    "intent": "Remove the tasks batch-start API from subagent_start. Require task and start exactly one run per call, reject obsolete fields, preserve named-agent ownership and independent concurrent starts, and update docs and tests.",
+    "tier": "high",
+    "tierReasons": [
+        "packages/pi-subagent/src/tools/format.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts"
+    ],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "507ea54142bac0f26b15730e0873328d7f465e9c",
+    "headRev": "f4abc1f69c01621ab7ad170f6030e2c641817704",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/tools/format.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts",
+        "packages/pi-subagent/test/integration/tools-batch.test.ts",
+        "packages/pi-subagent/test/integration/tools.test.ts",
+        "packages/pi-subagent/test/unit/index.test.ts",
+        "packages/pi-subagent/test/unit/tools-batch.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T06:30:26.716Z",
+            "scope": "full",
+            "base": "507ea54142bac0f26b15730e0873328d7f465e9c",
+            "head": "f4abc1f69c01621ab7ad170f6030e2c641817704",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-30T06:32:49.314Z"
+}

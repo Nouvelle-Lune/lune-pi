@@ -338,24 +338,12 @@ async function startWithSettings(
     return { ...loaded, sandbox, lease, ctx };
 }
 
-function modelEnums(pi: ReturnType<typeof fakePi>): {
-    top: readonly string[] | undefined;
-    batch: readonly string[] | undefined;
-} {
+function modelEnum(pi: ReturnType<typeof fakePi>): readonly string[] | undefined {
     const start = pi.tools.get("subagent_start") as unknown as {
-        parameters: {
-            properties: {
-                model?: { enum: string[] };
-                tasks: { items: { properties: { model?: { enum: string[] } } } };
-            };
-        };
+        parameters: { properties: { model?: { enum: string[] } } };
     };
-    const properties = start.parameters.properties;
 
-    return {
-        top: properties.model?.enum,
-        batch: properties.tasks.items.properties.model?.enum,
-    };
+    return start.parameters.properties.model?.enum;
 }
 
 test("session_start builds the model parameter from the saved allowed-model selection", async (t) => {
@@ -365,16 +353,13 @@ test("session_start builds the model parameter from the saved allowed-model sele
         available: ["faux-1", "faux-2"],
     });
 
-    const actual = modelEnums(pi);
-    const expected = {
-        top: ["auto", "faux/faux-2"],
-        batch: ["auto", "faux/faux-2"],
-    };
+    const actual = modelEnum(pi);
+    const expected = ["auto", "faux/faux-2"];
 
     assert.deepEqual(actual, expected);
 });
 
-test("changing the allowed-model selection updates both model enums, and clearing it follows Pi's scope again", async (t) => {
+test("changing the allowed-model selection updates the model enum, and clearing it follows Pi's scope again", async (t) => {
     const { pi, lease } = await startWithSettings(t, {
         stored: { allowedModels: [FAUX_SECOND] },
         scoped: ["faux-1", "faux-2"],
@@ -382,38 +367,29 @@ test("changing the allowed-model selection updates both model enums, and clearin
 
     await lease.settings.set("allowedModels", [FAUX_FIRST], { scope: "global" });
 
-    const selected = modelEnums(pi);
+    const selected = modelEnum(pi);
 
-    assert.deepEqual(selected, {
-        top: ["auto", "faux/faux-1"],
-        batch: ["auto", "faux/faux-1"],
-    });
+    assert.deepEqual(selected, ["auto", "faux/faux-1"]);
 
     await lease.settings.set("allowedModels", [], { scope: "global" });
 
-    const cleared = modelEnums(pi);
+    const cleared = modelEnum(pi);
 
-    assert.deepEqual(cleared, {
-        top: ["auto", "faux/faux-1", "faux/faux-2"],
-        batch: ["auto", "faux/faux-1", "faux/faux-2"],
-    });
+    assert.deepEqual(cleared, ["auto", "faux/faux-1", "faux/faux-2"]);
 });
 
 test("toggling Auto mode only re-registers subagent_start without and with model, and other settings keep it", async (t) => {
     const { pi, lease } = await startWithSettings(t, { scoped: ["faux-1"] });
     const first = pi.tools.get("subagent_start");
 
-    assert.deepEqual(modelEnums(pi), {
-        top: ["auto", "faux/faux-1"],
-        batch: ["auto", "faux/faux-1"],
-    });
+    assert.deepEqual(modelEnum(pi), ["auto", "faux/faux-1"]);
 
     await lease.settings.set("autoOnly", true, { scope: "global" });
 
     const on = pi.tools.get("subagent_start");
 
     assert.notEqual(on, first);
-    assert.deepEqual(modelEnums(pi), { top: undefined, batch: undefined });
+    assert.deepEqual(modelEnum(pi), undefined);
 
     await lease.settings.set("autoClassifier", FAUX_FIRST, { scope: "global" });
 
@@ -422,8 +398,5 @@ test("toggling Auto mode only re-registers subagent_start without and with model
     await lease.settings.set("autoOnly", false, { scope: "global" });
 
     assert.notEqual(pi.tools.get("subagent_start"), on);
-    assert.deepEqual(modelEnums(pi), {
-        top: ["auto", "faux/faux-1"],
-        batch: ["auto", "faux/faux-1"],
-    });
+    assert.deepEqual(modelEnum(pi), ["auto", "faux/faux-1"]);
 });

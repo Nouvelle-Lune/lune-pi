@@ -148,10 +148,12 @@ and the run uses the main agent's model. See the [full auto-model behavior](docs
 
 | Tool              | Purpose                                                 |
 | ----------------- | ------------------------------------------------------- |
-| `subagent_start`  | Start a task, or several tasks, in new Pi sessions      |
+| `subagent_start`  | Start one task in a new Pi session                      |
 | `subagent_send`   | Steer an active run or continue it with another message |
 | `subagent_status` | Read states, usage and reports on the current branch    |
 | `subagent_stop`   | Stop the turn while keeping its session and worktree    |
+
+Issue separate `subagent_start` calls to start independent runs in parallel. Each call requires `task`.
 
 A run reports `done`, `blocked` or `needs_input`. Stopping it preserves its conversation. Closing
 the main session interrupts active runs; resume the session and use `subagent_send` to continue.
