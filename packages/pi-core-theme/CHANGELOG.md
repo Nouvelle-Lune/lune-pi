@@ -52,6 +52,11 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Palette background off by default.** A Lune palette now leaves the terminal's own
+  background and text colors in place unless **Style · Palette background**
+  (`paletteBackground`) is turned on, so enabling the theme no longer repaints the
+  terminal. Turn it on when a palette's page colors matter, such as a light palette on a
+  dark terminal profile.
 - **Context presentation.** The centered browser is capped at 100 columns and 24 rows,
   with a Pi usage header and category values that follow the active theme. The solid
   composition bar includes remaining capacity calculated from the category estimates;

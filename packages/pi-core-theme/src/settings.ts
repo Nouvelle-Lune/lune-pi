@@ -18,7 +18,7 @@ const integer = (initial: number, minimum: number, maximum: number) =>
 const properties = {
     mode: choice(["on", "compact", "off"] as const, "on"),
     palette: choice(["inherit", ...paletteNames] as const, "inherit"),
-    paletteBackground: Type.Boolean({ default: true }),
+    paletteBackground: Type.Boolean({ default: false }),
     excludeRenderers: Type.Array(Type.String({ minLength: 1 }), { default: [], uniqueItems: true }),
     diffViewMode: choice(["auto", "split", "unified"] as const, "auto"),
     diffIndicatorMode: choice(["bars", "classic", "none"] as const, "bars"),

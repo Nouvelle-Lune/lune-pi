@@ -147,7 +147,7 @@ header moon and thinking levels, and keeps separate success, error and warning t
 Pi themes only color text and cards; everything else shows the terminal's default
 background, so a light palette on a dark terminal profile would read as dark text on
 black. While the theme applies a Lune palette, **Style · Palette background**
-(`paletteBackground`, on by default) sets the terminal's default background and text
+(`paletteBackground`, off by default) sets the terminal's default background and text
 colors to the palette's (OSC 11/10) and restores the profile's colors (OSC 111/110)
 when the palette changes to **Inherit**, the theme turns off or Pi exits. Terminals
 without OSC 11 support keep their own colors, and a palette chosen through Pi's native

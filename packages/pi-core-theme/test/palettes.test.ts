@@ -79,11 +79,11 @@ test("the settings schema accepts inherit and every palette and rejects unknown 
         assert.equal(Value.Check(themeSchema, { ...base, palette }), false, String(palette));
 });
 
-test("palette defaults to inherit and paletteBackground defaults to on", () => {
+test("palette defaults to inherit and paletteBackground defaults to off", () => {
     const defaults = Value.Default(themeSchema, {}) as {
         palette: string;
         paletteBackground: boolean;
     };
     assert.equal(defaults.palette, "inherit");
-    assert.equal(defaults.paletteBackground, true);
+    assert.equal(defaults.paletteBackground, false);
 });

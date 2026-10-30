@@ -71,7 +71,7 @@ Choose a palette in the Theme tab, or **Inherit Pi theme** to keep your current 
 | **Lune Core Cursor**      | Cursor-style pastel syntax on graphite         |
 | **Lune Core Codex**       | Codex-style cyan and magenta on black          |
 
-Each palette tints the crescent and thinking levels along its own gradient and keeps distinct success, error and warning tones. It also paints the terminal background and default text in its own colors, so a light palette stays light on a dark terminal profile and the other way around. Turn **Palette background** off to keep your terminal's colors.
+Each palette tints the crescent and thinking levels along its own gradient and keeps distinct success, error and warning tones. Turn **Palette background** on to paint the terminal background and default text in the palette's colors, so a light palette stays light on a dark terminal profile and the other way around; left off, the palette keeps your terminal's colors.
 
 ![Lune Core Theme light palette](docs/theme-light.png)
 
