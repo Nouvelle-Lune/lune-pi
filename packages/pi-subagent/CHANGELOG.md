@@ -4,10 +4,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ## [Unreleased]
 
+> **⚠️ Breaking: `subagent_start` now requires `task` and starts one run per call.**
+
+### Removed
+
+- **Batch starts.** Remove the `tasks` parameter and batch-specific progress and results from `subagent_start`. Start independent runs with separate calls, which can run in parallel.
+
 ### Added
 
 - **Allowed subagent models.** Select multiple models from Pi's scoped models under `/lune-core-settings subagents`. A nonempty selection replaces the session's default allowed list for new runs, including explicit models and auto tiers; clear it to restore Pi's scope. Changes update the tool's model options immediately, without changing existing runs or main-model inheritance.
-- **Subagent runs.** The main agent delegates a task with `subagent_start` and continues while the run works in its own Pi session with a fresh context. With `tasks`, one call starts several runs at the same time, and an entry that fails to start does not stop the others. `subagent_send`, `subagent_status` and `subagent_stop` steer, read and stop runs, and each ended turn reaches the main agent as a batched steer message with the run's report. When a message continues a turn after its report, the earlier reports reach the main agent with the turn's last report. Each report message is confirmed in the main session and sent again when it is missing; after you interrupt the main agent, it goes with your next message.
+- **Subagent runs.** The main agent delegates a task with `subagent_start` and continues while the run works in its own Pi session with a fresh context. `subagent_send`, `subagent_status` and `subagent_stop` steer, read and stop runs, and each ended turn reaches the main agent as a batched steer message with the run's report. When a message continues a turn after its report, the earlier reports reach the main agent with the turn's last report. Each report message is confirmed in the main session and sent again when it is missing; after you interrupt the main agent, it goes with your next message.
 - **Run titles.** An optional `title` on `subagent_start` labels a run in the `/agents` inspector, the Dock and its end-of-turn notice. The subagent tools still take a run's ID, never its title or name, and the results and notices name the run only by that ID; passing a title or name fails, and the error lists the branch's run IDs.
 - **Agent definitions.** Markdown files in `lune-subagents/` in Pi's agent directory, and in `.pi/lune-subagents/` of a trusted project, define reusable roles with their tools, model, thinking level and isolation. A project definition replaces a user definition of the same name. The loaded agents appear in the system prompt's `subagents` section, with project agents marked, and invalid or replaced files are reported instead of loaded.
 - **Runs per branch and session.** A run belongs to the branch that started it, and its reports wait while another branch is active, then arrive when you return. Leaving a branch with running runs asks once whether to keep or stop them, and the Dock counts kept runs while they work. Runs come back from their own session files when you resume the session, and runs that arrive through `/fork` or `/clone` are read-only.
@@ -29,4 +35,4 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 - **Package presentation.** Introduce the package with native Pi screenshots, installation steps and a shorter feature guide. Keep detailed contracts in a bundled reference, and declare the package image and public npm access for its first release.
 - **Core dependency.** Require `@lune_99/pi-lune-extensions-core@^0.2.0` for the Auto tiers and Custom agents menus. Publish Core 0.2.0 before Subagent so registry installations receive the required Panel API.
 - **Delegation guidance.** Clarify delegation boundaries, task context, editing ownership and minimal tool selection. Prompt agents to return concise evidence-backed reports and validate results before integration.
-- **Agent runs keep their definition.** A `subagent_start` call that names an agent takes only `task` and `title`, and the definition's model, thinking, tools and isolation always apply. A call that also sets one of them starts nothing, and in a `tasks` call no entry starts. Edit the definition to change a role's settings.
+- **Agent runs keep their definition.** A `subagent_start` call that names an agent takes only `task` and `title`, and the definition's model, thinking, tools and isolation always apply. A call that also sets one of them starts nothing. Edit the definition to change a role's settings.

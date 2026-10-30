@@ -98,9 +98,9 @@ the tests and report the commands, the results and the files you changed.
 
 ## Starting a run
 
-`subagent_start` takes the task, an optional title, and either an agent or the settings of an inline run. A call that names an agent gives only `task` and `title`: the agent runs with the model, thinking, tools and isolation of its definition, and the main agent cannot change them. A call that names an agent and sets `model`, `thinking`, `tools` or `isolation` starts nothing. To change a role's settings, edit its definition.
+`subagent_start` starts one run per call. It requires `task` and accepts an optional `title`, plus either an agent or the settings of an inline run. A call that names an agent gives only `task` and `title`: the agent runs with the model, thinking, tools and isolation of its definition, and the main agent cannot change them. A call that names an agent and sets `model`, `thinking`, `tools` or `isolation` starts nothing. To change a role's settings, edit its definition.
 
-With **Auto mode only** on in [settings](#settings), the schema has no `model` parameter and every inline run uses `model: auto`. An inline call that still sets another model starts nothing, and in a `tasks` call no entry starts. Agent runs keep the model of their definition.
+With **Auto mode only** on in [settings](#settings), the schema has no `model` parameter and every inline run uses `model: auto`. An inline call that still sets another model starts nothing. Agent runs keep the model of their definition.
 
 Each value comes from the first source that sets it:
 
@@ -154,11 +154,9 @@ A run can select a tool that one of your user or project extensions registers in
 - An extension that fails to load, or that does not register the selected tool in the run's working directory, fails the start.
 - A run that continues after you resume the session loads the extensions of its tools again, as the main session has them at that time. When the main session no longer has one of its tools, the run cannot continue.
 
-### Several runs in one call
+### Parallel starts
 
-The main agent can give `tasks` instead of `task`: a list of entries, each with its own `task` and the same optional values as a single start. With `tasks`, the optional values go in each entry, not at the top level. A call that mixes them, gives both `task` and `tasks`, or has an entry that names an agent and sets its settings, starts nothing.
-
-All entries start at the same time, and each one on its own. An entry that fails to start, for example with a tool that the run does not have, undoes only its own work and does not stop the others. A run that started is kept. The result names each entry by its index, `tasks[0]`, `tasks[1]` and so on, with its run or its error. When no entry starts, the call fails.
+Issue a separate `subagent_start` call for each independent task. These calls can run in parallel, each with its own run ID, progress and result. A failed start does not stop another call or undo a run that started.
 
 ### Workspace isolation
 
@@ -171,12 +169,12 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 Every tool that takes a run addresses it by the ID that `subagent_start` returned: eight hexadecimal characters, such as `8416992c`. A run's title and name identify it only in the inspector, the Dock and notices; a tool given either one fails, and the error lists the branch's run IDs.
 
-| Tool              | Parameters                                                                                                                        | Effect                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task` or `tasks`; optional `agent`, `title`; for inline runs `model` (not with Auto mode only), `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
-| `subagent_send`   | `runId`, `message`                                                                                                                | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
-| `subagent_status` | optional `runId`                                                                                                                  | Reads one run, or every run on the current branch, with token usage and the last report.      |
-| `subagent_stop`   | `runId`                                                                                                                           | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
+| Tool              | Parameters                                                                                                                      | Effect                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `subagent_start`  | required `task`; optional `agent`, `title`; for inline runs `model` (not with Auto mode only), `thinking`, `tools`, `isolation` | Creates one run and returns its ID, workspace and start values.                          |
+| `subagent_send`   | `runId`, `message`                                                                                                              | Steers a running run, or starts a new turn in an idle, failed or interrupted run.        |
+| `subagent_status` | optional `runId`                                                                                                                | Reads one run, or every run on the current branch, with token usage and the last report. |
+| `subagent_stop`   | `runId`                                                                                                                         | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.    |
 
 ## Reports and states
 
@@ -240,7 +238,7 @@ Run `/lune-core-settings subagents` to open the Subagents section of Lune settin
 | Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                                         |
 
 In **Allowed models**, Space toggles a model and Enter saves. Changes update the `subagent_start`
-model options for both single and batched starts immediately. A saved selection replaces the
+model options for new runs immediately. A saved selection replaces the
 session's list rather than intersecting it, so an available saved model remains allowed when a
 later session has a different scope. Saved models outside the current scope or no longer available
 stay listed for removal; unavailable models cannot start new runs, and a selection containing only
