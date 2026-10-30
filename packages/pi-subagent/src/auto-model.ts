@@ -349,8 +349,8 @@ async function findClassifier(
 
     if (!classifier) {
         throw new Error(
-            `The auto classifier ${formatModelRef(ref)} is unavailable. Configure its provider in ` +
-                "Pi, or select another classifier in the Subagents section of /lune-core-settings.",
+            `The classifier ${formatModelRef(ref)} is unavailable. Configure its provider in ` +
+                "Pi, or select another one in /lune-core-settings → Subagents → Classifier model.",
         );
     }
 
@@ -432,7 +432,7 @@ export function autoModelRequest(
         throw new Error(
             `The auto classifier ${formatModelRef(classifier)} has a context window of ` +
                 `${classifier.contextWindow} tokens, too small for this task. Select a classifier ` +
-                "with a larger window in the Subagents section of /lune-core-settings.",
+                "with a larger window in /lune-core-settings → Subagents → Classifier model.",
         );
     }
 
@@ -545,8 +545,7 @@ function tierModel(tier: AutoTier, ref: ModelRef, allowed: readonly Model<Api>[]
         throw new Error(
             `The ${tier} auto tier uses ${formatModelRef(ref)}, which is not in the allowed set` +
                 (refs.length > 0 ? `: ${refs.join(", ")}.` : "; no models are available.") +
-                " Select another model under Auto tiers in the Subagents section of " +
-                "/lune-core-settings.",
+                " Select another model in /lune-core-settings → Subagents → Auto tiers.",
         );
     }
 

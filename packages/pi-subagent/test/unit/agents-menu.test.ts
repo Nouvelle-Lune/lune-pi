@@ -348,7 +348,7 @@ test("a rename to a name another agent uses is refused", async (t) => {
     );
 });
 
-test("the Auto mode only row follows Auto classifier as a plain on/off setting", async (t) => {
+test("the Auto mode only row follows Classifier model as a plain on/off setting", async (t) => {
     const { section } = await setup(t);
     const field = section.fields.find((candidate) => candidate.id === "autoOnly")!;
 
