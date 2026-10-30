@@ -1,0 +1,59 @@
+{
+    "schemaVersion": 1,
+    "change": "fix-dock-selection-visibility",
+    "createdAt": "2026-10-30T06:20:49.472Z",
+    "intent": "Implement approved Dock design A: move the accent pointer into the selected cell, fill its allocation with selectedBg while preserving plugin status colors, reserve marker and padding space for stable neighboring cells, preserve one-row width bounds and classic shortcut hints, and update focused regressions and package previews.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "507ea54142bac0f26b15730e0873328d7f465e9c",
+    "headRev": "0d80630c0a864f0b4da5a5876f11b2a08eb5fa5e",
+    "files": [
+        "packages/pi-dock/CHANGELOG.md",
+        "packages/pi-dock/docs/dock-overview.png",
+        "packages/pi-dock/docs/dock-overview.svg",
+        "packages/pi-dock/docs/dock-styles.png",
+        "packages/pi-dock/docs/dock-styles.svg",
+        "packages/pi-dock/docs/reference.md",
+        "packages/pi-dock/src/dock-footer.ts",
+        "packages/pi-dock/src/dock-renderer.ts",
+        "packages/pi-dock/test/unit/dock-controller.test.ts",
+        "packages/pi-dock/test/unit/dock-extension.test.ts",
+        "packages/pi-dock/test/unit/dock-footer.test.ts",
+        "packages/pi-dock/test/unit/dock-panel.test.ts",
+        "packages/pi-dock/test/unit/dock-renderer.test.ts"
+    ],
+    "state": "abandoned",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T06:20:49.595Z",
+            "scope": "full",
+            "base": "507ea54142bac0f26b15730e0873328d7f465e9c",
+            "head": "0d80630c0a864f0b4da5a5876f11b2a08eb5fa5e",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-dock/src/dock-footer.ts:97:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-dock/src/dock-footer.ts",
+            "line": 97,
+            "summary": "Classic suppresses hints for short labels: the full-width cell count forces a 12-column reservation per cell. Reproduction with DockFooter.render at 30 columns/two short labels, 40/three, and 80/six omits enter open even though cells and a hint fit together.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "4884f31 reserves hints from the current visible cells and actual short-label widths without reducing the visible count. New regressions fail on 0d80630 and pass at 30/2, 40/3 and 80/6; all 295 Dock tests and package typecheck pass.",
+            "resolvedAt": "2026-10-30T06:36:25.643Z"
+        }
+    ],
+    "abandonedReason": "User rejected stretched equal-width cells after viewing a real wide-terminal screenshot and requested compact spacing; continue with content-sized selection cells in a new review change.",
+    "abandonedAt": "2026-10-30T06:41:57.113Z"
+}
