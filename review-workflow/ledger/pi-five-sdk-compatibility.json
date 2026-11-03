@@ -1,0 +1,39 @@
+{
+    "schemaVersion": 1,
+    "change": "pi-five-sdk-compatibility",
+    "createdAt": "2026-11-03T02:19:52.156Z",
+    "intent": "Make Compaction TypeBox settings imports, renderer test fixtures, and Subagent validation assertions work with Pi SDK 1.5 while retaining the pinned Pi SDK 1.3 development environment and existing settings behavior.",
+    "tier": "high",
+    "tierReasons": ["package-lock.json", "packages/pi-compaction/package.json"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "3b594dd1bafe99978838e843d28d4f80efaf61af",
+    "headRev": "79d8c2fd283000162e03f4de8e1aeca01a5eb829",
+    "files": [
+        "package-lock.json",
+        "packages/pi-ask-question/test/integration/extension.test.ts",
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/package.json",
+        "packages/pi-compaction/src/settings/schema.ts",
+        "packages/pi-compaction/test/settings/tool-selection.test.ts",
+        "packages/pi-shell-inspector/test/integration/extension-registration.test.ts",
+        "packages/pi-shell-inspector/test/unit/shell-notification-box.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-03T02:20:00.890Z",
+            "scope": "full",
+            "base": "3b594dd1bafe99978838e843d28d4f80efaf61af",
+            "head": "79d8c2fd283000162e03f4de8e1aeca01a5eb829",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-11-03T02:22:08.313Z"
+}
