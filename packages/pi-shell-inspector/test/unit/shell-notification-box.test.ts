@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { keyHint, keyText, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 
 import { renderBackgroundShellNotificationBox } from "../../src/shell/shell-notification-box.ts";
@@ -27,6 +27,9 @@ import {
 
 /** Transcript width every test renders at: wide enough that only long commands are cut. */
 const WIDTH = 80;
+
+/** Keybinding helpers Pi 1.5 render options carry; spread keeps the fixtures valid on Pi 1.3. */
+const keybindingHints = { keyText, keyHint };
 
 interface StubTheme {
     theme: Theme;
@@ -83,7 +86,11 @@ function renderRows(
     const stub = createStubTheme();
     const component = renderBackgroundShellNotificationBox(
         { content, details },
-        { expanded: options.expanded ?? false, outputPad: options.outputPad ?? 1 },
+        {
+            expanded: options.expanded ?? false,
+            outputPad: options.outputPad ?? 1,
+            ...keybindingHints,
+        },
         stub.theme,
     );
 
@@ -309,7 +316,7 @@ describe("background shell notification box", () => {
 
     it("returns undefined when the message carries no jobs", () => {
         const stub = createStubTheme();
-        const options = { expanded: false, outputPad: 1 };
+        const options = { expanded: false, outputPad: 1, ...keybindingHints };
         const empty: BackgroundShellNotificationDetails = { jobs: [] };
 
         assert.equal(
@@ -412,7 +419,7 @@ function createBox(
     const { theme } = createStubTheme();
     const box = renderBackgroundShellNotificationBox(
         { content, details },
-        { expanded: options.expanded ?? false, outputPad: 1 },
+        { expanded: options.expanded ?? false, outputPad: 1, ...keybindingHints },
         theme,
     );
 
@@ -571,7 +578,7 @@ describe("background shell notification box under Lune Core's theme", () => {
 
         renderBackgroundShellNotificationBox(
             { content, details: legacyDetails },
-            { expanded: false, outputPad: 1 },
+            { expanded: false, outputPad: 1, ...keybindingHints },
             theme,
         )?.render(WIDTH);
 
@@ -709,12 +716,12 @@ describe("background shell notification box under Lune Core's theme", () => {
         // Pi rebuilds the component on every invalidation, e.g. when a click toggles expansion.
         const first = renderBackgroundShellNotificationBox(
             { content, details },
-            { expanded: false, outputPad: 1 },
+            { expanded: false, outputPad: 1, ...keybindingHints },
             theme,
         );
         const second = renderBackgroundShellNotificationBox(
             { content, details },
-            { expanded: true, outputPad: 1 },
+            { expanded: true, outputPad: 1, ...keybindingHints },
             theme,
         );
         first?.render(WIDTH);
