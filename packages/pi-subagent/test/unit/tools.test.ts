@@ -203,8 +203,11 @@ test("SDK validation accepts a named start and rejects the removed tasks paramet
         () => validateStart(start, { task: "one", tasks: [{ task: "two" }] }),
         (error: Error) => {
             assert.match(error.message, /^Validation failed for tool "subagent_start":/);
-            assert.match(error.message, /additional propert/i);
-            assert.match(error.message, /tasks/);
+            assert.match(
+                error.message,
+                /^\s*-\s*\/?tasks\b/m,
+                "the error must name the removed tasks field",
+            );
 
             return true;
         },

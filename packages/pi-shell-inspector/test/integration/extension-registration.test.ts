@@ -18,8 +18,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import { initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme, keyHint, keyText, type Theme } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 
@@ -48,6 +47,9 @@ const theme = {} as Theme;
 /** Renderer context type pi passes to a definition's renderers; the package does not export it. */
 type RenderContext = Parameters<NonNullable<BashToolDefinition["renderCall"]>>[2];
 
+/** Keybinding helpers Pi 1.5 render contexts carry; spread keeps the fixture valid on Pi 1.3. */
+const keybindingHints = { keyText, keyHint };
+
 /** Renderer context of one tool row, with execution not started so the built-in renderers stay timer-free. */
 function createRenderContext(args: Record<string, unknown>, workDir: string): RenderContext {
     return {
@@ -65,6 +67,7 @@ function createRenderContext(args: Record<string, unknown>, workDir: string): Re
         expanded: false,
         showImages: false,
         isError: false,
+        ...keybindingHints,
     };
 }
 

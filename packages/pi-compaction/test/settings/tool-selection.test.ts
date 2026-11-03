@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
     stripTerminalSequences,
     visibleWidth,

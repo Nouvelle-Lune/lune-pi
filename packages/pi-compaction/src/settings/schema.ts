@@ -1,4 +1,4 @@
-import { Type, StringEnum, type Static } from "@earendil-works/pi-ai";
+import { Type, type Static } from "typebox";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsView, DeepReadonly } from "@lune_99/pi-lune-extensions-core/settings";
 import {
@@ -27,9 +27,9 @@ export const compactionSchema = Type.Object(
     {
         enabled: Type.Boolean({ default: true }),
         summaryModel: modelReference(),
-        summaryThinkingLevel: StringEnum(
+        summaryThinkingLevel: Type.Enum(
             ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
-            { default: "off" },
+            { type: "string", default: "off" },
         ),
         jevEnabled: Type.Boolean({ default: false }),
         classifier: modelReference(),

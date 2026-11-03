@@ -34,4 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- **Pi 1.5 SDK compatibility.** Define the settings schema directly with TypeBox so SDK consumers and local checks do not depend on Pi's legacy import mapping. Existing settings values, defaults and storage stay unchanged.
+
 - **Pi package discovery.** Add the `pi-package`, `pi`, and `pi-coding-agent` npm keywords. The discovery keyword makes the package eligible for the official Pi package gallery once published.
