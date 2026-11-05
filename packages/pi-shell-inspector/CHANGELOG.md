@@ -2,29 +2,9 @@
 
 ## [Unreleased]
 
-### Added
-
-- **Optional Lune Dock integration.** When Lune Dock is active, shell state joins its single status row and Enter opens the existing inspector. Viewing the inspector acknowledges current failure reminders without changing job outcomes; without the host, the standalone dock remains available.
-- **Notifications follow the Lune theme.** While the `pi-lune-core-theme` extension is on, settled background shells render as its call tree, with killed jobs marked as cancelled. With the theme off or not installed, the existing band remains, and notifications already on screen switch with the theme.
-- **Clickable themed notifications.** With the Lune theme on, a settled background-shell card opens
-  from its `click to show more` hint or its hidden-output row and closes with another click, like
-  a tool card. This needs a theme version that accepts the card key; older themes keep the
-  `ctrl+o` toggle. When a job's output was too long to keep and went to a log file, its
-  `click to view full output` row opens that complete log instead of the retained tail.
+## [1.3.0] - 2026-11-05
 
 ### Changed
-
-- **Published Core dependency.** Require `@lune_99/pi-lune-core@^0.1.0` from npm instead of a sibling checkout. Core remains a mandatory runtime dependency for shared infrastructure and settings.
-
-- **Dock protocol from Core.** Use `createDockContribution` and its types from
-  `@lune_99/pi-lune-core/dock` to join the optional shared Dock. Core supplies the
-  scoped registry and contributor lifecycle.
-
-- **BREAKING: Lune Protocol v1 Draft 3 snapshots.** Publish plugin-styled, single-line base/detail/full Components instead of business summary fields. Idle providers stay registered; Dock owns density, visibility and order, while Enter opens the existing plugin UI. Update the host and both plugins together.
-
-- **Simplified Dock integration.** The shared contributor adapter owns registration,
-  session UI cleanup, and host-presence switching. The existing independent status bar is
-  restored immediately when Lune Dock is disabled through `/dock` or is absent.
 
 - **Quieter idle Dock item.** All display levels show only `○ Shell` when no jobs are tracked, matching Agents without the `· idle` suffix. Job summaries, status markers and inspector behavior are unchanged.
 
@@ -34,7 +14,35 @@
 
 ### Fixed
 
+- **Package and changelog versions agree.** Resume the existing 1.x version sequence after the scoped npm package's 0.1.0 release. Pi can now record a version newer than the retained history, so old changelog entries stop appearing on every new session after upgrading.
+
 - **Each session owns its background shells.** A Lune Subagents run that selected `background_shell` killed the main session's jobs and cleared its shell view, because Pi reuses the loaded module for sessions in the same working directory and the job table lived in that module. Each extension load now has its own shell manager, so a run or a second session cannot see, kill or clear another session's jobs.
+
+## [0.1.0] - 2026-10-16
+
+### Added
+
+- **Optional Lune Dock integration.** When Lune Dock is active, shell state joins its single status row and Enter opens the existing inspector. Viewing the inspector acknowledges current failure reminders without changing job outcomes; without the host, the standalone dock remains available.
+- **Notifications follow the Lune theme.** While Lune Core Theme is on, settled background shells render as its call tree, with killed jobs marked as cancelled. With the theme off or not installed, the existing band remains, and notifications already on screen switch with the theme.
+- **Clickable themed notifications.** With the Lune theme on, a settled background-shell card opens
+  from its `click to show more` hint or its hidden-output row and closes with another click, like
+  a tool card. This needs a theme version that accepts the card key; older themes keep the
+  `ctrl+o` toggle. When a job's output was too long to keep and went to a log file, its
+  `click to view full output` row opens that complete log instead of the retained tail.
+
+### Changed
+
+- **Published Core dependency.** Require `@lune_99/pi-lune-extensions-core@^0.1.0` from npm instead of a sibling checkout. Core remains a mandatory runtime dependency for shared infrastructure and settings.
+
+- **Dock protocol from Core.** Use `createDockContribution` and its types from
+  `@lune_99/pi-lune-extensions-core/dock` to join the optional shared Dock. Core supplies the
+  scoped registry and contributor lifecycle.
+
+- **BREAKING: Lune Protocol v1 Draft 3 snapshots.** Publish plugin-styled, single-line base/detail/full Components instead of business summary fields. Idle providers stay registered; Dock owns density, visibility and order, while Enter opens the existing plugin UI. Update the host and both plugins together.
+
+- **Simplified Dock integration.** The shared contributor adapter owns registration,
+  session UI cleanup, and host-presence switching. The existing independent status bar is
+  restored immediately when Lune Dock is disabled through `/dock` or is absent.
 
 ## [1.2.0] - 2026-10-05
 
@@ -177,7 +185,9 @@
   output retention with full-output spill files, terminal-screen rendering of streamed output, and
   persistence/restore of shell state across session lifecycle events.
 
-[Unreleased]: https://github.com/Nouvelle-Lune/lune-shell-inspector/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/compare/pi-shell-inspector/v1.3.0...HEAD
+[1.3.0]: https://github.com/Nouvelle-Lune/lune-pi/releases/tag/pi-shell-inspector/v1.3.0
+[0.1.0]: https://www.npmjs.com/package/@lune_99/pi-shell-inspector/v/0.1.0
 [1.1.0]: https://github.com/Nouvelle-Lune/lune-shell-inspector/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/Nouvelle-Lune/lune-shell-inspector/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/Nouvelle-Lune/lune-shell-inspector/compare/v1.0.1...v1.0.2

@@ -1,0 +1,33 @@
+{
+    "schemaVersion": 1,
+    "change": "shell-inspector-one-three-release",
+    "createdAt": "2026-11-05T15:29:16.618Z",
+    "intent": "Release only Shell Inspector 1.3.0 from validated main history, matching the retained changelog versions to stop repeated startup logs; preserve the published Core dependency and existing 1.x history. Record already-shipped scoped 0.1.0 features separately from the new release.",
+    "tier": "high",
+    "tierReasons": ["package-lock.json", "packages/pi-shell-inspector/package.json"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "a364f6550b9159879d4f029c39c00586c67a2f25",
+    "headRev": "5885e100698d9fef3481db7c00ec8faaf3ebb6bb",
+    "files": [
+        "package-lock.json",
+        "packages/pi-shell-inspector/CHANGELOG.md",
+        "packages/pi-shell-inspector/package.json"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-05T15:29:16.744Z",
+            "scope": "full",
+            "base": "a364f6550b9159879d4f029c39c00586c67a2f25",
+            "head": "5885e100698d9fef3481db7c00ec8faaf3ebb6bb",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-11-05T15:34:19.120Z"
+}
