@@ -91,7 +91,7 @@ test("a normal notice states the run, its state and the report", () => {
     assert.equal(
         content,
         [
-            "Subagent run reviewer (r1) ended its turn: idle.",
+            "Subagent run r1 ended its turn: idle.",
             "Report: done",
             "",
             "Summary:",
@@ -100,6 +100,30 @@ test("a normal notice states the run, its state and the report", () => {
     );
     assert.equal(details.runs[0]!.durationMs, 4200);
     assert.equal(details.runs[0]!.reportStatus, "done");
+});
+
+test("a titled notice adds the title below the ID line", () => {
+    const { content, details } = buildRunNotification([
+        {
+            runId: "r1",
+            name: "reviewer",
+            title: "Review the diff",
+            record: turn({ report: { status: "done", summary: "No problems." } }),
+        },
+    ]);
+
+    assert.equal(
+        content,
+        [
+            "Subagent run r1 ended its turn: idle.",
+            "Title: Review the diff",
+            "Report: done",
+            "",
+            "Summary:",
+            "No problems.",
+        ].join("\n"),
+    );
+    assert.equal(details.runs[0]!.name, "Review the diff");
 });
 
 test("body offsets in details point at the summary inside the content", () => {
@@ -162,10 +186,7 @@ test("stops by the user or a branch change and user chat are told to the main ag
 test("a copied notice says the run belongs to another branch", () => {
     const { content, details } = buildRunNotification([{ ...done("r1", "a"), copied: true }]);
 
-    assert.match(
-        content,
-        /The user copied the last turn of subagent run a \(r1\) from another branch/,
-    );
+    assert.match(content, /The user copied the last turn of subagent run r1 from another branch/);
     assert.match(content, /subagent tools cannot reach it from here/);
     assert.equal(details.runs[0]!.copied, true);
 });
@@ -787,7 +808,7 @@ test("earlier reports of a turn are written before the final report, oldest firs
     assert.equal(
         content,
         [
-            "Subagent run a (r1) ended its turn: idle.",
+            "Subagent run r1 ended its turn: idle.",
             "Earlier report in this turn: blocked. The run kept working, so a later report replaces it.",
             "Reason: No key.",
             "Summary:",

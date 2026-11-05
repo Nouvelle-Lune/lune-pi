@@ -1,0 +1,51 @@
+{
+    "schemaVersion": 1,
+    "change": "parallel-classifier-requests",
+    "createdAt": "2026-10-30T03:48:47.971Z",
+    "intent": "Let the user set how many classifier requests the tool review runs at once (1-16, default 2) through Compaction settings, passed as jev.concurrency",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "36e5523bae371533d6fb5d43b92433d9caa9fb7d",
+    "headRev": "05ea2f343382a13ff1f3909d128bb017b8ea12f6",
+    "files": [
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/README.md",
+        "packages/pi-compaction/docs/compaction-settings.png",
+        "packages/pi-compaction/docs/compaction-settings.svg",
+        "packages/pi-compaction/src/compaction-controller.ts",
+        "packages/pi-compaction/src/index.ts",
+        "packages/pi-compaction/src/options.ts",
+        "packages/pi-compaction/src/settings/schema.ts",
+        "packages/pi-compaction/src/settings/section.ts",
+        "packages/pi-compaction/src/tool-review/classification.ts",
+        "packages/pi-compaction/src/tool-review/review.ts",
+        "packages/pi-compaction/test/compaction/options.test.ts",
+        "packages/pi-compaction/test/compaction/run-listener.test.ts",
+        "packages/pi-compaction/test/compaction/run-snapshot.test.ts",
+        "packages/pi-compaction/test/host/tool-review-host.test.ts",
+        "packages/pi-compaction/test/settings/configuration.test.ts",
+        "packages/pi-compaction/test/settings/section.test.ts",
+        "packages/pi-compaction/test/settings/tool-selection.test.ts",
+        "packages/pi-compaction/test/tool-review/classification.test.ts",
+        "packages/pi-compaction/test/tool-review/response-snapshot.test.ts",
+        "packages/pi-compaction/test/tool-review/review.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T03:48:48.916Z",
+            "scope": "full",
+            "base": "36e5523bae371533d6fb5d43b92433d9caa9fb7d",
+            "head": "05ea2f343382a13ff1f3909d128bb017b8ea12f6",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-30T03:50:15.424Z"
+}

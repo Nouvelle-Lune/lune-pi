@@ -105,12 +105,13 @@ export interface RunSnapshot {
     runId: string;
     /** The definition name, or `run-<n>` for an inline run. */
     name: string;
+    title?: string;
     /** Only for a run started from a definition. */
     definition?: { name: string; body: string; file: string };
     task: string;
     /** `provider/id`. */
     model: string;
-    /** Set when the call or definition asked for `auto`; `sources.model` says which. */
+    /** Set when the call, definition or Auto mode only asked for `auto`; `sources.model` says which. */
     autoModel?: AutoModelChoice;
     thinking: ThinkingLevel;
     /** The effective SDK allowlist, `report` included. */

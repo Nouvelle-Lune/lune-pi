@@ -250,11 +250,16 @@ Core leaves both the original session file and the complete JSONL copy unchanged
 when Pi upgrades an older session format in memory. If an id matches no session or more than one, the
 prompt is not sent and your text returns to the editor.
 
-Core loads all three sources into its existing `SessionCatalog` when a session starts, using
-Pi's `SessionManager.listAll()` for Pi sessions. Lookups use that list and reload it in the background when it is older
-than one minute, so a new session can take up to a minute to appear. Typing never waits for
-the list. External files whose inode, size and modification time have not changed reuse their
-parsed metadata and searchable text; searching also reuses the existing lower-case text cache.
+Core loads all three sources into its `SessionCatalog` when a session starts. It keeps what it
+read from each session file in `<agentDir>/lune-cache/session-index.json`, written owner-only
+because it holds the message text, and reads a file again only when its inode, size or
+modification time changed. Pi sessions get the same fields as Pi's `SessionManager.listAll()`.
+Only the first load reads every file; with large session stores it can take a few seconds.
+An unreadable index is reported and rebuilt from the session files. Lookups use the list and
+reload it in the background when it is older than one minute, so a new session can take up to
+a minute to appear. A plain `@` never waits for the list. `@@` lists only sessions, so it waits
+for the first load, and your next keystroke ends that wait. Searching reuses the existing
+lower-case text cache.
 Unchanged reference snapshots reuse `TranscriptCache`. A typed reference that is not in the
 list makes Core reload it before sending the prompt. Invalid or unsupported Codex and Claude
 Code files are silently excluded, and failed parses are cached until their files change.

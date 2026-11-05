@@ -45,13 +45,17 @@ Open `/lune-core-settings recap` and turn on **Automatic recap**. It defaults to
 
 Automatic mode uses terminal focus reports. After a substantial completed round — at least five tool results or sixty seconds from prompt to final reply — it waits until three minutes after the agent settles. If the terminal reports that you are away, it can prepare a recap to show when you return. The agent must be idle and pending prompts must be closed.
 
-Use `/recap` in terminals that do not report focus. A recap uses the selected model as a separate request and can incur its normal provider charges.
+Use `/recap` in terminals that do not report focus. A recap uses the selected model as a separate request; each attempt, including retries, can incur its normal provider charges.
 
 ## Recap settings
 
-The Recap tab controls automatic mode, the recap model and thinking level. The default model follows the session; recap thinking defaults to `off`.
+The Recap tab controls automatic mode, the recap model, thinking level and **Maximum retries**. The default model follows the session; recap thinking defaults to `off`.
 
-`Ctrl+G` switches global/project scope; `Ctrl+R` removes the selected override. Recaps are limited to 400 characters and wrap near the editor.
+Maximum retries defaults to `3`: the initial request plus up to three retries, for at most four attempts. Set it to `0` to disable retries. Both manual and automatic recaps use Pi's retry policy for temporary provider errors only. Non-retryable errors, incomplete responses (including `toolUse` and `length`), tool calls and empty text end the operation without another attempt.
+
+Intermediate failures stay silent. A successful retry shows the recap normally; a final failure produces one warning with the actual attempt count. Cancellation produces no warning. Automatic mode does not repeat a failed snapshot, including after reload; run `/recap` to start a fresh attempt sequence. Final failure records retain bounded protocol metadata, attempt counts and a Recap-owned error summary, not raw provider errors or response content.
+
+`Ctrl+G` switches global/project scope; `Ctrl+R` removes the selected override. Changing Maximum retries does not regenerate a matching saved recap. Recaps are limited to 400 characters and wrap near the editor.
 
 ## Development
 

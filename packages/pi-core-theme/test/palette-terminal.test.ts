@@ -83,7 +83,12 @@ async function fixture(t: TestContext) {
 
 test("an enabled light palette paints the terminal with its background and text colors", async (t) => {
     const runtime = await fixture(t);
-    await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
+    await runtime.writeScope("global", {
+        enabled: true,
+        mode: "off",
+        palette: "pi-core-light",
+        paletteBackground: true,
+    });
     await runtime.emit("session_start");
     assert.equal(runtime.ui.theme.name, "pi-core-light");
     assert.deepEqual(runtime.writes, [LIGHT_PAINT]);
@@ -91,7 +96,12 @@ test("an enabled light palette paints the terminal with its background and text 
 
 test("switching to inherit resets the terminal and switching back paints again", async (t) => {
     const runtime = await fixture(t);
-    await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
+    await runtime.writeScope("global", {
+        enabled: true,
+        mode: "off",
+        palette: "pi-core-light",
+        paletteBackground: true,
+    });
     await runtime.emit("session_start");
     await runtime.field("Style · Color palette").set("inherit", "global");
     assert.deepEqual(runtime.writes, [LIGHT_PAINT, RESET]);
@@ -101,7 +111,12 @@ test("switching to inherit resets the terminal and switching back paints again",
 
 test("turning paletteBackground off resets the terminal while the palette stays applied", async (t) => {
     const runtime = await fixture(t);
-    await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
+    await runtime.writeScope("global", {
+        enabled: true,
+        mode: "off",
+        palette: "pi-core-light",
+        paletteBackground: true,
+    });
     await runtime.emit("session_start");
     await runtime.field("Style · Palette background").set(false, "global");
     assert.deepEqual(runtime.writes, [LIGHT_PAINT, RESET]);
@@ -121,9 +136,22 @@ test("paletteBackground off never paints the terminal", async (t) => {
     assert.deepEqual(runtime.writes, []);
 });
 
-test("disabling Core resets the terminal", async (t) => {
+test("an unset paletteBackground defaults to off and never paints the terminal", async (t) => {
     const runtime = await fixture(t);
     await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
+    await runtime.emit("session_start");
+    assert.equal(runtime.ui.theme.name, "pi-core-light");
+    assert.deepEqual(runtime.writes, []);
+});
+
+test("disabling Core resets the terminal", async (t) => {
+    const runtime = await fixture(t);
+    await runtime.writeScope("global", {
+        enabled: true,
+        mode: "off",
+        palette: "pi-core-light",
+        paletteBackground: true,
+    });
     await runtime.emit("session_start");
     await runtime.field("Core theme").set(false, "global");
     assert.deepEqual(runtime.writes, [LIGHT_PAINT, RESET]);
@@ -131,7 +159,12 @@ test("disabling Core resets the terminal", async (t) => {
 
 test("shutdown without a successor resets the terminal", async (t) => {
     const runtime = await fixture(t);
-    await runtime.writeScope("global", { enabled: true, mode: "off", palette: "pi-core-light" });
+    await runtime.writeScope("global", {
+        enabled: true,
+        mode: "off",
+        palette: "pi-core-light",
+        paletteBackground: true,
+    });
     await runtime.emit("session_start");
     await runtime.emit("session_shutdown");
     assert.deepEqual(runtime.writes, [LIGHT_PAINT, RESET]);

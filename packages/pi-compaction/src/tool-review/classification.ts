@@ -2,8 +2,6 @@ import type { ClassifierContext, ClassifierModel, ClassifierResult } from "@eare
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ModelReference } from "@lune_99/pi-lune-extensions-core/panel";
 
-const REQUEST_CONCURRENCY = 2;
-
 export type Classify = (
     context: ClassifierContext,
     signal: AbortSignal,
@@ -24,8 +22,8 @@ export async function resolveClassifier(
     if (!model)
         throw new Error(
             reference
-                ? `Classifier ${reference.provider}/${reference.id} is unavailable. Configure its provider in Pi, or select Automatic in Lune settings.`
-                : "No classifier is available. Configure a classifier provider in Pi with /login or its environment credentials, then refresh Lune settings.",
+                ? `Classifier ${reference.provider}/${reference.id} is unavailable. Configure its provider in Pi, or select Automatic in /lune-core-settings → Compaction → Classifier model.`
+                : "No classifier is available. Configure a classifier provider in Pi with /login or its environment credentials, then refresh the list in /lune-core-settings → Compaction → Classifier model.",
         );
     return model;
 }
@@ -65,9 +63,12 @@ export function validateAnswers(result: ClassifierResult, context: ClassifierCon
 export async function runRequests(
     requests: readonly ClassifierContext[],
     classify: Classify,
+    concurrency: number,
     signal: AbortSignal,
     progress: (completed: number, total: number) => void,
 ): Promise<readonly ClassifierResult[]> {
+    if (!Number.isSafeInteger(concurrency) || concurrency < 1)
+        throw new Error("Classifier concurrency must be a positive integer");
     signal.throwIfAborted();
     const cancel = new AbortController();
     const requestSignal = AbortSignal.any([signal, cancel.signal]);
@@ -97,9 +98,7 @@ export async function runRequests(
             }
         }
     };
-    await Promise.all(
-        Array.from({ length: Math.min(REQUEST_CONCURRENCY, requests.length) }, worker),
-    );
+    await Promise.all(Array.from({ length: Math.min(concurrency, requests.length) }, worker));
     signal.throwIfAborted();
     if (cancel.signal.aborted) throw failure;
     return results;

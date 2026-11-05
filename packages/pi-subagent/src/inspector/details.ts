@@ -24,7 +24,7 @@ export function detailRows(run: Run, theme: Theme, width: number): string[] {
     };
 
     section("Run");
-    line(`${run.name} (${run.id}) · ${run.state}${run.readOnly ? " · read-only" : ""}`);
+    line(`${run.title} (${run.id}) · ${run.state}${run.readOnly ? " · read-only" : ""}`);
     line(`File: ${run.file}`, "muted");
 
     if (run.readOnly) {

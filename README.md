@@ -7,7 +7,7 @@
 Eight cooperating extensions that turn the [Pi](https://pi.dev) coding agent into a calm, readable terminal workspace.<br>
 See what the agent did, decide with context, keep long commands in reach, and pick up a session where you left it.
 
-[Quick start](#quick-start) · [Tour](#a-short-tour) · [Packages](#the-family) · [Palettes](#seven-palettes) · [Develop](#develop)
+[Quick start](#quick-start) · [Tour](#a-short-tour) · [Packages](#the-family) · [Palettes](#palettes) · [Develop](#develop)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-7aa2f7.svg)](LICENSE)
 [![Node.js 22.19+](https://img.shields.io/badge/node-%E2%89%A522.19-7aa2f7.svg)](package.json)
@@ -162,7 +162,7 @@ Each package has its own README with all settings and behavior.
 
 | Package                                                                                                  | What it gives you                                                                                                                             |
 | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and seven palettes.                   |
+| **[Core Theme](packages/pi-core-theme/README.md)**<br><sub>`@lune_99/pi-core-theme`</sub>                | Compact, expandable tool cards, highlighted split and unified diffs, the pixel-moon header, `/context`, and ten palettes.                     |
 | **[Dock](packages/pi-dock/README.md)**<br><sub>`@lune_99/pi-dock`</sub>                                  | A keyboard-operated row for cooperating extensions, the model, the working directory and session statistics. Five styles.                     |
 | **[Ask Question](packages/pi-ask-question/README.md)**<br><sub>`@lune_99/pi-ask-question`</sub>          | Asynchronous structured questions with options, Markdown previews, written answers, and a review step before you submit.                      |
 | **[Shell Inspector](packages/pi-shell-inspector/README.md)**<br><sub>`@lune_99/pi-shell-inspector`</sub> | Background shell jobs, a live output inspector with job controls, and results sent back to the agent.                                         |
@@ -173,9 +173,9 @@ Each package has its own README with all settings and behavior.
 
 <br>
 
-## Seven palettes
+## Palettes
 
-Each palette is captured in a fresh Pi process. Click an image to see it at full size.
+Each pictured palette is captured in a fresh Pi process. Click an image to see it at full size. Three more palettes follow the look of Claude Code, Cursor and Codex; the [Core Theme README](packages/pi-core-theme/README.md#palettes) lists them.
 
 |                                       Dark                                        |                                        Light                                         |                                         Aurora                                          |                                          Eclipse                                           |
 | :-------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------: |
@@ -201,17 +201,16 @@ npm run check
 <summary><b>All workspace commands</b></summary>
 <br>
 
-| Command                 | What it does                                                     |
-| ----------------------- | ---------------------------------------------------------------- |
-| `npm run build`         | Build Core, then Recap                                           |
-| `npm run format`        | Format source, configuration and documentation with Prettier     |
-| `npm run format:check`  | Check formatting without changing files                          |
-| `npm run lint`          | Lint TypeScript and JavaScript with ESLint                       |
-| `npm run typecheck`     | Build dependencies and typecheck every package                   |
-| `npm test`              | Build dependencies and run every package's tests                 |
-| `npm run pack:check`    | Inspect all eight npm tarballs without publishing                |
-| `npm run check`         | Run formatting, lint, typechecks, tests and package checks       |
-| `npm run docs:previews` | Capture the README screenshots and recording in Ghostty on macOS |
+| Command                | What it does                                                 |
+| ---------------------- | ------------------------------------------------------------ |
+| `npm run build`        | Build Core, then Recap                                       |
+| `npm run format`       | Format source, configuration and documentation with Prettier |
+| `npm run format:check` | Check formatting without changing files                      |
+| `npm run lint`         | Lint TypeScript and JavaScript with ESLint                   |
+| `npm run typecheck`    | Build dependencies and typecheck every package               |
+| `npm test`             | Build dependencies and run every package's tests             |
+| `npm run pack:check`   | Inspect all eight npm tarballs without publishing            |
+| `npm run check`        | Run formatting, lint, typechecks, tests and package checks   |
 
 To run a command for one package, give its workspace name or path:
 

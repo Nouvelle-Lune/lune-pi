@@ -1,0 +1,48 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-allowed-models",
+    "createdAt": "2026-10-29T08:51:52.720Z",
+    "intent": "Add a persistent multi-select Allowed models setting from Pi scoped models. A nonempty selection replaces the session allowlist for explicit and definition models and auto tiers; empty restores default. Update model enums on save while preserving main-model inheritance and existing/resumed runs.",
+    "tier": "high",
+    "tierReasons": ["packages/pi-subagent/src/tools/subagent-tools.ts"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "bcbd7e686ec850d1dd245fc3a3295977d214dfc9",
+    "headRev": "3bcca4ee251a5c6aa389b7f1b77157f2c9e407a8",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/auto-model.ts",
+        "packages/pi-subagent/src/index.ts",
+        "packages/pi-subagent/src/models.ts",
+        "packages/pi-subagent/src/run/run-manager.ts",
+        "packages/pi-subagent/src/settings/agents-menu.ts",
+        "packages/pi-subagent/src/settings/panel.ts",
+        "packages/pi-subagent/src/settings/schema.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts",
+        "packages/pi-subagent/test/harness/fixture.ts",
+        "packages/pi-subagent/test/integration/allowed-models.test.ts",
+        "packages/pi-subagent/test/integration/auto-model.test.ts",
+        "packages/pi-subagent/test/unit/agents-menu.test.ts",
+        "packages/pi-subagent/test/unit/allowed-models-settings.test.ts",
+        "packages/pi-subagent/test/unit/auto-tiers-settings.test.ts",
+        "packages/pi-subagent/test/unit/index.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T08:51:52.842Z",
+            "scope": "full",
+            "base": "bcbd7e686ec850d1dd245fc3a3295977d214dfc9",
+            "head": "3bcca4ee251a5c6aa389b7f1b77157f2c9e407a8",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-29T09:00:01.263Z"
+}

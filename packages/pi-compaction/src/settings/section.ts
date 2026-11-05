@@ -8,6 +8,7 @@ import {
     type SettingsChoiceSource,
 } from "@lune_99/pi-lune-extensions-core/panel";
 import { createDefinedSettingsSection } from "@lune_99/pi-lune-extensions-core/panel/host";
+import { MAX_CLASSIFIER_CONCURRENCY } from "../options.ts";
 import { compactionSchema, SETTINGS_ID, type CompactionSettingsView } from "./schema.ts";
 
 export const summaryModelChoices: SettingsChoiceSource<ModelReference | null> = modelChoices({
@@ -27,10 +28,10 @@ export const classifierChoices: SettingsChoiceSource<ModelReference | null> = mo
     specialChoices: (_context, entries) => [
         {
             value: null,
-            label: "Automatic",
+            label: "Automatic · first available classifier",
             description: entries.length
                 ? `Use the first available Pi classifier at runtime (${entries[0]!.provider}/${entries[0]!.id} currently).`
-                : "No classifier is available. Configure a provider in Pi with /login or environment credentials, then press Ctrl+R to refresh.",
+                : "No classifier is available. Configure a classifier provider in Pi with /login or its environment credentials, then press Ctrl+R to refresh.",
         },
     ],
 });
@@ -94,11 +95,18 @@ export function createCompactionPanel(getTools: ExtensionAPI["getAllTools"]) {
             }),
             field("classifier", {
                 label: "Classifier model",
+                description:
+                    "The Pi classifier that rates each permitted tool output fragment. Automatic " +
+                    "uses the first available one.",
                 formatValue: (value) =>
                     value
                         ? `${value.provider}/${value.id}`
-                        : "Automatic · available Pi classifiers",
+                        : "Automatic · first available classifier",
                 choiceSource: classifierChoices,
+            }),
+            field("classifierConcurrency", {
+                label: "Parallel classifier requests",
+                description: `How many fragments the classifier reviews at once (1–${MAX_CLASSIFIER_CONCURRENCY}). Higher values finish the review sooner but reach provider rate limits faster; a rejected request cancels the compaction.`,
             }),
             field(["policy", "deleteThreshold"], {
                 label: "Drop confidence",

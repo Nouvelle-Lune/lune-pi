@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
+import { keyHint, keyText } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 
 import {
@@ -61,6 +62,9 @@ const QUESTIONS: AskQuestion[] = [
         options: [{ label: "Postgres" }, { label: "SQLite" }],
     },
 ];
+
+/** Keybinding helpers Pi 1.5 render options carry; spread keeps the fixture valid on Pi 1.3. */
+const keybindingHints = { keyText, keyHint };
 
 interface Session {
     readonly host: FakePiHost;
@@ -1623,7 +1627,7 @@ describe("pi-ask-question extension", () => {
                         answers: [{ selectedIndexes: [1] }],
                     },
                 } as never,
-                { expanded: false, outputPad: 0 },
+                { expanded: false, outputPad: 0, ...keybindingHints },
                 createFakeTheme(),
             );
 

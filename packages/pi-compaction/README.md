@@ -28,8 +28,8 @@ Lune compaction is on by default. Run `/compact` as usual, or let Pi compact aut
 
 - **Gives summaries their own model.** Follow the session model and effort, or select a separate summary model with an independent thinking level.
 - **Works with native compaction.** Manual, threshold and overflow compaction keep Pi's handling of previous summaries, split turns and file operations.
-- **Reviews tool output before summarizing.** An optional classifier judges which result fragments are no longer useful. You choose the confidence threshold and which tools may lose their whole call.
-- **Shows what was removed.** A review notice reports the classifier, calls checked, edits and the change in summary-input size.
+- **Reviews tool output before summarizing.** An optional classifier judges which result fragments are no longer useful. You choose the confidence threshold and which tools may lose their whole call. `codemode` results are reviewed too when every nested call finished, succeeded and used a permitted tool.
+- **Shows what was removed.** A `Tool review` entry next to the compaction summary reports removals and the change in summary-input size; expand it for the classifier, reviewed and protected calls, and how much came from the per-result truncation cap and how much from the classifier.
 - **Keeps configuration close.** Pick models and review options in the Compaction settings panel, with global defaults and project overrides.
 - **Reports failures explicitly.** A failed summary or classification cancels the operation; cancelled or stale work cannot write a checkpoint.
 
@@ -43,17 +43,19 @@ Open:
 
 Choose **Follow session model** to use the current model and effort. Selecting a separate **Compaction model** makes **Compaction thinking level** independent.
 
-**Jev preprocessing** is off by default. Enable it to review tool history, then choose a Pi classifier, set **Drop confidence** and select **Deletable tools**. A whole call is removed only when its tool is permitted and every result fragment meets the threshold. Summary models and classifiers come from Pi's configured providers.
+**Jev preprocessing** is off by default. Enable it to review tool history, then choose a Pi classifier, set **Drop confidence** and select **Deletable tools**. A whole call is removed only when its tool is permitted and every result fragment meets the threshold. A call that ran other tools, such as `codemode`, also needs a complete nested record in which every call succeeded and every tool is permitted; otherwise it stays in the summary input unchanged. Summary models and classifiers come from Pi's configured providers.
+
+**Parallel classifier requests** sets how many fragments the classifier reviews at once, from 1 to 16 (default 2). A higher value finishes the review sooner on long tool histories. Requests are not retried, and one rejected request cancels the compaction, so stay below your provider's rate limit.
 
 `Ctrl+G` switches global/project scope; `Ctrl+R` removes the selected override. Changes apply to the next compaction.
 
 ## Tool-history review
 
-An example review notice:
+An example review entry, collapsed and expanded:
 
-![Lune Compaction review notice](docs/compaction-review.png)
+![Lune Compaction review entry](docs/compaction-review.png)
 
-The notice reports the size of the messages entering the summary in characters. Review changes that input; the on-disk tool transcript stays intact.
+While the classifier and summary run, one row above the editor shows progress; it disappears when the compaction ends. The result is saved as a transcript entry at the point of the compaction, after the retained messages; in the live session that is directly above Pi's compaction summary. It scrolls away with the conversation and is still there after a reload. Press `Ctrl+O` to expand it, as with tool output. Sizes are the characters of the messages entering the summary: `truncation` is what the 8,000-character cap on each tool result removed, and `classifier` is what the classifier's decisions removed after that. Review changes only that input; the on-disk tool transcript stays intact.
 
 ## Development
 

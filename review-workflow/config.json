@@ -1,0 +1,32 @@
+{
+    "schemaVersion": 1,
+    "tiers": {
+        "routine": {
+            "paths": ["**/*.md", "**/*.test.ts", "**/test/**", "docs/**"],
+            "roundCap": 2
+        },
+        "high": {
+            "paths": [
+                "package.json",
+                "package-lock.json",
+                "packages/*/package.json",
+                "packages/*/tsconfig.json",
+                ".github/**",
+                "review-workflow/config.json",
+                "review-workflow/scripts/**",
+                "packages/pi-lune-extensions-core/src/settings/**",
+                "packages/pi-subagent/src/model/**",
+                "packages/pi-subagent/src/tools/**"
+            ],
+            "roundCap": 3,
+            "minIndependentReviews": 2
+        }
+    },
+    "review": {
+        "defaultTier": "standard",
+        "roundCap": 2,
+        "diffOnlyAfterRound": 1,
+        "maxDiffBytes": 200000,
+        "requireClosedFindingsBeforeNextRound": true
+    }
+}

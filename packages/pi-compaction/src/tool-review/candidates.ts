@@ -204,9 +204,20 @@ export function indexTools(
                 reasons.push("non-text-result");
             if (!policy.deletableTools.includes(call.name)) reasons.push("tool-not-deletable");
             const nested = result.message.nestedCalls;
-            // Permission for the outer name cannot authorize nested or unrecorded operations.
-            if (nested && (!nested.complete || nested.calls.length > 0))
-                reasons.push("nested-calls");
+            // Pi records calls made by nested tools too, so each recorded name needs its own permission.
+            if (nested) {
+                // An incomplete record can hide calls or arguments past Pi's recording limits.
+                if (!nested.complete) reasons.push("incomplete-nested-calls");
+                if (
+                    nested.calls.some(
+                        (nestedCall) => !policy.deletableTools.includes(nestedCall.name),
+                    )
+                )
+                    reasons.push("nested-tool-not-deletable");
+                // A failed or unfinished nested call means the outer result may not describe what ran.
+                if (nested.calls.some((nestedCall) => nestedCall.status !== "ok"))
+                    reasons.push("nested-call-failed");
+            }
         }
         if (reasons.length > 0) {
             protectedTools.push({ id, reasons });

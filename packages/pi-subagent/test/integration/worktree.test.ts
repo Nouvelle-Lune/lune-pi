@@ -13,6 +13,10 @@ import {
 } from "../harness/fixture.ts";
 import { createRepo, git } from "../harness/git.ts";
 
+function listWorktrees(repo: string): string {
+    return git(repo, "worktree", "list", "--porcelain");
+}
+
 function listDir(dir: string): string[] {
     return existsSync(dir) ? readdirSync(dir) : [];
 }
@@ -77,7 +81,7 @@ test("a parent working in a subdirectory gets the matching subdirectory of the w
     assert.equal(readFileSync(join(run.snapshot!.cwd, "b.txt"), "utf8"), "sub file\n");
 });
 
-test("isolation: the call beats the definition, which beats the shared default", async (t) => {
+test("isolation: an inline call's isolation beats the shared default; a definition's isolation applies to its agent", async (t) => {
     const { fx, repo } = await repoFixture(t);
     const manager = fx.createManager([
         definition({ name: "isolated", isolation: "worktree" }),
@@ -89,34 +93,47 @@ test("isolation: the call beats the definition, which beats the shared default",
         reportResponse("done", "ok"),
         reportResponse("done", "ok"),
         reportResponse("done", "ok"),
+        reportResponse("done", "ok"),
     ]);
     const fromDefinition = await manager.start({ task: "a", agent: "isolated" }, parentCtx);
-    const overriddenToShared = await manager.start(
-        { task: "b", agent: "isolated", isolation: "shared" },
-        parentCtx,
-    );
-    const overriddenToWorktree = await manager.start(
-        { task: "c", agent: "plain", isolation: "worktree" },
-        parentCtx,
-    );
+    const sharedByDefinition = await manager.start({ task: "b", agent: "plain" }, parentCtx);
+    const inlineWorktree = await manager.start({ task: "c", isolation: "worktree" }, parentCtx);
+    const byDefault = await manager.start({ task: "d" }, parentCtx);
 
     assert.deepEqual(
-        [fromDefinition, overriddenToShared, overriddenToWorktree].map((run) => [
+        [fromDefinition, sharedByDefinition, inlineWorktree, byDefault].map((run) => [
             run.snapshot?.isolation,
             run.snapshot?.sources.isolation,
         ]),
         [
             ["worktree", "definition"],
-            ["shared", "call"],
+            ["shared", "definition"],
             ["worktree", "call"],
+            ["shared", "default"],
         ],
     );
-    assert.equal(overriddenToShared.snapshot?.cwd, repo);
-    assert.equal(overriddenToShared.snapshot?.worktree, undefined);
+    assert.equal(sharedByDefinition.snapshot?.cwd, repo);
+    assert.equal(sharedByDefinition.snapshot?.worktree, undefined);
+    assert.equal(byDefault.snapshot?.worktree, undefined);
     assert.notEqual(
         fromDefinition.snapshot?.worktree?.path,
-        overriddenToWorktree.snapshot?.worktree?.path,
+        inlineWorktree.snapshot?.worktree?.path,
     );
+});
+
+test("isolation: an agent with an isolation in the call is rejected and creates no worktree", async (t) => {
+    const { fx, repo } = await repoFixture(t);
+    const manager = fx.createManager([definition({ name: "plain", isolation: "shared" })]);
+    const parentCtx = Object.create(fx.ctx, { cwd: { value: repo } });
+    const before = listWorktrees(repo);
+
+    await assert.rejects(
+        manager.start({ task: "c", agent: "plain", isolation: "worktree" }, parentCtx),
+        /leave out isolation\./,
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
+    assert.deepEqual(listWorktrees(repo), before);
 });
 
 test("without a Git repository, a worktree start fails and creates nothing; it never falls back to shared", async (t) => {

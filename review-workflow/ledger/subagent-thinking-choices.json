@@ -1,0 +1,61 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-thinking-choices",
+    "createdAt": "2026-10-29T11:48:49.445Z",
+    "intent": "Fix only the Custom agents Thinking menu: offer levels supported by a fixed or inherited model; with an auto classifier offer the intersection across configured allowed tier models and the main model, label the default automatic, and explain an empty intersection. Refuse unresolved/disallowed models rather than guessing. Preserve saved definition values. No run lifecycle, inspector heading, requested/effective preview, tool schema, or rating changes. Validation: npm run check passed; focused agents-menu tests 31/31 passed; isolated baseline rejected all new scenarios.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "0b1f4ed1038f4e34393bb29fb4ea563a79452871",
+    "headRev": "c691272007be3a3cc3ba64b1c15e36531a7f0a71",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/settings/agents-menu.ts",
+        "packages/pi-subagent/src/settings/thinking-choices.ts",
+        "packages/pi-subagent/test/unit/agents-menu.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T11:48:57.723Z",
+            "scope": "full",
+            "base": "0b1f4ed1038f4e34393bb29fb4ea563a79452871",
+            "head": "c691272007be3a3cc3ba64b1c15e36531a7f0a71",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T12:01:36.655Z",
+            "scope": "diff-after-previous-round",
+            "base": "c691272007be3a3cc3ba64b1c15e36531a7f0a71",
+            "head": "7875d227ff336004bb06bb10887aaff09ec42e92",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-subagent/src/settings/thinking-choices.ts:51:missing-guard",
+            "round": 1,
+            "severity": "nit",
+            "class": "missing-guard",
+            "file": "packages/pi-subagent/src/settings/thinking-choices.ts",
+            "line": 51,
+            "summary": "A saved thinking level omitted by the narrowed list is not preselected, so Enter defaults to null and removes thinking. The saved-max/off-only test plus Core choice-editor.filter()/submit() and agents-menu field.set(null) establish the path. Preserve the saved value as an explicitly unsupported disabled row.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Keep the saved unsupported value as a disabled choice so the selector retains its current highlight instead of selecting null. Menu tests pass 31/31; the updated saved-value test fails on c691272 at assert.ok(saved).",
+            "resolvedAt": "2026-10-29T11:56:53.396Z"
+        }
+    ],
+    "convergedAt": "2026-10-29T12:04:45.229Z"
+}

@@ -165,6 +165,10 @@ export class Run implements RunEventTarget {
         return this.snapshot?.name ?? this.id;
     }
 
+    get title(): string {
+        return this.snapshot?.title ?? this.name;
+    }
+
     get isLive(): boolean {
         return this.live !== undefined;
     }
@@ -413,7 +417,7 @@ export class Run implements RunEventTarget {
     private assertWritable(): void {
         if (this.readOnly) {
             throw new Error(
-                `Run ${this.name} (${this.id}) belongs to session ${this.parentSessionId} and came ` +
+                `Run ${this.id} belongs to session ${this.parentSessionId} and came ` +
                     "here through /fork or /clone, so it is read-only. Start a new run to continue " +
                     "that work.",
             );

@@ -1,8 +1,7 @@
-/** Offline examples rendered by the real settings panel and tool-review formatter. */
+/** Offline examples rendered by the real settings panel and tool-review entry. */
 import { fileURLToPath } from "node:url";
-import { Text } from "@earendil-works/pi-tui";
 import { compactionSettings, createCompactionPanel } from "../src/settings/section.ts";
-import { formatReviewNotice } from "../src/tool-review/review.ts";
+import { reviewEntryLines, toolReviewRecord } from "../src/ui/review-notice.ts";
 import { makeTheme, settingsFrame, writeFrames } from "./doc-images.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -10,7 +9,11 @@ const theme = makeTheme();
 const report = {
     model: "example/classifier",
     pricingKnown: true,
-    protectedTools: [],
+    protectedTools: [
+        { id: "write-config", reasons: ["tool-not-deletable"] },
+        { id: "codemode-edit", reasons: ["nested-tool-not-deletable"] },
+        { id: "recent-read", reasons: ["retained-region"] },
+    ],
     candidateTools: 12,
     chunks: [
         { id: "redundant-1", toolCallId: "search-1" },
@@ -31,8 +34,12 @@ const report = {
     budgetFallbacks: [],
     usage: [],
     charsBefore: 48000,
+    charsAfterTruncation: 39000,
     charsAfter: 31000,
 };
+const record = toolReviewRecord(report);
+const entry = (expanded) =>
+    reviewEntryLines(record, 106, theme, expanded).map((line) => ` ${line}`);
 
 writeFrames(root, [
     {
@@ -47,9 +54,9 @@ writeFrames(root, [
     },
     {
         name: "compaction-review",
-        title: "pi — an illustrative tool-review notice",
+        title: "pi — an illustrative tool-review entry, collapsed and expanded",
         theme,
-        // The fixture demonstrates the notice format; its reduction is not a benchmark.
-        lines: new Text(theme.fg("dim", formatReviewNotice(report)), 1, 0).render(108),
+        // The fixture demonstrates the entry format; its reduction is not a benchmark.
+        lines: [...entry(false), "", ...entry(true)],
     },
 ]);

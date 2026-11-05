@@ -1,0 +1,24 @@
+{
+    "schemaVersion": 1,
+    "id": "case-replace-with-slug",
+    "title": "One sentence describing the defect that escaped",
+    "status": "open",
+    "layer": "review",
+    "class": "missing-guard",
+    "signal": "selfRework pair under 1h, or a later fix commit",
+    "observedAt": "2026-10-29",
+    "missed": {
+        "file": "packages/example/src/example.ts",
+        "line": 1,
+        "summary": "What was wrong and why it mattered."
+    },
+    "expected": {
+        "severity": "important",
+        "class": "missing-guard"
+    },
+    "diff": "diff --git a/packages/example/src/example.ts b/packages/example/src/example.ts\n@@ -1,0 +1,1 @@\n+replacement line\n",
+    "fix": {
+        "artifact": "review-workflow/REVIEW.md",
+        "change": "Which rule, check, or contract clause now catches it."
+    }
+}

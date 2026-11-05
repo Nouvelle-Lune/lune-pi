@@ -10,7 +10,6 @@ import type {
     SessionBeforeTreeResult,
     Theme,
 } from "@earendil-works/pi-coding-agent";
-
 import {
     chooseAutoModel,
     DEFAULT_AUTO_MODEL_SETTINGS,
@@ -18,7 +17,14 @@ import {
 } from "../auto-model.ts";
 import type { AgentDefinition } from "../definitions.ts";
 import type { ExtensionTool } from "../extension-tools.ts";
-import { AUTO_MODEL, allowedModelRefs, formatModelRef, parseModelRef } from "../models.ts";
+import {
+    AUTO_MODEL,
+    allowedModelRefs,
+    allowedModels,
+    formatModelRef,
+    parseModelRef,
+    type ModelRef,
+} from "../models.ts";
 import {
     RUN_NOTIFICATION_TYPE,
     RunNotifier,
@@ -27,6 +33,7 @@ import {
     type RunNotice,
 } from "../notify/notifier.ts";
 import { runSessionFile, runWorktreePath } from "../paths.ts";
+import { displayLine } from "../render/text.ts";
 import { SUBAGENT_GUIDE } from "./guide.ts";
 import { REPORT_TOOL_NAME } from "./report-tool.ts";
 import { createRunFile } from "./run-file.ts";
@@ -47,11 +54,49 @@ import { createRunWorktree, removeRunWorktree, type CreatedWorktree } from "./wo
 
 export interface StartParams {
     task: string;
+    title?: string;
     agent?: string;
     model?: string;
     thinking?: ThinkingLevel;
     tools?: string[];
     isolation?: Isolation;
+}
+
+/** The run settings that only an inline start takes; a named agent runs with its definition's. */
+export const INLINE_SETTINGS = ["model", "thinking", "tools", "isolation"] as const;
+
+/**
+ * Why a start may not go ahead because it names an agent and sets its settings too, or
+ * `undefined`. The definition is the user's, so the main agent gives only the task and a title.
+ */
+export function agentSettingsProblem(params: Omit<StartParams, "task">): string | undefined {
+    if (params.agent === undefined) {
+        return undefined;
+    }
+
+    const set = INLINE_SETTINGS.filter((field) => params[field] !== undefined);
+
+    return set.length > 0
+        ? `The agent "${params.agent}" runs with the model, thinking, tools and isolation of ` +
+              `its definition; give only task and title with agent, and leave out ${set.join(", ")}.`
+        : undefined;
+}
+
+/**
+ * Why an inline start may not go ahead because it names a model while Auto mode only is on, or
+ * `undefined`. Agent runs keep their definition's model.
+ */
+export function autoOnlyProblem(
+    params: Omit<StartParams, "task">,
+    autoOnly: boolean,
+): string | undefined {
+    return autoOnly &&
+        params.agent === undefined &&
+        params.model !== undefined &&
+        params.model !== AUTO_MODEL
+        ? `Auto mode only is on, so an inline run uses model ${AUTO_MODEL}; leave out ` +
+              `model "${String(params.model)}".`
+        : undefined;
 }
 
 export interface ProgressOptions {
@@ -78,6 +123,8 @@ export class RunManager implements RunHost {
     private readonly definitions: AgentDefinition[];
     private readonly listExtensionTools: () => readonly ExtensionTool[];
     private readonly autoModelSettings: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
+    private readonly modelSelection: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
+    private readonly autoOnly: (ctx: ExtensionContext) => Promise<boolean>;
     private readonly runs = new Map<string, Run>();
     /** Ended turns of runs on another branch; sent when their branch is active again. */
     private readonly deferred = new Map<string, RunNotice[]>();
@@ -96,6 +143,10 @@ export class RunManager implements RunHost {
         extensionTools?: () => readonly ExtensionTool[];
         /** Read at each `model: auto` start; the defaults when left out. */
         autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>;
+        /** A nonempty selection replaces the parent's scope for new runs. */
+        modelSelection?: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>;
+        /** Read at each start; when true, inline runs use `model: auto`. Off when left out. */
+        autoOnly?: (ctx: ExtensionContext) => Promise<boolean>;
         /** Tests only: a runtime with an offline provider. Runs otherwise create their own. */
         modelRuntime?: ModelRuntime;
     }) {
@@ -107,6 +158,8 @@ export class RunManager implements RunHost {
         this.listExtensionTools = options.extensionTools ?? (() => []);
         this.autoModelSettings =
             options.autoModelSettings ?? (async () => DEFAULT_AUTO_MODEL_SETTINGS);
+        this.modelSelection = options.modelSelection ?? (async () => []);
+        this.autoOnly = options.autoOnly ?? (async () => false);
         this.sessionId = options.ctx.sessionManager.getSessionId();
         this.notifier = new RunNotifier(
             options.pi,
@@ -157,7 +210,12 @@ export class RunManager implements RunHost {
             return;
         }
 
-        const notice: RunNotice = { runId: run.id, name: run.name, record };
+        const notice: RunNotice = {
+            runId: run.id,
+            name: run.name,
+            title: run.snapshot?.title,
+            record,
+        };
 
         // The notifier checks the branch again when the batch goes out.
         if (this.isOnBranch(run)) {
@@ -251,12 +309,20 @@ export class RunManager implements RunHost {
             return run;
         }
 
-        const known = this.branchRuns().map((other) => `${other.id} (${other.name})`);
+        const known = this.branchRuns();
+        // A model that read a name or title as the handle gets that run's ID spelled out, never aliased.
+        const matches = known.filter(
+            (other) => other.name === runId || other.snapshot?.title === runId,
+        );
+        const hint =
+            matches.length === 1
+                ? ` "${runId}" is a run ${matches[0]!.name === runId ? "name" : "title"}, not an ID; pass ${matches[0]!.id}.`
+                : "";
 
         throw new Error(
-            `No subagent run "${runId}" on the current branch.` +
+            `No subagent run "${runId}" on the current branch.${hint}` +
                 (known.length > 0
-                    ? ` Runs here: ${known.join(", ")}.`
+                    ? ` Runs here: ${known.map((other) => other.id).join(", ")}.`
                     : " There are no runs here."),
         );
     }
@@ -269,6 +335,13 @@ export class RunManager implements RunHost {
         options: ProgressOptions = {},
     ): Promise<Run> {
         this.assertActive();
+
+        const autoOnly = params.agent === undefined && (await this.autoOnly(ctx));
+        const problem = agentSettingsProblem(params) ?? autoOnlyProblem(params, autoOnly);
+
+        if (problem) {
+            throw new Error(problem);
+        }
 
         const definition = this.resolveDefinition(params.agent);
         const taskTools = params.tools ?? definition?.tools;
@@ -290,6 +363,7 @@ export class RunManager implements RunHost {
             tools: taskTools,
             isolation,
             thinkingSet: explicitThinking !== undefined,
+            autoOnly,
             options,
         });
         // An auto run's rating sets the thinking only where the call and definition do not.
@@ -309,6 +383,7 @@ export class RunManager implements RunHost {
 
         const runId = this.reserveRunId();
         const name = definition?.name ?? `run-${++this.inlineCount}`;
+        const title = typeof params.title === "string" ? displayLine(params.title) : undefined;
         const file = runSessionFile(this.sessionId, runId, this.agentDir);
         let worktree: CreatedWorktree | undefined;
         let fileCreated = false;
@@ -410,6 +485,7 @@ export class RunManager implements RunHost {
         const snapshot: RunSnapshot = {
             runId,
             name,
+            ...(title ? { title } : {}),
             ...(definition
                 ? {
                       definition: {
@@ -468,10 +544,9 @@ export class RunManager implements RunHost {
             this.reservedIds.delete(runId);
             this.emit("state", this.runs.get(runId));
 
-            throw new Error(
-                `Run ${name} (${runId}) could not record its snapshot: ${message(error)}`,
-                { cause: error },
-            );
+            throw new Error(`Run ${runId} could not record its snapshot: ${message(error)}`, {
+                cause: error,
+            });
         }
 
         const run = Run.started(identity, snapshot, live, sink, this);
@@ -484,7 +559,7 @@ export class RunManager implements RunHost {
             await run.startTask(params.task);
         } catch (error) {
             throw new Error(
-                `Run ${name} (${runId}) could not start its task: ${message(error)}\n` +
+                `Run ${runId} could not start its task: ${message(error)}\n` +
                     "The run is kept as failed; continue it with subagent_send once the cause is fixed.",
                 { cause: error },
             );
@@ -517,16 +592,22 @@ export class RunManager implements RunHost {
     copyReport(run: Run): void {
         if (this.isOnBranch(run)) {
             throw new Error(
-                `Run ${run.name} is on this branch; its turns reach the main agent already.`,
+                `Run ${run.id} is on this branch; its turns reach the main agent already.`,
             );
         }
 
         if (!run.lastTurn) {
-            throw new Error(`Run ${run.name} has no ended turn to copy.`);
+            throw new Error(`Run ${run.id} has no ended turn to copy.`);
         }
 
         const { content, details } = buildRunNotification([
-            { runId: run.id, name: run.name, record: run.lastTurn, copied: true },
+            {
+                runId: run.id,
+                name: run.name,
+                title: run.snapshot?.title,
+                record: run.lastTurn,
+                copied: true,
+            },
         ]);
 
         this.pi.sendMessage({ customType: RUN_NOTIFICATION_TYPE, content, display: true, details });
@@ -548,7 +629,7 @@ export class RunManager implements RunHost {
             const stop = "Stop them";
             const choice = await ctx.ui.select(
                 `${running.length} subagent run${running.length === 1 ? " is" : "s are"} still ` +
-                    `running on the branch you are leaving: ${running.map((run) => run.name).join(", ")}.`,
+                    `running on the branch you are leaving: ${running.map((run) => run.title).join(", ")}.`,
                 [keep, stop],
                 { signal: event.signal },
             );
@@ -719,7 +800,7 @@ export class RunManager implements RunHost {
     }
 
     /**
-     * Requested models must be in the parent's allowed set. The parent's own current model is used
+     * Requested models must be in the subagent allowlist. The parent's own current model is used
      * as it is, since Pi lets a session's default model sit outside its scope.
      */
     private async resolveModel(
@@ -730,6 +811,7 @@ export class RunManager implements RunHost {
             tools?: readonly string[];
             isolation: Isolation;
             thinkingSet: boolean;
+            autoOnly: boolean;
             options: ProgressOptions;
         },
     ): Promise<{
@@ -739,7 +821,8 @@ export class RunManager implements RunHost {
         /** The auto rating's thinking level, when the start set none. */
         thinking?: ThinkingLevel;
     }> {
-        const requested = params.model ?? definition?.model;
+        const requested =
+            params.model ?? definition?.model ?? (run.autoOnly ? AUTO_MODEL : undefined);
 
         if (requested === undefined) {
             if (!ctx.model) {
@@ -749,7 +832,13 @@ export class RunManager implements RunHost {
             return { ref: { provider: ctx.model.provider, id: ctx.model.id }, source: "parent" };
         }
 
-        const source: ValueSource = params.model !== undefined ? "call" : "definition";
+        const source: ValueSource =
+            params.model !== undefined
+                ? "call"
+                : definition?.model !== undefined
+                  ? "definition"
+                  : "settings";
+        const selection = await this.modelSelection(ctx);
 
         if (requested === AUTO_MODEL) {
             run.options.onProgress?.("Choosing a model");
@@ -757,6 +846,7 @@ export class RunManager implements RunHost {
             const { ref, choice, thinking } = await chooseAutoModel({
                 ctx,
                 settings: await this.autoModelSettings(ctx),
+                models: allowedModels(ctx, selection),
                 task: params.task,
                 definition,
                 tools: run.tools,
@@ -774,7 +864,7 @@ export class RunManager implements RunHost {
             throw new Error(`Invalid model "${requested}": use provider/id.`);
         }
 
-        const allowed = allowedModelRefs(ctx);
+        const allowed = allowedModelRefs(ctx, selection);
 
         if (!allowed.includes(requested)) {
             throw new Error(

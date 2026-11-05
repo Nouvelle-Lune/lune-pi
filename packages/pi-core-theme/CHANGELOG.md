@@ -37,6 +37,10 @@ All notable changes are documented here using
   Lune Core Dark and Light under **Style · Color palette**. Each has its own crescent
   gradient, which also tints the header moon and thinking levels, and is a standalone Pi
   theme (`pi-core-aurora`, `pi-core-eclipse`, `pi-core-nebula`, `pi-core-dawn`, `pi-core-mist`).
+- **Claude Code, Cursor and Codex palettes.** Three dark palettes follow the look of these
+  tools: clay orange on warm charcoal, pastel syntax on graphite, and cyan and magenta on
+  black. Each is a standalone Pi theme (`pi-core-claude-code`, `pi-core-cursor`,
+  `pi-core-codex`) and appears under **Style · Color palette**.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
 - **Cmd+click paths and links.** When the terminal supports OSC 8 links, explicit Markdown
   file links, inline-code paths and path-tool headings open existing files and directories.
@@ -48,6 +52,11 @@ All notable changes are documented here using
 
 ### Changed
 
+- **Palette background off by default.** A Lune palette now leaves the terminal's own
+  background and text colors in place unless **Style · Palette background**
+  (`paletteBackground`) is turned on, so enabling the theme no longer repaints the
+  terminal. Turn it on when a palette's page colors matter, such as a light palette on a
+  dark terminal profile.
 - **Context presentation.** The centered browser is capped at 100 columns and 24 rows,
   with a Pi usage header and category values that follow the active theme. The solid
   composition bar includes remaining capacity calculated from the category estimates;
@@ -103,10 +112,10 @@ All notable changes are documented here using
   frame renders, and the incoming instance adopts it instead of rebuilding it.
 - **Dark and light palettes looking swapped.** Pi themes leave the page background to the
   terminal, so `pi-core-light` on a dark profile showed dark text on black, and
-  `pi-core-dark` washed out on a light one. While a Lune palette is applied, the theme now
-  sets the terminal's default background and text to the palette's (OSC 11/10) and restores
-  the profile's colors when the palette is turned off or Pi exits. Turn
-  **Style · Palette background** (`paletteBackground`) off to keep the terminal's colors.
+  `pi-core-dark` washed out on a light one. While a Lune palette is applied and
+  **Style · Palette background** (`paletteBackground`) is on, the theme sets the terminal's
+  default background and text to the palette's (OSC 11/10) and restores the profile's colors
+  when the palette is turned off or Pi exits.
 - **Style resets in clipped summaries.** Summaries clip plain text instead of
   `truncateToWidth`, whose trailing ANSI reset ended the card's own styling early.
 - **Lag in long sessions.** Moving the pointer in fullscreen no longer re-renders every

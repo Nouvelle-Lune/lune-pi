@@ -109,7 +109,13 @@ for (const mode of ["tui", "rpc", "print"])
             sections.map((section) => section.id),
             mode === "tui" ? ["recap"] : [],
         );
-        if (mode === "tui") assert.equal(sections[0]!.fields[0]!.inspect().value, false);
+        if (mode === "tui") {
+            assert.equal(sections[0]!.fields[0]!.inspect().value, false);
+            assert.equal(
+                sections[0]!.fields.find((field) => field.id === "maxRetries")!.inspect().value,
+                3,
+            );
+        }
         await f.commands.get("recap")!("", f.ctx);
         assert.match(f.notices[0]!, mode === "tui" ? /No conversation/ : /interactive terminal/);
         assert.equal(process.stdin.listenerCount("data"), count);
@@ -148,6 +154,20 @@ test("invalid Recap configuration prevents startup and propagates the validation
     assert.equal(process.stdin.listenerCount("data"), count);
     assert.deepEqual(f.widgets, []);
 });
+
+for (const value of ["-1", "1.5", "9007199254740992"])
+    test(`invalid maxRetries ${value} prevents startup and preserves its setting file`, async (t) => {
+        const config = `{"maxRetries":${value}}`;
+        const f = await fixture(t, "tui", config);
+        const handle = registerRecap(f.pi);
+        t.after(() => handle.dispose());
+
+        await assert.rejects(f.emit("session_start"), {
+            name: "TypeError",
+            message: `Invalid value for setting "maxRetries" for "pi-recap" in ${f.settingsFile}`,
+        });
+        assert.equal(await readFile(f.settingsFile, "utf8"), config);
+    });
 
 test("repeated startup retires the old Panel and replaces focus observation without duplicate listeners", async (t) => {
     const f = await fixture(t, "tui", '{"enabled":true}');

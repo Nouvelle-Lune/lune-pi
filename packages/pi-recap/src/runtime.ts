@@ -8,7 +8,13 @@ import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 import { observeTerminalFocus, type TerminalInputSource } from "./focus.ts";
 import { collectRecapInput, fingerprintRecapInput, type RecapInput } from "./input.ts";
-import { generateRecap } from "./generate.ts";
+import {
+    createRecapFailure,
+    generateRecap,
+    recapErrorMessage,
+    RecapGenerationError,
+    type RecapFailureDiagnostics,
+} from "./generate.ts";
 import { resolveRecapModel, type RecapSettingsView } from "./settings.ts";
 
 const entryType = "pi-recap.v1";
@@ -32,6 +38,7 @@ type RecordData = {
     // Historical display metadata, not the current widget's mounted state.
     displayed?: boolean;
     failed?: boolean;
+    failure?: RecapFailureDiagnostics;
 
     // Optional for compatibility with records written by older versions.
     fingerprint?: string;
@@ -486,6 +493,7 @@ export class RecapRuntime {
             ...captured,
             model,
             thinking,
+            maxRetries: settings.maxRetries,
             key,
         };
     }
@@ -665,13 +673,21 @@ export class RecapRuntime {
                 return;
             }
 
+            const message = recapErrorMessage(error);
+
             this.remember({
                 key,
                 failed: true,
                 fingerprint: captured.fingerprint,
+                failure: createRecapFailure({
+                    kind: "model",
+                    attempts: 0,
+                    maxRetries: this.settings().maxRetries,
+                    message,
+                }),
             });
 
-            this.ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+            this.ctx.ui.notify(message, "warning");
 
             return;
         }
@@ -738,6 +754,8 @@ export class RecapRuntime {
         };
 
         request.promise = (async () => {
+            let attempts = 0;
+
             try {
                 const result = await generateRecap(
                     ctx,
@@ -745,7 +763,9 @@ export class RecapRuntime {
                     snapshot.model,
                     snapshot.thinking,
                     signal,
+                    snapshot.maxRetries,
                 );
+                attempts = result.attempts;
 
                 if (!valid()) {
                     return;
@@ -769,16 +789,28 @@ export class RecapRuntime {
                     return;
                 }
 
+                const failure =
+                    error instanceof RecapGenerationError
+                        ? error.failure
+                        : createRecapFailure({
+                              kind: "runtime",
+                              attempts,
+                              maxRetries: snapshot.maxRetries,
+                              message: "Recap runtime failed",
+                          });
+
                 this.remember({
                     key: snapshot.key,
                     failed: true,
                     fingerprint: snapshot.fingerprint,
+                    failure,
                 });
 
-                ctx.ui.notify(
-                    `Recap failed: ${error instanceof Error ? error.message : String(error)}`,
-                    "warning",
-                );
+                const after = failure.attempts
+                    ? ` after ${failure.attempts} attempt${failure.attempts === 1 ? "" : "s"}`
+                    : "";
+
+                ctx.ui.notify(`Recap failed${after}: ${recapErrorMessage(error)}`, "warning");
             } finally {
                 if (this.request === request) {
                     this.request = undefined;

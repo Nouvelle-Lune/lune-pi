@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { SUBAGENT_GUIDE } from "../../src/run/guide.ts";
+import type { StartParams } from "../../src/run/run-manager.ts";
 import { RUN_ENTRY_TYPE } from "../../src/run/types.ts";
 import { SUBAGENT_TOOL_NAMES } from "../../src/tools/subagent-tools.ts";
 import {
@@ -177,6 +178,31 @@ test("the display name is the definition name, or run-1, run-2 per parent sessio
     assert.equal(first.snapshot?.definition, undefined);
 });
 
+test("a title is normalized to one line in the snapshot; a blank title is dropped", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([reportResponse("done", "one"), reportResponse("done", "two")]);
+    const titled = await manager.start(
+        // These control characters outlive sequence stripping; displayLine must drop them.
+        { task: "a", title: "  Review\u001b[31m the\u0007\b \u001b \u009b\n  diff \t" },
+        fx.ctx,
+    );
+    const blank = await manager.start({ task: "b", title: " \n\t " }, fx.ctx);
+
+    assert.equal(titled.title, "Review the diff");
+    assert.equal(titled.snapshot?.title, "Review the diff");
+    assert.equal(blank.title, blank.name);
+    assert.equal(blank.snapshot?.title, undefined);
+
+    const record = readJsonl(titled.file).find((line) => line["customType"] === RUN_ENTRY_TYPE);
+
+    assert.equal((record!["data"] as { title?: string }).title, "Review the diff");
+
+    await waitForTurns(manager, titled, 1);
+    await waitForTurns(manager, blank, 1);
+});
+
 test("an unknown agent fails the start with the loaded names and leaves no run file or entry", async (t) => {
     const fx = await createFixture(t);
     const manager = fx.createManager([definition({ name: "reviewer" })]);
@@ -203,4 +229,115 @@ test("a tool the run does not have fails the start and removes the run file", as
     assert.deepEqual(spawnEntries(fx.parent), []);
     assert.equal(manager.branchRuns().length, 0);
     assert.deepEqual(runFiles(fx.agentDir, fx.parent.getSessionId()), []);
+});
+
+const AGENT_SETTING_CASES: Array<{ field: string; params: Partial<StartParams> }> = [
+    { field: "model", params: { model: "faux/faux-2" } },
+    { field: "thinking", params: { thinking: "low" } },
+    { field: "tools", params: { tools: ["read"] } },
+    { field: "isolation", params: { isolation: "shared" } },
+];
+
+for (const { field, params } of AGENT_SETTING_CASES) {
+    test(`an agent with ${field} in the call fails the start and leaves no run, entry or run file`, async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([definition({ name: "reviewer" })]);
+        const expected =
+            'The agent "reviewer" runs with the model, thinking, tools and isolation of its ' +
+            `definition; give only task and title with agent, and leave out ${field}.`;
+
+        await assert.rejects(
+            manager.start({ task: "work", agent: "reviewer", ...params }, fx.ctx),
+            (error: Error) => error.message === expected,
+        );
+
+        assert.equal(manager.branchRuns().length, 0);
+        assert.deepEqual(spawnEntries(fx.parent), []);
+        assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+    });
+}
+
+test("an agent with only a task and a title still starts, with its definition's values", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "reviewer", thinking: "high" })]);
+
+    fx.faux.setResponses([reportResponse("done", "ok")]);
+    const run = await manager.start({ task: "work", agent: "reviewer", title: "Review" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+
+    assert.equal(run.snapshot?.sources.thinking, "definition");
+    assert.equal(manager.branchRuns().length, 1);
+});
+
+test.describe("Auto mode only", () => {
+    const autoOnly = async () => true;
+
+    test("an inline start with another model fails and leaves no run, entry, run file or rating", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+        const expected =
+            'Auto mode only is on, so an inline run uses model auto; leave out model "faux/faux-2".';
+
+        await assert.rejects(
+            manager.start({ task: "work", model: "faux/faux-2" }, fx.ctx),
+            (error: Error) => error.message === expected,
+        );
+
+        assert.equal(manager.branchRuns().length, 0);
+        assert.deepEqual(spawnEntries(fx.parent), []);
+        assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+    });
+
+    test("an inline start without a model becomes an auto run with source settings", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+
+        fx.faux.setResponses([reportResponse("done", "ok")]);
+        const run = await manager.start({ task: "work" }, fx.ctx);
+
+        await waitForTurns(manager, run, 1);
+
+        assert.equal(run.snapshot?.sources.model, "settings");
+        assert.deepEqual(run.snapshot?.autoModel, { by: "no-classifier" });
+    });
+
+    test("an inline start with model auto is allowed and records source call", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager([], undefined, undefined, undefined, undefined, autoOnly);
+
+        fx.faux.setResponses([reportResponse("done", "ok")]);
+        const run = await manager.start({ task: "work", model: "auto" }, fx.ctx);
+
+        await waitForTurns(manager, run, 1);
+
+        assert.equal(run.snapshot?.sources.model, "call");
+        assert.notEqual(run.snapshot?.autoModel, undefined);
+    });
+
+    test("an agent keeps its definition's model, and one without a model inherits the parent's", async (t) => {
+        const fx = await createFixture(t);
+        const manager = fx.createManager(
+            [definition({ name: "pinned", model: "faux/faux-2" }), definition({ name: "plain" })],
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            autoOnly,
+        );
+
+        fx.faux.setResponses([reportResponse("done", "one"), reportResponse("done", "two")]);
+        const pinned = await manager.start({ task: "a", agent: "pinned" }, fx.ctx);
+        const plain = await manager.start({ task: "b", agent: "plain" }, fx.ctx);
+
+        await waitForTurns(manager, pinned, 1);
+        await waitForTurns(manager, plain, 1);
+
+        assert.equal(pinned.snapshot?.model, "faux/faux-2");
+        assert.equal(pinned.snapshot?.sources.model, "definition");
+        assert.equal(pinned.snapshot?.autoModel, undefined);
+        assert.equal(plain.snapshot?.model, "faux/faux-1");
+        assert.equal(plain.snapshot?.sources.model, "parent");
+        assert.equal(plain.snapshot?.autoModel, undefined);
+    });
 });

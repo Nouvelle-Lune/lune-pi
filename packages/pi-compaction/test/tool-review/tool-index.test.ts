@@ -159,3 +159,75 @@ test("new default tool names participate in deletion while unselected tools rema
     );
     assert.deepEqual(index.protectedTools, [{ id: "write", reasons: ["tool-not-deletable"] }]);
 });
+
+function codemodeResult(nestedCalls: {
+    calls: { name: string; status: "ok" | "error" | "unfinished" }[];
+    complete: boolean;
+}) {
+    return {
+        ...toolResult("cm", "codemode", "out"),
+        nestedCalls: {
+            complete: nestedCalls.complete,
+            calls: nestedCalls.calls.map((call, position) => ({ id: `n${position}`, ...call })),
+        },
+    } as AgentMessage;
+}
+
+function indexNested(nestedCalls: Parameters<typeof codemodeResult>[0]) {
+    return indexTools(
+        [assistantToolCall("cm", "codemode", {}), codemodeResult(nestedCalls)],
+        [],
+        projectionFrom(KEPT),
+        "keep",
+        policy({ deletableTools: ["codemode", "read"] }),
+    );
+}
+
+test("indexTools makes a codemode result a candidate when its nested calls are complete, permitted and ok", () => {
+    const index = indexNested({ complete: true, calls: [{ name: "read", status: "ok" }] });
+    assert.deepEqual(
+        index.pairs.map((pair) => pair.id),
+        ["cm"],
+    );
+    assert.deepEqual(index.protectedTools, []);
+});
+
+test("indexTools makes a codemode result a candidate when it recorded no nested calls and is complete", () => {
+    const index = indexNested({ complete: true, calls: [] });
+    assert.equal(index.pairs.length, 1);
+    assert.deepEqual(index.protectedTools, []);
+});
+
+test("indexTools protects a codemode result with a nested call to a non-permitted tool", () => {
+    const index = indexNested({ complete: true, calls: [{ name: "write", status: "ok" }] });
+    assert.equal(index.pairs.length, 0);
+    assert.deepEqual(index.protectedTools, [{ id: "cm", reasons: ["nested-tool-not-deletable"] }]);
+});
+
+for (const status of ["error", "unfinished"] as const) {
+    test(`indexTools protects a codemode result with a ${status} nested call`, () => {
+        const index = indexNested({ complete: true, calls: [{ name: "read", status }] });
+        assert.equal(index.pairs.length, 0);
+        assert.deepEqual(index.protectedTools, [{ id: "cm", reasons: ["nested-call-failed"] }]);
+    });
+}
+
+for (const calls of [[], [{ name: "read", status: "ok" as const }]]) {
+    test(`indexTools protects an incomplete nested record with ${calls.length} recorded calls`, () => {
+        const index = indexNested({ complete: false, calls });
+        assert.equal(index.pairs.length, 0);
+        assert.deepEqual(index.protectedTools, [
+            { id: "cm", reasons: ["incomplete-nested-calls"] },
+        ]);
+    });
+}
+
+test("indexTools reports every nested reason that applies", () => {
+    const index = indexNested({ complete: false, calls: [{ name: "write", status: "error" }] });
+    assert.deepEqual(index.protectedTools, [
+        {
+            id: "cm",
+            reasons: ["incomplete-nested-calls", "nested-tool-not-deletable", "nested-call-failed"],
+        },
+    ]);
+});

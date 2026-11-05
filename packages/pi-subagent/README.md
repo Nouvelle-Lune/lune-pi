@@ -34,6 +34,8 @@ directly.
 
 - **Work in parallel.** Start one run or several in one tool call. Each gets its own conversation
   and only the task you delegate; reports arrive when turns end, without status polling.
+- **Give each run a title.** A short title such as `Review retry policy` labels the run in
+  `/agents`, the Dock and its end-of-turn notice. The agent still addresses runs by ID.
 - **Keep control of a run.** Read its live transcript, steer it while it works, or continue it after
   a completed, failed or interrupted turn. Questions return to the main agent for coordination.
 - **Choose where changes happen.** Share the current working directory or give a run a detached
@@ -91,6 +93,9 @@ This role follows the main agent's model. Add `model: provider/id` to choose one
 to use task tiers. Add `isolation: worktree` for a role that should change files separately.
 Run `/reload` after saving a definition.
 
+The main agent starts a role with only a task and a title. The definition's model, thinking, tools
+and isolation always apply; the main agent cannot change them in the call.
+
 To create a role interactively:
 
 ```text
@@ -110,8 +115,16 @@ Install Core's Pi entry to use the settings command:
 pi install npm:@lune_99/pi-lune-extensions-core
 ```
 
-Then restart Pi and open `/lune-core-settings subagents`. **Custom agents** edits saved definitions;
-**Auto classifier** and **Auto tiers** configure runs started with `model: auto`.
+Then restart Pi and open `/lune-core-settings subagents`. **Allowed models** is a multi-select
+list from Pi's scoped models: Space toggles a model and Enter saves. A nonempty selection replaces
+the session's default allowed model list for new runs; clear it to follow Pi's scope again. Saved
+models remain allowed outside a later session's scope while available in Pi. Existing runs keep
+their model, and inheriting the main agent's model is unchanged.
+
+**Custom agents** edits saved definitions; **Classifier model** and **Auto tiers** configure runs
+started with `model: auto`. **Auto mode only** removes the `model` parameter from
+`subagent_start`, so every inline run uses `model: auto`; custom agents keep their own model. Model choices in Custom agents and Auto tiers follow the subagent
+allowed list.
 
 | Tier     | Intended work                                      |
 | -------- | -------------------------------------------------- |
@@ -135,10 +148,12 @@ and the run uses the main agent's model. See the [full auto-model behavior](docs
 
 | Tool              | Purpose                                                 |
 | ----------------- | ------------------------------------------------------- |
-| `subagent_start`  | Start a task, or several tasks, in new Pi sessions      |
+| `subagent_start`  | Start one task in a new Pi session                      |
 | `subagent_send`   | Steer an active run or continue it with another message |
 | `subagent_status` | Read states, usage and reports on the current branch    |
 | `subagent_stop`   | Stop the turn while keeping its session and worktree    |
+
+Issue separate `subagent_start` calls to start independent runs in parallel. Each call requires `task`.
 
 A run reports `done`, `blocked` or `needs_input`. Stopping it preserves its conversation. Closing
 the main session interrupts active runs; resume the session and use `subagent_send` to continue.

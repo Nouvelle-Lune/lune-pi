@@ -1,0 +1,89 @@
+{
+    "schemaVersion": 1,
+    "change": "jev-codemode-review-2",
+    "createdAt": "2026-10-29T10:20:45.481Z",
+    "intent": "Let Jev review a codemode result when its nested-call record is complete, every nested call succeeded and every nested tool is in Deletable tools; otherwise protect it with incomplete-nested-calls, nested-tool-not-deletable or nested-call-failed. Replace the dim info notification, which Pi removed when the checkpoint committed, with a widget pinned above the editor that shows progress, survives the commit until the next compaction or session change, and reports disjoint removal counts plus an in-memory charsAfterTruncation split between the review input cap and classifier drops. RPC mode renders the same notice as string lines because Pi ignores widget factories there. The checkpoint format is unchanged; README, CHANGELOG and the rendered preview are updated. npm run check passed (exit 0) on the first commit and the package tests pass with the RPC fix.",
+    "tier": "high",
+    "tierReasons": ["package-lock.json", "packages/pi-compaction/package.json"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "97887814e659f478b14e18f29775635c54c65726",
+    "headRev": "5962bc0458a32f5e04ce040010e805aa80ad1068",
+    "files": [
+        "package-lock.json",
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/README.md",
+        "packages/pi-compaction/docs/compaction-review.png",
+        "packages/pi-compaction/docs/compaction-review.svg",
+        "packages/pi-compaction/package.json",
+        "packages/pi-compaction/src/compaction-controller.ts",
+        "packages/pi-compaction/src/extension.ts",
+        "packages/pi-compaction/src/index.ts",
+        "packages/pi-compaction/src/tool-review/candidates.ts",
+        "packages/pi-compaction/src/tool-review/review.ts",
+        "packages/pi-compaction/src/ui/review-notice.ts",
+        "packages/pi-compaction/test/compaction/run-listener.test.ts",
+        "packages/pi-compaction/test/harness/widget-ui.ts",
+        "packages/pi-compaction/test/host/tool-review-host.test.ts",
+        "packages/pi-compaction/test/tool-review/review.test.ts",
+        "packages/pi-compaction/test/tool-review/tool-index.test.ts",
+        "packages/pi-compaction/test/ui/review-notice.test.ts",
+        "packages/pi-compaction/tools/make-doc-images.mjs"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T10:20:49.577Z",
+            "scope": "full",
+            "base": "97887814e659f478b14e18f29775635c54c65726",
+            "head": "5962bc0458a32f5e04ce040010e805aa80ad1068",
+            "status": "ingested",
+            "findings": 3,
+            "newFindings": 2,
+            "duplicates": 1
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T10:38:01.146Z",
+            "scope": "diff-after-previous-round",
+            "base": "5962bc0458a32f5e04ce040010e805aa80ad1068",
+            "head": "0a7123574ca0df8d5691a65888dc77fa6f7a7849",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-compaction/src/ui/review-notice.ts:283:ui-instability",
+            "round": 1,
+            "severity": "important",
+            "class": "ui-instability",
+            "file": "packages/pi-compaction/src/ui/review-notice.ts",
+            "line": 283,
+            "summary": "Pinned footer changes height mid-run: reviewNoticeLines at width 100 renders 1 row while preparing, 2 when the first progress callback adds the calls row, 3 when the report lands, and 1 again for failed/cancelled (outcome and calls rows dropped). The editor moves twice during one compaction. Between widths 48 and 71 the reviewed/protected counts are replaced by outcome parts at settle.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "reviewNoticeLines now reserves one row below COMPACT_NOTICE_WIDTH and three above it, padding unknown rows blank; failed and cancelled keep the same height. Tests: every stage has the same row count at each width.",
+            "resolvedAt": "2026-10-29T10:38:00.914Z"
+        },
+        {
+            "id": "F1-2",
+            "key": "packages/pi-compaction/README.md:56:stale-doc",
+            "round": 1,
+            "severity": "nit",
+            "class": "stale-doc",
+            "file": "packages/pi-compaction/README.md",
+            "line": 56,
+            "summary": "`truncation` is called the 8,000-character review input cap, but MAX_TOOL_RESULT_CHARS (8,000) truncates each tool result separately in truncateToolResult, not the review input as a whole, so a reader expects the whole input to be cut at 8,000 characters.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "README, CHANGELOG and source comments now call the 8,000-character limit per tool result; the notice still labels the delta truncation.",
+            "resolvedAt": "2026-10-29T10:38:00.998Z"
+        }
+    ],
+    "convergedAt": "2026-10-29T10:43:38.293Z"
+}

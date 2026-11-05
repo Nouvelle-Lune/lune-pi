@@ -1,0 +1,76 @@
+{
+    "schemaVersion": 1,
+    "change": "palette-background-default",
+    "createdAt": "2026-10-30T09:22:58.054Z",
+    "intent": "Make Style · Palette background default to off so a Lune palette leaves the terminal's own background and text colors unless the user enables it; announce the default change and update the reference, README and tests.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "a1dcff148f879c5c21c705559cb03b86f185b2f4",
+    "headRev": "fffa2df9c6970f9c97142b26e1c7a4dc75943928",
+    "files": [
+        "packages/pi-core-theme/CHANGELOG.md",
+        "packages/pi-core-theme/README.md",
+        "packages/pi-core-theme/docs/reference.md",
+        "packages/pi-core-theme/src/settings.ts",
+        "packages/pi-core-theme/test/palette-terminal.test.ts",
+        "packages/pi-core-theme/test/palettes.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T09:23:02.393Z",
+            "scope": "full",
+            "base": "a1dcff148f879c5c21c705559cb03b86f185b2f4",
+            "head": "fffa2df9c6970f9c97142b26e1c7a4dc75943928",
+            "status": "ingested",
+            "findings": 2,
+            "newFindings": 2,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-30T09:28:19.848Z",
+            "scope": "diff-after-previous-round",
+            "base": "fffa2df9c6970f9c97142b26e1c7a4dc75943928",
+            "head": "48821b7898b875e22309dc2788d4e704fd5ccae9",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-core-theme/CHANGELOG.md:55:stale-doc",
+            "round": 1,
+            "severity": "important",
+            "class": "stale-doc",
+            "file": "packages/pi-core-theme/CHANGELOG.md",
+            "line": 55,
+            "summary": "The untouched Fixed bullet at CHANGELOG.md:114-118 now contradicts this default: the theme \"now sets the terminal's default background and text to the palette's\" while a Lune palette is applied, and it ends \"Turn Style · Palette background off to keep the terminal's colors\". In this release the claim is false unless the option is on and the advice is inverted. Qualify it and drop that advice.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": null,
+            "resolvedAt": "2026-10-30T09:28:16.663Z"
+        },
+        {
+            "id": "F1-2",
+            "key": "packages/pi-core-theme/README.md:74:stale-doc",
+            "round": 1,
+            "severity": "nit",
+            "class": "stale-doc",
+            "file": "packages/pi-core-theme/README.md",
+            "line": 74,
+            "summary": "The palette screenshots above (README.md:57 says they show each palette \"enabled from startup\") were captured with the old default on, and the scenario that regenerates them (…/repository/capture.mjs:226 writes pi-core-theme settings without paletteBackground) will now paint nothing, so pi-core-light's #1a2332 text sits on the terminal's own page. Set paletteBackground: true there.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "README now states the screenshots use Palette background on; both local capture scenarios (gitignored .pi/) opt in so regeneration matches.",
+            "resolvedAt": "2026-10-30T09:28:16.744Z"
+        }
+    ],
+    "convergedAt": "2026-10-30T09:30:26.462Z"
+}

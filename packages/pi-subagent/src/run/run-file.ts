@@ -167,6 +167,7 @@ function parseSnapshot(data: unknown, file: string): RunSnapshot {
         !snapshot ||
         typeof snapshot.runId !== "string" ||
         typeof snapshot.name !== "string" ||
+        (snapshot.title !== undefined && typeof snapshot.title !== "string") ||
         typeof snapshot.task !== "string" ||
         typeof snapshot.model !== "string" ||
         typeof snapshot.cwd !== "string" ||

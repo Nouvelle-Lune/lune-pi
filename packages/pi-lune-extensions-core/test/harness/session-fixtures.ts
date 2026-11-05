@@ -100,11 +100,15 @@ export function sessionInfo(overrides: Partial<LocalSession> = {}): LocalSession
     };
 }
 
-/** Catalog tests must never discover the developer's real external sessions. */
+/**
+ * Catalog tests must never discover the developer's real external sessions, nor read or write
+ * the real session index under the Pi agent directory.
+ */
 export function isolateExternalSessions(t: TestContext, root: string) {
     const homes = {
         CODEX_HOME: path.join(root, "codex"),
         CLAUDE_CONFIG_DIR: path.join(root, "claude"),
+        PI_CODING_AGENT_DIR: path.join(root, "agent"),
     };
     const previous = new Map(Object.keys(homes).map((key) => [key, process.env[key]]));
     for (const [key, value] of Object.entries(homes)) process.env[key] = value;
@@ -114,5 +118,9 @@ export function isolateExternalSessions(t: TestContext, root: string) {
             else process.env[key] = value;
         }
     });
-    return { codexHome: homes.CODEX_HOME, claudeHome: homes.CLAUDE_CONFIG_DIR };
+    return {
+        codexHome: homes.CODEX_HOME,
+        claudeHome: homes.CLAUDE_CONFIG_DIR,
+        agentDir: homes.PI_CODING_AGENT_DIR,
+    };
 }

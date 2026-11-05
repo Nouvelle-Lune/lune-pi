@@ -617,7 +617,7 @@ test("a classifier that Pi does not list falls back to the main agent's model an
     const actual = await failedChoice(ctx);
 
     assert.equal(actual.classifier, "cls/judge");
-    assert.match(actual.error, /^The auto classifier cls\/judge is unavailable\./);
+    assert.match(actual.error, /^The classifier cls\/judge is unavailable\./);
 });
 
 test("a registry that cannot list the classifiers falls back with its error", async () => {

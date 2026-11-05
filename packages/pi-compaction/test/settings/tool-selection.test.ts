@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
     stripTerminalSequences,
     visibleWidth,
@@ -93,7 +93,7 @@ test(
             const release = registerSettingsSection(ui, section);
             const opening = openSettingsPanel(ctx, { section: "compaction" });
             try {
-                for (let i = 0; i < 6; i++) ui.press("\x1b[B");
+                for (let i = 0; i < 7; i++) ui.press("\x1b[B");
                 ui.press("\r");
                 assert.match(ui.text(), /✓ read \[Pi\]/);
                 assert.match(ui.text(), / {2}github_search \[MCP · github\]/);
@@ -224,7 +224,7 @@ test(
             const release = registerSettingsSection(ui, section);
             const opening = openSettingsPanel(ctx, { section: "compaction" });
             try {
-                for (let index = 0; index < 6; index++) ui.press("\x1b[B");
+                for (let index = 0; index < 7; index++) ui.press("\x1b[B");
                 ui.press("\r");
                 for (const name of defaults) {
                     assert.ok(

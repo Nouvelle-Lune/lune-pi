@@ -10,17 +10,18 @@ import {
     type SettingsPanelField,
     type SettingsPanelSchema,
 } from "@lune_99/pi-lune-extensions-core/panel";
-import type { SettingsScope } from "@lune_99/pi-lune-extensions-core/settings";
+import type { DeepReadonly, SettingsScope } from "@lune_99/pi-lune-extensions-core/settings";
 import Type from "typebox";
 
 import type { ToolCatalog } from "../catalog.ts";
 import { editDefinitionFile, type DefinitionField } from "../definition-file.ts";
 import { loadDefinitions, type AgentDefinition, type LoadedDefinitions } from "../definitions.ts";
-import { AUTO_MODEL, allowedModels, formatModelRef } from "../models.ts";
+import { AUTO_MODEL, allowedModels, formatModelRef, type ModelRef } from "../models.ts";
 import { definitionsDir, projectDefinitionsDir } from "../paths.ts";
 import { REPORT_TOOL_NAME } from "../run/report-tool.ts";
 import { ISOLATION_MODES, THINKING_LEVELS } from "../run/types.ts";
 import type { SubagentSettings } from "./schema.ts";
+import { defaultThinkingChoice, thinkingChoices } from "./thinking-choices.ts";
 
 export interface AgentsMenuOptions {
     /** The tools runs can select in the current session; undefined until it has started. */
@@ -68,7 +69,7 @@ export function agentsMenu(options: AgentsMenuOptions): SettingsMenuDefinition<S
                 .filter(Boolean)
                 .join(" · ");
         },
-        open: ({ context, scope }): SettingsMenu => {
+        open: ({ context, scope, values }): SettingsMenu => {
             const loaded = loadScope(context, scope);
 
             return {
@@ -79,9 +80,16 @@ export function agentsMenu(options: AgentsMenuOptions): SettingsMenuDefinition<S
                             label: definition.name,
                             description: definition.description,
                             scopes: [scope],
-                            summary: () => agentSummary(definition),
+                            summary: () => agentSummary(definition, values),
                             menu: () => ({
-                                fields: agentFields(definition, loaded, scope, options, edited),
+                                fields: agentFields(
+                                    definition,
+                                    loaded,
+                                    scope,
+                                    options,
+                                    edited,
+                                    values,
+                                ),
                             }),
                         }),
                     ),
@@ -113,10 +121,13 @@ function loadScope(context: ExtensionContext, scope: SettingsScope): LoadedDefin
     return loadDefinitions(scopeDir(context, scope), scope === "global" ? "user" : "project");
 }
 
-function agentSummary(definition: AgentDefinition): string {
+function agentSummary(definition: AgentDefinition, values: DeepReadonly<SubagentSettings>): string {
     return [
         definition.model ?? "main model",
-        definition.thinking ?? "main thinking",
+        definition.thinking ??
+            (definition.model === AUTO_MODEL && values.autoClassifier
+                ? "automatic thinking"
+                : "main thinking"),
         definition.tools ? count(definition.tools.length, "tool") : "default tools",
         definition.isolation ?? "shared",
     ].join(" · ");
@@ -128,6 +139,7 @@ function agentFields(
     scope: SettingsScope,
     options: AgentsMenuOptions,
     edited: (previousFile: string, definition: AgentDefinition) => void,
+    values: DeepReadonly<SubagentSettings>,
 ): SettingsPanelField[] {
     const field = <T>(spec: {
         id: DefinitionField;
@@ -214,31 +226,25 @@ function agentFields(
             id: "model",
             label: "Model",
             description:
-                "A model of Pi's scoped models, auto for the classifier's choice per task, or the " +
+                "A model of the subagent allowed set, auto for the classifier's choice per task, or the " +
                 "main agent's model. Ctrl+R removes the field.",
             schema: nullable(Type.String({ minLength: 1 })),
             editor: "select",
             value: definition.model,
-            choiceSource: modelChoices(definition.model),
+            choiceSource: modelChoices(definition.model, values.allowedModels),
             formatValue: (value) => value ?? "Main agent's model",
         }),
         field<string>({
             id: "thinking",
             label: "Thinking",
             description:
-                "Pi lowers a level that the run's model does not support. Ctrl+R removes the field.",
+                "Choose a supported level for the model, or one shared by the auto tier models " +
+                "and the main model. Ctrl+R removes the field.",
             schema: nullable(Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)))),
             editor: "select",
             value: definition.thinking,
-            choices: [
-                {
-                    value: null,
-                    label: "Main agent's thinking",
-                    description: "Leave thinking out: runs use the main agent's level.",
-                },
-                ...THINKING_LEVELS.map((level) => ({ value: level, label: level })),
-            ],
-            formatValue: (value) => value ?? "Main agent's thinking",
+            choiceSource: thinkingChoices(definition.model, values, definition.thinking),
+            formatValue: (value) => value ?? defaultThinkingChoice(definition.model, values).label,
         }),
         field<string[]>({
             id: "tools",
@@ -277,11 +283,14 @@ function agentFields(
     ];
 }
 
-function modelChoices(current: string | undefined): SettingsChoiceSource<string | null> {
+function modelChoices(
+    current: string | undefined,
+    selection: readonly ModelRef[],
+): SettingsChoiceSource<string | null> {
     return {
         rowLayout: "inline",
         load: ({ context }) => {
-            const models = allowedModels(context);
+            const models = allowedModels(context, selection);
             const refs = models.map((model) => formatModelRef(model));
 
             return [
@@ -310,7 +319,7 @@ function modelChoices(current: string | undefined): SettingsChoiceSource<string 
                               label: current,
                               badge: "Not allowed",
                               description:
-                                  "Not in Pi's scoped models now, so runs of this agent fail to start.",
+                                  "Not in the subagent allowed set now, so runs of this agent fail to start.",
                           },
                       ]
                     : []),

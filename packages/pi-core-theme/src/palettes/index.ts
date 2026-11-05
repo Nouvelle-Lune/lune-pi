@@ -1,4 +1,7 @@
 import aurora from "./pi-core-aurora.json" with { type: "json" };
+import claudeCode from "./pi-core-claude-code.json" with { type: "json" };
+import codex from "./pi-core-codex.json" with { type: "json" };
+import cursor from "./pi-core-cursor.json" with { type: "json" };
 import dark from "./pi-core-dark.json" with { type: "json" };
 import dawn from "./pi-core-dawn.json" with { type: "json" };
 import eclipse from "./pi-core-eclipse.json" with { type: "json" };
@@ -56,6 +59,21 @@ export const palettes = {
         label: "Lune Core Mist",
         description: "Pine teal on sage mist",
         definition: mist,
+    },
+    "pi-core-claude-code": {
+        label: "Lune Core Claude Code",
+        description: "Claude Code-style clay orange on warm charcoal",
+        definition: claudeCode,
+    },
+    "pi-core-cursor": {
+        label: "Lune Core Cursor",
+        description: "Cursor-style pastel syntax on graphite",
+        definition: cursor,
+    },
+    "pi-core-codex": {
+        label: "Lune Core Codex",
+        description: "Codex-style cyan and magenta on black",
+        definition: codex,
     },
 } as const satisfies Record<string, PaletteEntry>;
 

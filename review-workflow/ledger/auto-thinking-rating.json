@@ -1,0 +1,55 @@
+{
+    "schemaVersion": 1,
+    "change": "auto-thinking-rating",
+    "createdAt": "2026-10-29T11:11:37.808Z",
+    "intent": "Relax the auto thinking rating: the ladder starts from the least level that is clearly enough and now rises for correctness that cannot be checked by running the result, so demanding tasks can use xhigh and max.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "97887814e659f478b14e18f29775635c54c65726",
+    "headRev": "f24f47df0e51da76059b053dfaf6c47eda23d258",
+    "files": ["packages/pi-subagent/CHANGELOG.md", "packages/pi-subagent/src/auto-model.ts"],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-29T11:11:37.937Z",
+            "scope": "full",
+            "base": "97887814e659f478b14e18f29775635c54c65726",
+            "head": "f24f47df0e51da76059b053dfaf6c47eda23d258",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-29T11:20:25.223Z",
+            "scope": "diff-after-previous-round",
+            "base": "f24f47df0e51da76059b053dfaf6c47eda23d258",
+            "head": "c8937085673d46f61ed035a1653cc8e6772c1388",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-subagent/src/auto-model.ts:149:thinking-level-gap",
+            "round": 1,
+            "severity": "important",
+            "class": "thinking-level-gap",
+            "file": "packages/pi-subagent/src/auto-model.ts",
+            "line": 149,
+            "summary": "high 的新排除条件在它就是最高可用档时仍生效。用 `node --experimental-strip-types --input-type=module` 捕获 chooseAutoModel 请求，anthropic/claude-haiku-4-5 只收到 off…high，却禁止 high 用于测试无法证明的正确性、不可复现根因及开放设计取舍。这些任务没有匹配选项，与新指令及 changelog 的最高档承诺冲突。应让最高可用档承接更难任务，或按可用等级调整描述。",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "thinkingQuestion now appends an absorbing sentence to the highest offered level unless it is max; verified with a stub claude-haiku-like model whose levels stop at high and a max-capable model",
+            "resolvedAt": "2026-10-29T11:20:25.100Z"
+        }
+    ],
+    "convergedAt": "2026-10-29T11:24:50.318Z"
+}

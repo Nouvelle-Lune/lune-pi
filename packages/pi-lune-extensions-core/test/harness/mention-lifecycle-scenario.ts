@@ -2,7 +2,7 @@
  * One real Pi runtime per process, so the default unhandled-rejection behavior decides
  * whether a session scan that finishes after replacement can crash the host.
  *
- * The scan is held at the SessionManager.listAll I/O boundary and released only after the
+ * The scan is held at the PiSessions.list I/O boundary and released only after the
  * replacement completed, matching file I/O that notices the session shutdown last.
  */
 import assert from "node:assert/strict";
@@ -12,17 +12,11 @@ import {
     SessionManager,
     type ExtensionError,
     type InputEventResult,
-    type SessionInfo,
 } from "@earendil-works/pi-coding-agent";
 import { createMentionHost, type MentionNotice } from "./mention-runtime.ts";
 import { ExternalSessions } from "../../src/mention/external.ts";
+import { PiSessions } from "../../src/mention/pi.ts";
 import { SessionFile } from "./session-fixtures.ts";
-
-type SessionListProgress = (
-    loaded: number,
-    total: number,
-    partialSessions?: readonly SessionInfo[],
-) => void;
 
 const TARGET_ID = "01a14931-31bb-7000-8000-bbbbbbbbbbbb";
 
@@ -66,34 +60,25 @@ let resolveFollowUpScan!: () => void;
 const followUpScan = new Promise<void>((resolve) => {
     resolveFollowUpScan = resolve;
 });
-const originalListAll = SessionManager.listAll;
-// Callers pass the session directory as either the first or second argument.
-SessionManager.listAll = async (
-    sessionDirOrProgress?: string | SessionListProgress,
-    onProgressOrSignal?: SessionListProgress | AbortSignal,
-    signal?: AbortSignal,
-): Promise<SessionInfo[]> => {
+// The catalog reads its index file before listing, so the scan starts after the host is up.
+let startupScanStarted!: () => void;
+const startupScan = new Promise<void>((resolve) => {
+    startupScanStarted = resolve;
+});
+const originalPiList = PiSessions.prototype.list;
+PiSessions.prototype.list = async function (signal, report) {
     const call = ++scans;
     if (call === 1) {
+        startupScanStarted();
         await heldScan;
-        const oldSignal =
-            signal ?? (onProgressOrSignal instanceof AbortSignal ? onProgressOrSignal : undefined);
-        scanWasAborted = oldSignal?.aborted ?? false;
+        scanWasAborted = signal.aborted;
         if (lateFailure === "io-error") throw new Error("held scan failed");
         // Real listing that reaches its abort check only after the session was replaced.
-        oldSignal?.throwIfAborted();
-        return originalListAll(
-            sessionDirOrProgress as string | undefined,
-            onProgressOrSignal as SessionListProgress | undefined,
-            signal,
-        );
+        signal.throwIfAborted();
+        return originalPiList.call(this, signal, report);
     }
     try {
-        return await originalListAll(
-            sessionDirOrProgress as string | undefined,
-            onProgressOrSignal as SessionListProgress | undefined,
-            signal,
-        );
+        return await originalPiList.call(this, signal, report);
     } finally {
         resolveFollowUpScan();
     }
@@ -122,6 +107,7 @@ ExternalSessions.prototype.list = async function (signal, report) {
     }
 };
 const host = await createMentionHost({ cwd, agentDir, sessionManager: initialSession });
+await startupScan;
 assert.equal(scans, 1, "the startup scan must be the held one");
 await externalScan;
 

@@ -13,6 +13,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
   `registerSettingsPanel` and `modelChoices`, and local resources use
   `ResourceScope`; no managed framework or private Core import is required.
 - **Visual README.** Introduce the extension with feature highlights, npm installation steps and previews rendered from its real TUI components. Regenerate the SVG and PNG assets with `npm run docs:images`.
+- **Configurable silent retries.** Maximum retries defaults to three retries after the initial request for temporary errors identified by Pi. Set it to zero to disable retries; intermediate failures stay silent, and only the final failure warns. Incomplete responses and other non-retryable failures still stop immediately.
 
 ### Changed
 
@@ -46,3 +47,4 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
   fires, so a timer that fires a moment before the wall clock reaches the
   deadline re-arms instead of dropping the recap.
 - **Pi package discovery.** Add the `pi-package`, `pi`, and `pi-coding-agent` npm keywords. The discovery keyword makes the package eligible for the official Pi package gallery once published.
+- **Final failure diagnostics.** Save the actual attempt count, failure time and bounded protocol metadata only after generation ends. Raw provider errors and response content are not persisted, and cancelled or stale requests neither warn nor write failure records.

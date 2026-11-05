@@ -20,7 +20,7 @@ Pi asks whether to trust a project only when the project has resources that Pi i
 | `tools`       | No       | Tool names, extension tools included, as a comma-separated string or a list. Default: `defaultTools`.                                        |
 | `model`       | No       | `provider/id`, or `auto` for the model of the task's tier. Default: the main agent's model.                                                  |
 | `thinking`    | No       | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Default: the classifier's level for `model: auto`, then the main agent's level. |
-| `isolation`   | No       | `shared` or `worktree`. `subagent_start` can override it.                                                                                    |
+| `isolation`   | No       | `shared` or `worktree`. Default: `shared`.                                                                                                   |
 
 The body is added to the end of Pi's system prompt; it does not replace it. Definitions load when a session starts, so a new or changed file takes effect after `/new` or `/reload`. Edits in the [settings panel](#settings) are the exception: their model, thinking, tools and isolation apply to the next run at once. A file with invalid frontmatter, an unknown field, a missing field or a name that another file in the same folder uses is reported and not loaded.
 
@@ -98,18 +98,23 @@ the tests and report the commands, the results and the files you changed.
 
 ## Starting a run
 
-`subagent_start` takes the task and, optionally, an agent and run settings. Each value comes from the first source that sets it:
+`subagent_start` starts one run per call. It requires `task` and accepts an optional `title`, plus either an agent or the settings of an inline run. A call that names an agent gives only `task` and `title`: the agent runs with the model, thinking, tools and isolation of its definition, and the main agent cannot change them. A call that names an agent and sets `model`, `thinking`, `tools` or `isolation` starts nothing. To change a role's settings, edit its definition.
 
-| Value     | Sources, in order                                                                          |
-| --------- | ------------------------------------------------------------------------------------------ |
-| Model     | The call, the definition, the main agent's current model                                   |
-| Thinking  | The call, the definition, the classifier for `model: auto`, the main agent's current level |
-| Tools     | The call, the definition, the `defaultTools` setting                                       |
-| Isolation | The call, the definition, `shared`                                                         |
+With **Auto mode only** on in [settings](#settings), the schema has no `model` parameter and every inline run uses `model: auto`. An inline call that still sets another model starts nothing. Agent runs keep the model of their definition.
 
-- The `model` parameter accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set, and `auto`.
+Each value comes from the first source that sets it:
+
+| Value     | Agent run                                                                        | Inline run                                                                 |
+| --------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Model     | The definition, the main agent's current model                                   | The call, `auto` with Auto mode only, the main agent's current model       |
+| Thinking  | The definition, the classifier for `model: auto`, the main agent's current level | The call, the classifier for `model: auto`, the main agent's current level |
+| Tools     | The definition, the `defaultTools` setting                                       | The call, the `defaultTools` setting                                       |
+| Isolation | The definition, `shared`                                                         | The call, `shared`                                                         |
+
+- The `model` parameter accepts the **Allowed models** selection in [settings](#settings), when nonempty, and `auto`. Otherwise, it accepts the models of your scope (`--models` or `enabledModels`), or every available model when no scope is set. The same allowed set checks explicit models in definitions and auto tiers; inheriting the main agent's current model remains allowed even outside that set.
 - The run always gets the `report` tool as well. A selected tool that the run does not have fails the start; MCP tools are waited for until their server connects.
 - A run started from a definition shows with the definition's name. Inline runs are named `run-1`, `run-2` and so on.
+- The optional `title` labels a run in the `/agents` inspector, the Dock and its end-of-turn notice. The inspector and Dock show the title in place of the name.
 - The task is the run's first message, unchanged. The run's system prompt is Pi's own, then the definition body, then a short fixed guide for subagents.
 
 ### Auto model
@@ -134,7 +139,7 @@ The tier and high-risk questions always go in the first request. The thinking op
 - **No classifier selected:** the run uses the main agent's model and thinking. This is the default.
 - **Nothing to rate:** when no tier has a model and the thinking is set, the run uses the main agent's model without a classifier request.
 
-When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that your scope no longer allows is a settings error and fails the start, so the main agent can name a model instead. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
+When the classifier fails, the run uses the main agent's model, and its thinking unless the call or the definition sets one. This covers an unavailable classifier, a failed request, an invalid answer and a window that is too small. A cancelled start still stops. A tier model that the subagent allowed set no longer permits is a settings error and fails the start; select another model under Auto tiers. For an inline run, the main agent can name a model instead; an agent run takes its model only from its definition. The start values show the choice and any error, for example `Model: anthropic/claude-haiku-5-5 (auto from call: the classifier cls/judge rated the task complex (71%), not high risk (8%); the complex tier's model)` and `Thinking: high (auto: the classifier rated the thinking high (64%))`. The [inspector](#dock-and-agents) shows the rating at the top of the run's log.
 
 ### Extension tools
 
@@ -149,11 +154,9 @@ A run can select a tool that one of your user or project extensions registers in
 - An extension that fails to load, or that does not register the selected tool in the run's working directory, fails the start.
 - A run that continues after you resume the session loads the extensions of its tools again, as the main session has them at that time. When the main session no longer has one of its tools, the run cannot continue.
 
-### Several runs in one call
+### Parallel starts
 
-The main agent can give `tasks` instead of `task`: a list of entries, each with its own `task` and the same optional values as a single start. With `tasks`, the optional values go in each entry, not at the top level. A call that mixes them, or gives both `task` and `tasks`, starts nothing.
-
-All entries start at the same time, and each one on its own. An entry that fails to start, for example with a tool that the run does not have, undoes only its own work and does not stop the others. A run that started is kept. The result names each entry by its index, `tasks[0]`, `tasks[1]` and so on, with its run or its error. When no entry starts, the call fails.
+Issue a separate `subagent_start` call for each independent task. These calls can run in parallel, each with its own run ID, progress and result. A failed start does not stop another call or undo a run that started.
 
 ### Workspace isolation
 
@@ -164,12 +167,14 @@ The package never merges, commits or deletes a worktree. Its changes stay there 
 
 ## Tools
 
-| Tool              | Parameters                                                                     | Effect                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `subagent_start`  | `task` or `tasks`; optional `agent`, `model`, `thinking`, `tools`, `isolation` | Creates a run, or one run per `tasks` entry, and returns each ID, workspace and start values. |
-| `subagent_send`   | `runId`, `message`                                                             | Steers a running run, or starts a new turn in an idle, failed or interrupted run.             |
-| `subagent_status` | optional `runId`                                                               | Reads one run, or every run on the current branch, with token usage and the last report.      |
-| `subagent_stop`   | `runId`                                                                        | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.         |
+Every tool that takes a run addresses it by the ID that `subagent_start` returned: eight hexadecimal characters, such as `8416992c`. A run's title and name identify it only in the inspector, the Dock and notices; a tool given either one fails, and the error lists the branch's run IDs.
+
+| Tool              | Parameters                                                                                                                      | Effect                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `subagent_start`  | required `task`; optional `agent`, `title`; for inline runs `model` (not with Auto mode only), `thinking`, `tools`, `isolation` | Creates one run and returns its ID, workspace and start values.                          |
+| `subagent_send`   | `runId`, `message`                                                                                                              | Steers a running run, or starts a new turn in an idle, failed or interrupted run.        |
+| `subagent_status` | optional `runId`                                                                                                                | Reads one run, or every run on the current branch, with token usage and the last report. |
+| `subagent_stop`   | `runId`                                                                                                                         | Stops the current turn. The run becomes `interrupted`; its session and worktree stay.    |
 
 ## Reports and states
 
@@ -191,7 +196,7 @@ The run state describes the session, not the task: `running`, `idle`, `failed` (
 
 ## Dock and `/agents`
 
-The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while its report waits for that branch, and the line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
+The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
 
 The Dock never cuts its line. When the cell is too narrow, it leaves out complete parts, the least urgent first, so the `failed`, `blocked` and `needs input` counts stay longest. Then only `◐ Agents` shows, then only the marker.
 
@@ -224,13 +229,32 @@ With the Lune theme on, the report messages in the main transcript render as its
 
 Run `/lune-core-settings subagents` to open the Subagents section of Lune settings. It needs Lune Core's extension; settings are saved per scope, global or project, like other Lune settings.
 
-| Setting         | Meaning                                                                                                                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Auto classifier | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                            |
-| Auto tiers      | A menu with one model per task tier, Light, Standard, Complex and Deep, from your scope. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
-| Custom agents   | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                           |
+| Setting          | Meaning                                                                                                                                                                                                                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Allowed models   | A multi-select list from Pi's scoped models. A nonempty selection replaces the session's default allowed list for new runs; an empty list follows Pi's scope.                                                                                                                          |
+| Classifier model | The Pi classifier for `model: auto`. None: auto runs use the main agent's model and thinking.                                                                                                                                                                                          |
+| Auto mode only   | Off by default. On: `subagent_start` has no `model` parameter, and inline runs always use `model: auto`. Custom agents keep their definition's model.                                                                                                                                  |
+| Auto tiers       | A menu with one model per task tier, Light, Standard, Complex and Deep, from the subagent allowed set. A tier without a model uses the next tier up, then the main agent's model. The menu also sets the High-risk floor (Off, Standard, Complex or Deep) and the High-risk threshold. |
+| Custom agents    | A menu of agent definitions: your user agents at global scope, the project's at project scope.                                                                                                                                                                                         |
+
+In **Allowed models**, Space toggles a model and Enter saves. Changes update the `subagent_start`
+model options for new runs immediately. A saved selection replaces the
+session's list rather than intersecting it, so an available saved model remains allowed when a
+later session has a different scope. Saved models outside the current scope or no longer available
+stay listed for removal; unavailable models cannot start new runs, and a selection containing only
+unavailable models does not fall back to Pi's list. Clear the selection to restore Pi's default.
+The main agent's inherited model and the model of an existing or resumed run are unchanged.
 
 In **Custom agents**, Enter opens an agent, and its page edits the name, description, model, thinking level, tools and isolation. Each change is written to the definition file at once; comments and the body stay. Ctrl+R removes an optional field, so the run's default applies again. Renaming an agent renames a file named after it. Model, thinking, tools and isolation apply to the next run; the name and description reach the main agent after `/reload`, because its agent list stays fixed for the session. MCP tools are not listed in the tools menu, but selected MCP tools stay in the file. A file that does not load is listed with its problem and must be fixed by hand.
+
+The **Thinking** selector offers only levels supported by the agent's model. When the model is
+inherited, it follows the current main model. With `model: auto` and a configured classifier,
+explicit levels must be supported by every configured tier model and the main model, which a
+failed classifier can use. If those models share no level, only **Automatic thinking** is selectable;
+leaving the field out lets the classifier choose a supported level per task. Without a classifier,
+`auto` follows the main model and thinking. An unavailable or disallowed model must be corrected
+before loading thinking choices. Existing saved thinking values remain intact when changing models;
+a saved unsupported level stays visible as a disabled entry until replaced or reset.
 
 ## Sessions and branches
 

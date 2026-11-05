@@ -1,0 +1,71 @@
+{
+    "schemaVersion": 1,
+    "change": "session-mention-index",
+    "createdAt": "2026-10-30T05:33:29.729Z",
+    "intent": "Cache Pi, Codex and Claude Code session metadata in an on-disk index so the @ mention list loads without re-reading every session file, and make @@ wait for the first load",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "c4ab79e8d8a2c8c2a6aafbb929f6de4cc1e0dddb",
+    "headRev": "e4b4a949f2c7267ad485b2a6e858da1ae79acc7b",
+    "files": [
+        "CONTRIBUTING.md",
+        "packages/pi-lune-extensions-core/CHANGELOG.md",
+        "packages/pi-lune-extensions-core/README.md",
+        "packages/pi-lune-extensions-core/src/mention/autocomplete.ts",
+        "packages/pi-lune-extensions-core/src/mention/catalog.ts",
+        "packages/pi-lune-extensions-core/src/mention/external.ts",
+        "packages/pi-lune-extensions-core/src/mention/pi.ts",
+        "packages/pi-lune-extensions-core/src/mention/session-index.ts",
+        "packages/pi-lune-extensions-core/test/harness/mention-lifecycle-scenario.ts",
+        "packages/pi-lune-extensions-core/test/harness/session-fixtures.ts",
+        "packages/pi-lune-extensions-core/test/mention/autocomplete.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/catalog.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/index.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/lifecycle.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/session-index.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T05:33:35.453Z",
+            "scope": "full",
+            "base": "c4ab79e8d8a2c8c2a6aafbb929f6de4cc1e0dddb",
+            "head": "e4b4a949f2c7267ad485b2a6e858da1ae79acc7b",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-10-30T05:40:21.871Z",
+            "scope": "diff-after-previous-round",
+            "base": "e4b4a949f2c7267ad485b2a6e858da1ae79acc7b",
+            "head": "083b1fadc35692fd03ea7ddedcbd7aa86302869e",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-lune-extensions-core/src/mention/catalog.ts:52:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-lune-extensions-core/src/mention/catalog.ts",
+            "line": 52,
+            "summary": "After the first load fails, whenLoaded relies on snapshot's 60-second staleness check, so later @@ requests start no reload and keep returning an empty list even after the failure clears.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "whenLoaded now calls refreshInBackground, so a failed first load is retried on the next @@ request; reproduced before and after with /tmp/mention-retry-repro.ts",
+            "resolvedAt": "2026-10-30T05:40:21.749Z"
+        }
+    ],
+    "convergedAt": "2026-10-30T05:41:52.627Z"
+}

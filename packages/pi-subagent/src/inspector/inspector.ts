@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { reportColor, stateColor } from "../notify/notification-box.ts";
-import { displayLine, fitRanked, type RankedPart } from "../render/text.ts";
+import { clipToWidth, displayLine, fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
 import { formatPercent } from "../tools/format.ts";
@@ -330,7 +330,7 @@ export class SubagentInspector implements Component {
             const text =
                 this.theme.fg(elsewhere ? "dim" : stateColor(run.state), marker) +
                 " " +
-                this.theme.fg(elsewhere ? "muted" : "text", run.name) +
+                this.theme.fg(elsewhere ? "muted" : "text", run.title) +
                 " " +
                 this.theme.fg(stateColor(run.state), run.state) +
                 (report ? ` ${this.theme.fg(reportColor(report), report)}` : "") +
@@ -360,14 +360,14 @@ export class SubagentInspector implements Component {
         return `${this.theme.bold("Subagents")}  ${this.theme.fg("muted", counts)}`;
     }
 
-    /** The run's name and every label that fits; a narrow pane leaves out the least useful first. */
+    /** The run's title and every label that fits; a narrow pane leaves out the least useful first. */
     private title(entry: Entry, newestHidden: number, width: number): string {
         const { run } = entry;
         const report = run.lastTurn?.report?.status;
-        const name = this.theme.bold(run.name);
+        const title = this.theme.bold(run.title);
         const parts: Array<RankedPart | undefined> = [
             // A run without a readable snapshot is already named by its ID.
-            run.name !== run.id ? { text: this.theme.fg("dim", run.id), rank: 1 } : undefined,
+            run.title !== run.id ? { text: this.theme.fg("dim", run.id), rank: 1 } : undefined,
             { text: this.theme.fg(stateColor(run.state), run.state), rank: 5 },
             report && run.state !== "running"
                 ? { text: this.theme.fg(reportColor(report), report), rank: 4 }
@@ -383,8 +383,8 @@ export class SubagentInspector implements Component {
             fitRanked(
                 parts.filter((part) => part !== undefined),
                 width,
-                (texts) => [name, ...texts].join(this.theme.fg("dim", " · ")),
-            ) ?? name
+                (texts) => [title, ...texts].join(this.theme.fg("dim", " · ")),
+            ) ?? title
         );
     }
 
@@ -470,7 +470,9 @@ export class SubagentInspector implements Component {
 
     private footer(width: number, entry: Entry | undefined): string {
         if (this.chat) {
-            const prompt = this.theme.fg("accent", `To ${entry?.run.name ?? "run"}: `);
+            const targetWidth = Math.max(0, Math.floor((width - 2) / 2) - 5);
+            const target = clipToWidth(entry?.run.title ?? "run", targetWidth);
+            const prompt = this.theme.fg("accent", `To ${target}: `);
             const input = this.chat.render(Math.max(1, width - 2 - visibleWidth(prompt)))[0] ?? "";
 
             return ` ${prompt}${input}`;
@@ -529,7 +531,7 @@ export class SubagentInspector implements Component {
 
         if (entry.elsewhere) {
             this.showNotice(
-                `${run.name} belongs to another branch; switch to it to write to the run.`,
+                `${run.title} belongs to another branch; switch to it to write to the run.`,
                 "warning",
             );
             return;
@@ -537,7 +539,7 @@ export class SubagentInspector implements Component {
 
         if (run.readOnly) {
             this.showNotice(
-                `${run.name} is read-only: it came here through /fork or /clone.`,
+                `${run.title} is read-only: it came here through /fork or /clone.`,
                 "warning",
             );
             return;
@@ -561,39 +563,39 @@ export class SubagentInspector implements Component {
     }
 
     private send(run: Run, text: string): void {
-        this.showNotice(`Sending to ${run.name}…`, "muted");
+        this.showNotice(`Sending to ${run.title}…`, "muted");
 
         this.manager.send(run, text, "user").then(
             (outcome) => {
                 this.showNotice(
                     outcome === "steered"
-                        ? `Sent to ${run.name}; it steers the running turn.`
+                        ? `Sent to ${run.title}; it steers the running turn.`
                         : outcome === "deferred"
-                          ? `Sent to ${run.name}; it starts the next turn.`
-                          : `Sent to ${run.name}; a new turn started.`,
+                          ? `Sent to ${run.title}; it starts the next turn.`
+                          : `Sent to ${run.title}; a new turn started.`,
                     "success",
                 );
                 this.viewport.follow();
             },
-            (error: unknown) => this.showError(`Sending to ${run.name} failed`, error),
+            (error: unknown) => this.showError(`Sending to ${run.title} failed`, error),
         );
     }
 
     private stop(run: Run): void {
         if (run.state !== "running") {
-            this.showNotice(`${run.name} is not running.`, "muted");
+            this.showNotice(`${run.title} is not running.`, "muted");
             return;
         }
 
         if (run.readOnly || !this.manager.isOnBranch(run)) {
-            this.showNotice(`${run.name} cannot be stopped from here.`, "warning");
+            this.showNotice(`${run.title} cannot be stopped from here.`, "warning");
             return;
         }
 
-        this.showNotice(`Stopping ${run.name}…`, "muted");
+        this.showNotice(`Stopping ${run.title}…`, "muted");
         this.manager.stop(run, "user").then(
-            () => this.showNotice(`Stopped ${run.name}.`, "success"),
-            (error: unknown) => this.showError(`Stopping ${run.name} failed`, error),
+            () => this.showNotice(`Stopped ${run.title}.`, "success"),
+            (error: unknown) => this.showError(`Stopping ${run.title} failed`, error),
         );
     }
 
@@ -605,9 +607,12 @@ export class SubagentInspector implements Component {
 
         try {
             this.manager.copyReport(entry.run);
-            this.showNotice(`Copied the last turn of ${entry.run.name} to this branch.`, "success");
+            this.showNotice(
+                `Copied the last turn of ${entry.run.title} to this branch.`,
+                "success",
+            );
         } catch (error) {
-            this.showError(`Copying ${entry.run.name} failed`, error);
+            this.showError(`Copying ${entry.run.title} failed`, error);
         }
     }
 

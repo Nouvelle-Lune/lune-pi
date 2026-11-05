@@ -63,17 +63,25 @@ test("model: a definition's model beats the parent's", async (t) => {
     assert.equal(run.snapshot?.sources.model, "definition");
 });
 
-test("model: the call's model beats the definition's", async (t) => {
+test("model: an inline call's model beats the parent's", async (t) => {
     const fx = await createFixture(t);
-    const { run, seen } = await startOne(fx, [definition({ name: "d", model: "faux/faux-2" })], {
-        task: "work",
-        agent: "d",
-        model: "faux/faux-1",
-    });
+    const { run, seen } = await startOne(fx, [], { task: "work", model: "faux/faux-2" });
 
-    assert.deepEqual(seen, ["faux/faux-1"]);
-    assert.equal(run.snapshot?.model, "faux/faux-1");
+    assert.deepEqual(seen, ["faux/faux-2"]);
+    assert.equal(run.snapshot?.model, "faux/faux-2");
     assert.equal(run.snapshot?.sources.model, "call");
+});
+
+test("model: an agent with a model in the call is rejected and starts nothing", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "d", model: "faux/faux-2" })]);
+
+    await assert.rejects(
+        manager.start({ task: "work", agent: "d", model: "faux/faux-1" }, fx.ctx),
+        /leave out model\./,
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
 });
 
 test("model: a model outside the parent's scope fails the start and leaves no run file", async (t) => {
@@ -99,12 +107,12 @@ test("model: without a configured scope, every available model may be named", as
     assert.deepEqual(seen, ["faux/faux-2"]);
 });
 
-test("thinking: call, then definition, then the parent's level", async (t) => {
+test("thinking: an inline call's level, then a definition's, then the parent's level", async (t) => {
     const fx = await createFixture(t);
     const defs = [definition({ name: "d", thinking: "high" })];
     const inherited = await startOne(fx, [], { task: "work" });
     const fromDefinition = await startOne(fx, defs, { task: "work", agent: "d" });
-    const fromCall = await startOne(fx, defs, { task: "work", agent: "d", thinking: "low" });
+    const fromCall = await startOne(fx, [], { task: "work", thinking: "low" });
 
     assert.deepEqual(
         [inherited, fromDefinition, fromCall].map(({ run }) => run.snapshot?.thinking),
@@ -117,16 +125,16 @@ test("thinking: call, then definition, then the parent's level", async (t) => {
     assert.equal(liveSessionOf(fromCall.run).session.thinkingLevel, "low");
 });
 
-test("tools: call, then definition; report is always allowed", async (t) => {
+test("tools: an inline call's tools, then a definition's; report is always allowed", async (t) => {
     const fx = await createFixture(t);
     const defs = [
         definition({ name: "d", tools: ["find"] }),
         definition({ name: "empty", tools: [] }),
     ];
     const fromDefinition = await startOne(fx, defs, { task: "work", agent: "d" });
-    const fromCall = await startOne(fx, defs, { task: "work", agent: "d", tools: ["grep"] });
+    const fromCall = await startOne(fx, defs, { task: "work", tools: ["grep"] });
     const none = await startOne(fx, defs, { task: "work", agent: "empty" });
-    const callNone = await startOne(fx, defs, { task: "work", agent: "d", tools: [] });
+    const callNone = await startOne(fx, defs, { task: "work", tools: [] });
 
     assert.deepEqual(fromDefinition.run.snapshot?.tools, ["find", "report"]);
     assert.equal(fromDefinition.run.snapshot?.sources.tools, "definition");
@@ -139,6 +147,18 @@ test("tools: call, then definition; report is always allowed", async (t) => {
         "grep",
         "report",
     ]);
+});
+
+test("tools: an agent with an empty tools list in the call is rejected and starts nothing", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "d", tools: ["find"] })]);
+
+    await assert.rejects(
+        manager.start({ task: "work", agent: "d", tools: [] }, fx.ctx),
+        /leave out tools\./,
+    );
+
+    assert.equal(manager.branchRuns().length, 0);
 });
 
 test("tools: without a call or definition selection the defaultTools setting applies, plus report", async (t) => {

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import {
+    fauxToolCall,
+    validateToolArguments,
+    type Tool,
+    type ToolCall,
+} from "@earendil-works/pi-ai";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 
@@ -43,13 +49,14 @@ const catalog: ToolCatalog = {
 
 function toolsFor(
     t: Parameters<typeof parentSession>[0],
-    options: { definitions?: string[]; models?: string[] } = {},
+    options: { definitions?: string[]; models?: string[]; autoOnly?: boolean } = {},
 ) {
     const session = parentSession(t, tempAgentDir(t));
     const tools = createSubagentTools({
         manager: session.manager(),
         definitions: (options.definitions ?? []).map((name) => definition(name)),
         models: options.models ?? [],
+        autoOnly: options.autoOnly ?? false,
         catalog,
     });
 
@@ -73,6 +80,11 @@ function properties(tool: {
     return (
         tool.parameters as { properties: Record<string, { enum: string[]; description: string }> }
     ).properties;
+}
+
+/** Pi validates a tool call with the SDK before it calls `execute`. */
+function validateStart(tool: { parameters: unknown }, args: ToolCall["arguments"]) {
+    return validateToolArguments(tool as unknown as Tool, fauxToolCall("subagent_start", args));
 }
 
 const lines = (component: Component, width = 100) => component.render(width);
@@ -106,9 +118,52 @@ test("the model enum lists the allowed models and is absent when the list is emp
     assert.equal("model" in without, false);
 });
 
-test("thinking and isolation are fixed enums and no top-level parameter is required", (t) => {
+test("with Auto mode only the start schema has no model", (t) => {
+    const models = ["a/one", "b/two"];
+    const on = toolsFor(t, { models, autoOnly: true }).byName("subagent_start");
+    const off = toolsFor(t, { models, autoOnly: false }).byName("subagent_start");
+
+    assert.equal("model" in properties(on), false);
+    assert.equal("model" in properties(off), true);
+});
+
+test("under Auto mode only, SDK validation rejects a model the schema omits", (t) => {
+    const start = toolsFor(t, { models: ["a/one"], autoOnly: true }).byName("subagent_start");
+
+    assert.throws(
+        () => validateStart(start, { task: "one", model: "a/one" }),
+        (error: Error) => {
+            assert.match(error.message, /^Validation failed for tool "subagent_start":/);
+            assert.match(error.message, /model/);
+
+            return true;
+        },
+    );
+});
+
+test("with Auto mode only the descriptions name only thinking, tools and isolation as inline settings", (t) => {
+    const definitions = ["reviewer"];
+    const on = toolsFor(t, { definitions, autoOnly: true }).byName("subagent_start");
+    const off = toolsFor(t, { definitions, autoOnly: false }).byName("subagent_start");
+
+    assert.match(on.description, /sets thinking, tools and isolation in the call/);
+    assert.match(off.description, /sets model, thinking, tools and isolation in the call/);
+    assert.match(
+        properties(on)["agent"]!.description,
+        /set thinking, tools and isolation in this call/,
+    );
+});
+
+test("the start schema requires task and offers no tasks parameter", (t) => {
     const tool = toolsFor(t).byName("subagent_start");
     const schema = tool.parameters as { required?: string[] };
+
+    assert.deepEqual(schema.required, ["task"]);
+    assert.equal("tasks" in properties(tool), false);
+});
+
+test("thinking and isolation are fixed enums", (t) => {
+    const tool = toolsFor(t).byName("subagent_start");
 
     assert.deepEqual(properties(tool)["isolation"]!.enum, ["shared", "worktree"]);
     assert.deepEqual(properties(tool)["thinking"]!.enum, [
@@ -120,7 +175,43 @@ test("thinking and isolation are fixed enums and no top-level parameter is requi
         "xhigh",
         "max",
     ]);
-    assert.equal(schema.required, undefined);
+});
+
+test("SDK validation rejects a start without task", (t) => {
+    const start = toolsFor(t).byName("subagent_start");
+
+    assert.throws(
+        () => validateStart(start, { title: "No task" }),
+        (error: Error) => {
+            assert.match(error.message, /^Validation failed for tool "subagent_start":/);
+            assert.match(error.message, /task/);
+
+            return true;
+        },
+    );
+});
+
+test("SDK validation accepts a named start and rejects the removed tasks parameter", (t) => {
+    const start = toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName(
+        "subagent_start",
+    );
+
+    const accepted = validateStart(start, { task: "one", title: "One", agent: "reviewer" });
+
+    assert.deepEqual(accepted, { task: "one", title: "One", agent: "reviewer" });
+    assert.throws(
+        () => validateStart(start, { task: "one", tasks: [{ task: "two" }] }),
+        (error: Error) => {
+            assert.match(error.message, /^Validation failed for tool "subagent_start":/);
+            assert.match(
+                error.message,
+                /^\s*-\s*\/?tasks\b/m,
+                "the error must name the removed tasks field",
+            );
+
+            return true;
+        },
+    );
 });
 
 test("the tools description lists the catalog without report, clips long text and names MCP", (t) => {
@@ -192,13 +283,14 @@ test("subagent_status without a runId lists the runs of the branch", async (t) =
         manager: session.manager(),
         definitions: [],
         models: [],
+        autoOnly: false,
         catalog,
     });
     const status = tools.find((tool) => tool.name === "subagent_status") as unknown as ToolShape;
 
     const result = await status.execute("c", {});
 
-    assert.match(result.content[0]!.text, /Run reviewer \(r1\): idle/);
+    assert.match(result.content[0]!.text, /^Run r1: idle/m);
 });
 
 test("formatTokens, formatDuration and formatUsage use compact units", () => {
@@ -541,8 +633,20 @@ test("formatStarted reports the run ID, start values and that a message arrives 
 
     const text = formatStarted(run);
 
-    assert.match(text, /^Started run r1 \(r1\): idle\.\nAgent: inline/);
+    assert.match(text, /^Started run r1: idle\.\nAgent: inline/);
     assert.match(text, /A message arrives when its turn ends\.$/);
+});
+
+test("a run's title follows its ID in the started, status and list text", (t) => {
+    const run = restoredRun(tempAgentDir(t), "r1", { snapshot: { title: "Review the diff" } });
+
+    const started = formatStarted(run);
+    const status = formatRunStatus(run);
+    const list = formatRunList([run], 0);
+
+    assert.match(started, /^Started run r1: idle\.\nTitle: Review the diff\nAgent: inline\n/);
+    assert.match(status, /^Run r1: idle\nTitle: Review the diff\nAgent: inline\n/);
+    assert.match(list, /^Run r1: idle\nTitle: Review the diff\nAgent: inline\n/);
 });
 
 test("formatRunStatus gives the whole report; formatRunList only a clipped preview", (t) => {
@@ -600,7 +704,7 @@ test("a run whose file cannot be read shows the load error and nothing else", (t
 
     assert.equal(
         formatRunStatus(run),
-        "Run r1 (r1): idle\nThe run file could not be read: The run file is missing: /x",
+        "Run r1: idle\nThe run file could not be read: The run file is missing: /x",
     );
     assert.equal(snapshot("x").runId, "x");
 });
@@ -648,4 +752,33 @@ test("a turn with one report shows no earlier report line", (t) => {
 
     assert.doesNotMatch(formatRunStatus(run), /Earlier report/);
     assert.doesNotMatch(formatRunList([run], 0), /Earlier report/);
+});
+
+test("the start properties follow the order agent, title, task, model, thinking, tools, isolation", (t) => {
+    const tool = toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName(
+        "subagent_start",
+    );
+    const schema = tool.parameters as { properties: Record<string, unknown> };
+    const order = ["agent", "title", "task", "model", "thinking", "tools", "isolation"];
+
+    assert.deepEqual(Object.keys(schema.properties), order);
+});
+
+test("with definitions, the model, thinking, tools and isolation descriptions start with Only without agent", (t) => {
+    const prefix = "Only without agent. ";
+    const withDefinitions = properties(
+        toolsFor(t, { definitions: ["reviewer"], models: ["a/one"] }).byName("subagent_start"),
+    );
+
+    for (const field of ["model", "thinking", "tools", "isolation"]) {
+        assert.ok(withDefinitions[field]!.description.startsWith(prefix), field);
+    }
+});
+
+test("without definitions, the settings descriptions carry no Only without agent prefix", (t) => {
+    const without = properties(toolsFor(t, { models: ["a/one"] }).byName("subagent_start"));
+
+    for (const field of ["model", "thinking", "tools", "isolation"]) {
+        assert.doesNotMatch(without[field]!.description, /Only without agent/, field);
+    }
 });

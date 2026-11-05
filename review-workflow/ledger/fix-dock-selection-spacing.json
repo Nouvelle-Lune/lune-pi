@@ -1,0 +1,40 @@
+{
+    "schemaVersion": 1,
+    "change": "fix-dock-selection-spacing",
+    "createdAt": "2026-10-30T07:06:12.403Z",
+    "intent": "Preserve the original Dock module spacing, content width budgets, scrolling window, footer layout and shortcut behavior. Change only selection chrome: put the accent pointer next to the selected module using existing gutter/separator space and highlight only the pointer and text while preserving plugin status colors and ANSI resets. Do not add per-cell padding or stretch short cells as the terminal grows. Tiny focused rows retain the pointer when overflow counts cannot fit.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "f973496350f61beb13b02db74a23b4df7466a8cc",
+    "headRev": "be3b3c8b7ec42c1009c47197e79dc9ebd28b035c",
+    "files": [
+        "packages/pi-dock/CHANGELOG.md",
+        "packages/pi-dock/docs/dock-overview.png",
+        "packages/pi-dock/docs/dock-overview.svg",
+        "packages/pi-dock/docs/dock-styles.png",
+        "packages/pi-dock/docs/dock-styles.svg",
+        "packages/pi-dock/docs/reference.md",
+        "packages/pi-dock/src/dock-renderer.ts",
+        "packages/pi-dock/test/unit/dock-controller.test.ts",
+        "packages/pi-dock/test/unit/dock-footer.test.ts",
+        "packages/pi-dock/test/unit/dock-renderer.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-10-30T07:06:12.534Z",
+            "scope": "full",
+            "base": "f973496350f61beb13b02db74a23b4df7466a8cc",
+            "head": "be3b3c8b7ec42c1009c47197e79dc9ebd28b035c",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-10-30T07:08:31.797Z"
+}

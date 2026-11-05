@@ -87,6 +87,8 @@ export function createControllerHarness(options: ControllerHarnessOptions): Cont
             };
         },
         getAllTools: () => options.tools ?? [],
+        registerEntryRenderer: () => undefined,
+        appendEntry: () => undefined,
     } as unknown as ExtensionAPI;
 
     const session = {

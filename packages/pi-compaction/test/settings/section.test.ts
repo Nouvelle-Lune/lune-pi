@@ -65,6 +65,7 @@ test("section exposes shared model selectors and only user policy fields", async
                 "summaryThinkingLevel",
                 "jevEnabled",
                 "classifier",
+                "classifierConcurrency",
                 '["policy","deleteThreshold"]',
                 '["policy","deletableTools"]',
             ],

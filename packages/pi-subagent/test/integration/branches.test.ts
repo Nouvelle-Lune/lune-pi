@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { getDockRegistry } from "@lune_99/pi-lune-extensions-core/dock/host";
+
+import {
+    SUBAGENT_CONTRIBUTION_ID,
+    SubagentDockContribution,
+} from "../../src/dock/dock-contribution.ts";
 import {
     createFixture,
+    definition,
     reportResponse,
     startGated,
     treeEvent,
@@ -38,11 +45,38 @@ test("a run from another branch is unreachable; the error lists this branch's ru
     assert.throws(
         () => manager.branchRun(away.id),
         (error: Error) =>
-            error.message.includes(`No subagent run "${away.id}" on the current branch.`) &&
-            error.message.includes(`${here.id} (${here.name})`) &&
-            !error.message.includes(`${away.id} (`),
+            error.message ===
+            `No subagent run "${away.id}" on the current branch. Runs here: ${here.id}.`,
     );
     assert.equal(manager.branchRun(here.id), here);
+});
+
+test("an unknown runId that matches a run's name or title gets that run's ID", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager([definition({ name: "reviewer" })]);
+
+    fx.faux.setResponses([reportResponse("done", "a"), reportResponse("done", "b")]);
+    const named = await manager.start({ task: "named", agent: "reviewer" }, fx.ctx);
+    const titled = await manager.start({ task: "titled", title: "Review the diff" }, fx.ctx);
+    const known = manager
+        .branchRuns()
+        .map((run) => run.id)
+        .join(", ");
+
+    assert.throws(
+        () => manager.branchRun("reviewer"),
+        (error: Error) =>
+            error.message ===
+            `No subagent run "reviewer" on the current branch. "reviewer" is a run name, ` +
+                `not an ID; pass ${named.id}. Runs here: ${known}.`,
+    );
+    assert.throws(
+        () => manager.branchRun("Review the diff"),
+        (error: Error) =>
+            error.message ===
+            `No subagent run "Review the diff" on the current branch. "Review the diff" is a ` +
+                `run title, not an ID; pass ${titled.id}. Runs here: ${known}.`,
+    );
 });
 
 test("on a branch without runs, the error says there are none", async (t) => {
@@ -161,6 +195,45 @@ test("beforeTree keeps the runs running when asked to", async (t) => {
 
     assert.equal(result, undefined);
     assert.equal(run.state, "running");
+});
+
+test("a run kept running on a tree navigation shows in the Dock as running on another branch", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+    const base = baseEntry(fx);
+    const { run, gate } = await startGated(fx, manager, { task: "one" });
+
+    t.after(() => gate.open());
+    fx.state.selectAnswer = "Keep them running";
+    await manager.beforeTree(
+        treeEvent({ oldLeafId: fx.parent.getLeafId(), commonAncestorId: base }),
+        fx.ctx,
+    );
+    fx.parent.branch(base);
+
+    // The Dock only joins a shared host in a TUI context.
+    const ui = { ...fx.ctx.ui, setWidget: () => undefined };
+    const ctx = Object.create(fx.ctx, {
+        mode: { value: "tui" },
+        ui: { value: ui },
+    }) as typeof fx.ctx;
+    const dock = new SubagentDockContribution(async () => undefined);
+    const release = getDockRegistry().attachHost(ctx.ui, { invalidate() {} });
+
+    dock.attach(ctx, manager);
+    t.after(() => {
+        dock.detach({ retired: true });
+        release();
+    });
+
+    const mounted = getDockRegistry()
+        .getContributions(ctx.ui)
+        .find((entry) => entry.id === SUBAGENT_CONTRIBUTION_ID)!;
+    const detail = (mounted.snapshot.detail ?? mounted.snapshot.base).render(200)[0]!;
+
+    assert.equal(run.state, "running");
+    assert.equal(manager.branchRuns().length, 0);
+    assert.equal(detail, "◐ Agents · 1 running · 1 on another branch");
 });
 
 test("beforeTree cancels the navigation when the dialog is cancelled", async (t) => {

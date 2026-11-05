@@ -23,6 +23,7 @@ import {
 import type { AutoModelSettings } from "../../src/auto-model.ts";
 import type { AgentDefinition } from "../../src/definitions.ts";
 import type { ExtensionTool } from "../../src/extension-tools.ts";
+import type { ModelRef } from "../../src/models.ts";
 import { RunManager } from "../../src/run/run-manager.ts";
 import type { Run } from "../../src/run/run.ts";
 import type { LiveSession } from "../../src/run/run-session.ts";
@@ -110,6 +111,8 @@ export interface Fixture {
         ctx?: ExtensionContext,
         extensionTools?: () => readonly ExtensionTool[],
         autoModelSettings?: (ctx: ExtensionContext) => Promise<AutoModelSettings>,
+        modelSelection?: (ctx: ExtensionContext) => Promise<readonly ModelRef[]>,
+        autoOnly?: (ctx: ExtensionContext) => Promise<boolean>,
     ): RunManager;
 }
 
@@ -192,7 +195,14 @@ export async function createFixture(
         models: { first: first as Model<string>, second: second as Model<string> },
         state,
         ctx,
-        createManager(definitions = [], managerCtx = ctx, extensionTools, autoModelSettings) {
+        createManager(
+            definitions = [],
+            managerCtx = ctx,
+            extensionTools,
+            autoModelSettings,
+            modelSelection,
+            autoOnly,
+        ) {
             const manager = new RunManager({
                 pi: pi.asApi(),
                 ctx: managerCtx,
@@ -200,6 +210,8 @@ export async function createFixture(
                 definitions,
                 extensionTools,
                 autoModelSettings,
+                modelSelection,
+                autoOnly,
                 modelRuntime: runtime,
             });
 

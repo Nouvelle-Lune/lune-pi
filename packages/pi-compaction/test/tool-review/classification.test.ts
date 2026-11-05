@@ -120,6 +120,7 @@ test("runRequests keeps a bounded worker pool and preserves result order", async
     const results = await runRequests(
         contexts,
         classify,
+        2,
         new AbortController().signal,
         (completed, total) => progress.push([completed, total]),
     );
@@ -152,7 +153,7 @@ test("runRequests cancels sibling requests when one batch member fails", async (
         });
     };
     await assert.rejects(
-        runRequests(contexts, classify, new AbortController().signal, () => undefined),
+        runRequests(contexts, classify, 2, new AbortController().signal, () => undefined),
         /classification transport failed/,
     );
     assert.ok(signals.every((signal) => signal.aborted));
@@ -163,7 +164,7 @@ test("runRequests surfaces a validation failure as a batch failure", async () =>
     const classify = (): Promise<ClassifierResult> =>
         Promise.resolve(result({ a: { type: "bool", probability: 5 } }));
     await assert.rejects(
-        runRequests(contexts, classify, new AbortController().signal, () => undefined),
+        runRequests(contexts, classify, 2, new AbortController().signal, () => undefined),
         /invalid probability/,
     );
 });
@@ -179,6 +180,7 @@ test("runRequests refuses to start on an aborted signal", async () => {
                 called = true;
                 return Promise.resolve(result({}));
             },
+            2,
             controller.signal,
             () => undefined,
         ),
@@ -199,10 +201,70 @@ test("a provider context limit is retained as a result while later requests cont
                 ? result({}, { stopReason: "error", errorMessage: "context_length_exceeded" })
                 : result({ b: { type: "bool", probability: 1 } });
         },
+        2,
         new AbortController().signal,
         () => undefined,
     );
     assert.equal(calls, 2);
     assert.equal(results[0]!.stopReason, "error");
     assert.deepEqual(results[1]!.answers, { b: { type: "bool", probability: 1 } });
+});
+
+for (const [concurrency, count] of [
+    [3, 6],
+    [8, 3],
+    [1, 4],
+] as const)
+    test(`runRequests keeps min(concurrency, requests) requests in flight for concurrency ${concurrency} and ${count} requests`, async () => {
+        const ids = Array.from({ length: count }, (_, index) => `q${index}`);
+        const expectedActive = Math.min(concurrency, count);
+        let active = 0;
+        let maxActive = 0;
+        let started = 0;
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const classify = async (context: ClassifierContext): Promise<ClassifierResult> => {
+            active++;
+            started++;
+            maxActive = Math.max(maxActive, active);
+            // Hold every request until the whole first wave is in flight so the peak is deterministic.
+            if (started === expectedActive) release();
+            await gate;
+            active--;
+            const id = Object.keys(context.questions)[0]!;
+            return result({ [id]: { type: "bool", probability: 0.1 } });
+        };
+        const results = await runRequests(
+            ids.map((id) => contextWith([id])),
+            classify,
+            concurrency,
+            new AbortController().signal,
+            () => undefined,
+        );
+        const expectedOrder = ids;
+        const actualOrder = results.map((entry) => Object.keys(entry.answers)[0]);
+        assert.equal(maxActive, expectedActive);
+        assert.deepEqual(actualOrder, expectedOrder);
+    });
+
+test("runRequests rejects a concurrency that is not a positive integer without classifying", async () => {
+    for (const concurrency of [0, -1, 1.5, Number.NaN, Infinity]) {
+        let called = false;
+        await assert.rejects(
+            runRequests(
+                [contextWith(["a"])],
+                () => {
+                    called = true;
+                    return Promise.resolve(result({}));
+                },
+                concurrency,
+                new AbortController().signal,
+                () => undefined,
+            ),
+            /Classifier concurrency must be a positive integer/,
+        );
+        assert.equal(called, false, `concurrency ${concurrency} must not classify`);
+    }
 });

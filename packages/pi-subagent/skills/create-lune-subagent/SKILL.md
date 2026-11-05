@@ -166,7 +166,8 @@ Check the draft against the definition format:
 
 Explain any omitted optional fields: `model` follows the main model, `thinking` follows the main
 thinking level subject to the selected model's support, `tools` inherits `defaultTools`, and
-`isolation` defaults to `shared`. Start-call overrides take precedence over definition values.
+`isolation` defaults to `shared`. The main agent cannot change these values when it starts the
+agent; it gives only the task and a title.
 
 Show the chosen scope, exact destination path, recommendation summary, and complete Markdown file
 including its frontmatter and body. Ask the user to approve this draft or request changes. A request

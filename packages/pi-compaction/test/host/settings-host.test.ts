@@ -259,6 +259,8 @@ test("a failed section registration does not poison the next project session bin
                     );
             },
             getAllTools: () => [],
+            registerEntryRenderer: () => undefined,
+            appendEntry: () => undefined,
         } as unknown as ExtensionAPI;
         const integration = await installConfiguredCompaction(pi);
         const emit = async (event: string, ctx: ExtensionContext): Promise<void> => {

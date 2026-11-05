@@ -25,8 +25,10 @@ export interface MentionAutocompleteOptions {
  * `@query` lists matching sessions with pi's own file matches, and `@@query` lists sessions only.
  * Everything that is not an `@` token goes to the provider underneath.
  *
- * Nothing here waits for the session list: the rows come from what the catalog has read. The
- * editor runs one request at a time, so a slow request would delay every later keystroke.
+ * A plain `@` never waits for the session list: its rows come from what the catalog has read,
+ * so file matches are not delayed. `@@` lists nothing but sessions, and the editor asks again
+ * only on a keystroke, so before the first load it waits for that load instead of answering
+ * empty. The editor aborts a pending request on the next keystroke, which ends the wait.
  */
 export function createMentionAutocomplete(
     current: AutocompleteProvider,
@@ -57,6 +59,8 @@ export function createMentionAutocomplete(
             const prefix = AT_WORD.exec((lines[cursorLine] ?? "").slice(0, cursorCol))?.[1];
             if (!prefix) return current.getSuggestions(lines, cursorLine, cursorCol, request);
             if (prefix.startsWith(SESSION_TRIGGER)) {
+                await options.catalog.whenLoaded(request.signal);
+                if (request.signal.aborted) return null;
                 const query = prefix.slice(SESSION_TRIGGER.length);
                 const items = sessionItems(query, SESSION_LIST_ROWS, true);
                 return items.length > 0 ? { items, prefix } : null;

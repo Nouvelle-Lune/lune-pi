@@ -95,10 +95,12 @@ const TIER_QUESTION = {
 } satisfies ClassifierChoiceQuestion;
 
 const THINKING_INSTRUCTIONS =
-    "Rate the least reasoning that the agent must do, before and between its steps, to complete " +
-    "this task correctly. The options are thinking levels from least to most. Judge the " +
-    "reasoning, not the amount of work: many files or steps need no more thinking, and a subtle " +
-    "race condition in one function can need a lot.";
+    "Rate the reasoning that the agent must do, before and between its steps, to finish this " +
+    "task correctly and safely. Use the least level that is clearly enough, but raise it for " +
+    "work whose mistakes are hard to detect or whose correctness cannot be shown by running " +
+    "the result. The options are thinking levels from least to most. Judge the reasoning, not " +
+    "the amount of work: many files or steps need no more thinking, and a subtle race condition " +
+    "in one function can need a lot.";
 
 // A model-routing signal only: it never grants or blocks a tool, an approval or a permission.
 const RISK_QUESTION = {
@@ -139,22 +141,25 @@ const THINKING_CRITERIA = {
     low: "Brief planning over a few dependent steps, such as finding where a described change goes.",
     medium:
         "Plan several dependent steps and check the results along the way, such as tracing a " +
-        "call path, fitting a change into existing code or debugging a failure that can be " +
-        "reproduced.",
+        "call path, fitting a change into existing code or fixing a failure whose cause is " +
+        "stated.",
     high:
-        "Weigh alternatives, form and test hypotheses, or reason about correctness, such as " +
-        "finding a root cause or showing that a change is safe.",
+        "Investigate a failure that reproduces to find its cause, weigh a few approaches for a " +
+        "contained change, or confirm that a change meets its stated requirements.",
     xhigh:
-        "Long chains of reasoning over many parts that affect each other, such as a concurrency " +
-        "or state bug, a security review or a design with competing constraints.",
+        "Find the cause of a failure that does not reproduce, argue that a risky change is safe, " +
+        "or plan a change that spans unfamiliar components.",
     max:
-        "The hardest reasoning, where a mistake is costly and every step needs checking, such as " +
-        "showing that an algorithm is correct or finding a subtle data-loss bug across systems.",
+        "Reason about correctness that is hard to check, where a mistake is costly and easy to " +
+        "miss: subtle concurrency, state or data-loss defects, security or privacy boundaries, " +
+        "migrations or algorithms with invariants, or design trade-offs between constraints.",
 } satisfies Record<ThinkingLevel, string>;
 
 export interface AutoModelInput {
     ctx: ExtensionContext;
     settings: AutoModelSettings;
+    /** The effective subagent allowlist; uses the parent's scope when omitted. */
+    models?: readonly Model<Api>[];
     task: string;
     definition?: AgentDefinition;
     /** The selected task tools; undefined for the defaultTools selection. */
@@ -218,7 +223,8 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
         };
     };
     // Undefined when the levels depend on the tier's model, so a second request asks for them.
-    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings);
+    const models = input.models ?? allowedModels(ctx);
+    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings, models);
     let classifier: ClassifierModel<ClassifierApi>;
     let tier: AutoRating<AutoTier>;
     let thinking: AutoRating<ThinkingLevel> | undefined;
@@ -250,7 +256,7 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
     const model =
         modelFrom === "main"
             ? mainModel(ctx)
-            : tierModel(ctx, modelFrom, settings.tiers[modelFrom]!);
+            : tierModel(modelFrom, settings.tiers[modelFrom]!, models);
     const supported = getSupportedThinkingLevels(model);
 
     if (!levels && supported.length > 1) {
@@ -290,9 +296,9 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
 function sharedLevels(
     ctx: ExtensionContext,
     settings: AutoModelSettings,
+    allowed: readonly Model<Api>[],
 ): readonly ThinkingLevel[] | undefined {
-    const allowed = allowedModels(ctx);
-    // A model that the scope no longer allows fails the start if the tier leads to it.
+    // A model no longer in the allowed set fails the start if the tier leads to it.
     const models = AUTO_TIERS.flatMap((tier) => {
         const ref = settings.tiers[tier];
         const model = ref && allowed.find((each) => sameModel(each, ref));
@@ -310,10 +316,22 @@ function sharedLevels(
 }
 
 function thinkingQuestion(levels: readonly ThinkingLevel[]): ClassifierChoiceQuestion {
+    const top = levels.at(-1)!;
+
     return {
         type: "choice",
         instructions: THINKING_INSTRUCTIONS,
-        criteria: Object.fromEntries(levels.map((level) => [level, THINKING_CRITERIA[level]])),
+        criteria: Object.fromEntries(
+            levels.map((level) => [
+                level,
+                // A model with fewer levels needs its top one to take the work that a higher level
+                // would rate, or a hard task falls to a lower level instead.
+                level === top && level !== "max"
+                    ? `${THINKING_CRITERIA[level]} Also use this level for work that needs more ` +
+                      "reasoning than this, because the run's model has no higher thinking level."
+                    : THINKING_CRITERIA[level],
+            ]),
+        ),
     };
 }
 
@@ -331,8 +349,8 @@ async function findClassifier(
 
     if (!classifier) {
         throw new Error(
-            `The auto classifier ${formatModelRef(ref)} is unavailable. Configure its provider in ` +
-                "Pi, or select another classifier in the Subagents section of /lune-core-settings.",
+            `The classifier ${formatModelRef(ref)} is unavailable. Configure its provider in ` +
+                "Pi, or select another one in /lune-core-settings → Subagents → Classifier model.",
         );
     }
 
@@ -414,7 +432,7 @@ export function autoModelRequest(
         throw new Error(
             `The auto classifier ${formatModelRef(classifier)} has a context window of ` +
                 `${classifier.contextWindow} tokens, too small for this task. Select a classifier ` +
-                "with a larger window in the Subagents section of /lune-core-settings.",
+                "with a larger window in /lune-core-settings → Subagents → Classifier model.",
         );
     }
 
@@ -517,9 +535,8 @@ function mainModel(ctx: ExtensionContext): Model<Api> {
     return ctx.model;
 }
 
-/** A tier's model must still be one the parent allows; the scope can change after it was set. */
-function tierModel(ctx: ExtensionContext, tier: AutoTier, ref: ModelRef): Model<Api> {
-    const allowed = allowedModels(ctx);
+/** A tier's model must still be allowed; the selection can change after it was set. */
+function tierModel(tier: AutoTier, ref: ModelRef, allowed: readonly Model<Api>[]): Model<Api> {
     const model = allowed.find((each) => sameModel(each, ref));
 
     if (!model) {
@@ -528,8 +545,7 @@ function tierModel(ctx: ExtensionContext, tier: AutoTier, ref: ModelRef): Model<
         throw new Error(
             `The ${tier} auto tier uses ${formatModelRef(ref)}, which is not in the allowed set` +
                 (refs.length > 0 ? `: ${refs.join(", ")}.` : "; no models are available.") +
-                " Select another model under Auto tiers in the Subagents section of " +
-                "/lune-core-settings.",
+                " Select another model in /lune-core-settings → Subagents → Auto tiers.",
         );
     }
 

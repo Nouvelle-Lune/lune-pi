@@ -125,21 +125,23 @@ Local raw PTY output, asciicast traces, lifecycle events, and intermediate attem
 
 ### Regenerating or extending the visuals
 
-Read the [preview asset guide](previews/README.md) first. The main entry point is [`tools/make-readme-previews.mjs`](../tools/make-readme-previews.mjs); supporting capture code and the scenario live under [`tools/real-demo/`](../tools/real-demo/).
+Read the [preview asset guide](previews/README.md) first. The repository-level `capture-readme-previews` skill owns the entry point, supporting capture code, and scenarios. Its `.pi/` location is intentionally gitignored; use the locally available skill when regenerating assets.
 
 For the standard capture, run from the repository root:
 
 ```bash
 npm run build
-npm run docs:previews
+node .pi/skills/capture-readme-previews/scripts/capture-readme-previews.mjs \
+  --output .scratch/readme-redesign-preview
 ```
 
 Capture requires macOS 15 or later, Ghostty, Swift command-line tools, Python 3, Pi, its `fd` helper, and screen-recording permission for the launching app. These are asset-generation requirements, not established end-user requirements for the extension family.
 
-The standard capture also updates selected package README images. The exact mapping is in [`tools/real-demo/assets.mjs`](../tools/real-demo/assets.mjs). To explore a new scenario or framing without replacing the canonical images, use a separate output directory:
+The explicit `docs/previews` output also updates selected package README images through the mapping bundled with the skill. While exploring a scenario or framing, keep a separate staging directory:
 
 ```bash
-node tools/make-readme-previews.mjs --output .scratch/readme-redesign-preview
+node .pi/skills/capture-readme-previews/scripts/capture-readme-previews.mjs \
+  --suite repository --output .scratch/readme-redesign-repository
 ```
 
 Package-level `docs:images` commands generate SVG/PNG documentation assets with `rsvg-convert`. Treat these as a separate workflow from native screenshots and inspect their output before replacing current images.
@@ -172,16 +174,16 @@ Package READMEs also contain individual npm installation commands. Before making
 
 Use these sources when resolving details:
 
-| Question                                     | Owning source                                                                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace names, requirements, and commands  | [Root package manifest](../package.json)                                                                                         |
-| Package behavior and user controls           | The seven package READMEs linked above, then their owning source files                                                           |
-| Theme defaults                               | [Theme settings](../packages/pi-core-theme/src/settings.ts)                                                                      |
-| Dock defaults and styles                     | [Dock settings](../packages/pi-dock/src/dock-settings.ts)                                                                        |
-| Compaction defaults                          | [Compaction schema](../packages/pi-compaction/src/settings/schema.ts)                                                            |
-| Recap defaults                               | [Recap settings](../packages/pi-recap/src/settings.ts)                                                                           |
-| Architecture and development conventions     | [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md)                                                              |
-| Capture provenance and package image updates | [Capture manifest](previews/capture.json), [asset guide](previews/README.md), and [image mapping](../tools/real-demo/assets.mjs) |
+| Question                                     | Owning source                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------- |
+| Workspace names, requirements, and commands  | [Root package manifest](../package.json)                                        |
+| Package behavior and user controls           | The seven package READMEs linked above, then their owning source files          |
+| Theme defaults                               | [Theme settings](../packages/pi-core-theme/src/settings.ts)                     |
+| Dock defaults and styles                     | [Dock settings](../packages/pi-dock/src/dock-settings.ts)                       |
+| Compaction defaults                          | [Compaction schema](../packages/pi-compaction/src/settings/schema.ts)           |
+| Recap defaults                               | [Recap settings](../packages/pi-recap/src/settings.ts)                          |
+| Architecture and development conventions     | [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md)             |
+| Capture provenance and package image updates | [Capture manifest](previews/capture.json) and [asset guide](previews/README.md) |
 
 Recheck facts against the checkout being delivered. If sources conflict or a proposed claim depends on unclear behavior, ask the maintainer before changing that claim or the implementation.
 

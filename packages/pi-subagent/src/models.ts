@@ -25,19 +25,34 @@ export function formatModelRef(model: ModelRef): string {
 }
 
 /**
- * The models `subagent_start` may name: the parent's model scope (`--models` or `enabledModels`),
- * or every available model when no scope is configured.
+ * A nonempty selection replaces the parent's model scope (`--models` or `enabledModels`).
+ * Without a selection or scope, every available model is allowed.
  */
-export function allowedModelRefs(ctx: ExtensionContext): string[] {
-    return allowedModels(ctx).map((model) => formatModelRef(model));
+export function allowedModelRefs(
+    ctx: ExtensionContext,
+    selection: readonly ModelRef[] = [],
+): string[] {
+    return allowedModels(ctx, selection).map((model) => formatModelRef(model));
 }
 
-/** The models of `allowedModelRefs`, once each, in scope order. */
-export function allowedModels(ctx: ExtensionContext): Model<Api>[] {
+/** The models of `allowedModelRefs`, once each, in selection or scope order. */
+export function allowedModels(
+    ctx: ExtensionContext,
+    selection: readonly ModelRef[] = [],
+): Model<Api>[] {
+    const available = ctx.modelRegistry.getAvailable();
     const models =
-        ctx.scopedModels.length > 0
-            ? ctx.scopedModels.map((scoped) => scoped.model)
-            : ctx.modelRegistry.getAvailable();
+        selection.length > 0
+            ? selection.flatMap((ref) => {
+                  const model = available.find(
+                      (model) => model.provider === ref.provider && model.id === ref.id,
+                  );
+
+                  return model ? [model] : [];
+              })
+            : ctx.scopedModels.length > 0
+              ? ctx.scopedModels.map((scoped) => scoped.model)
+              : available;
     const seen = new Set<string>();
 
     return models.filter((model) => {
