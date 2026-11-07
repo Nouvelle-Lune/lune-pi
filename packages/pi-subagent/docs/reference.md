@@ -188,6 +188,8 @@ A run ends each turn with the `report` tool:
 
 A turn without a report reaches the main agent as unreported, with the run's last message. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
 
+If that last message exceeds 20,000 characters, the notice and `subagent_status` for that run keep the first 20,000 and append the omitted count and the absolute path to a Markdown copy of the full reply. The main agent can read that file to recover the rest. Copies live in `pi-lune-subagent-responses/` under the system temporary directory, with a separate filename for each run and reply content; they remain available until the system cleans them up. If writing a copy fails, the truncation hint says the file is unavailable and the run records an error diagnostic.
+
 A message that reaches a run while it reports, for example a steer message from the main agent or from you, continues the same turn, and the run reports again. The last report is the turn's report. The main agent also gets the earlier reports of the turn in the same message, and `subagent_status` shows them.
 
 Each report message is confirmed in the main session. A message that is still missing after a run of the main agent ended is sent again. When you interrupt the main agent in Pi's interactive mode, Pi clears the queued messages, so a report message that waited in the queue goes with your next message instead, and a notification says so. After two retries without success, an error notification says that `subagent_status` still returns the results.
