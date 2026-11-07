@@ -324,7 +324,7 @@ export class SubagentInspector implements Component {
             const { run, elsewhere } = entries[index]!;
             const report =
                 run.lastTurn && run.state !== "running"
-                    ? displayedStatus(run.state, run.lastTurn.report?.status)
+                    ? displayedStatus(run.state, run.lastTurn.report?.status, run.lastTurn.cutShort)
                     : undefined;
             const marker = elsewhere ? "↪" : run.state === "running" ? "◐" : "●";
             const text =
@@ -363,7 +363,9 @@ export class SubagentInspector implements Component {
     /** The run's title and every label that fits; a narrow pane leaves out the least useful first. */
     private title(entry: Entry, newestHidden: number, width: number): string {
         const { run } = entry;
-        const report = run.lastTurn && displayedStatus(run.state, run.lastTurn.report?.status);
+        const report =
+            run.lastTurn &&
+            displayedStatus(run.state, run.lastTurn.report?.status, run.lastTurn.cutShort);
         const title = this.theme.bold(run.title);
         const parts: Array<RankedPart | undefined> = [
             // A run without a readable snapshot is already named by its ID.

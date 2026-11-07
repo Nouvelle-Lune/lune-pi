@@ -615,6 +615,13 @@ export class Run implements RunEventTarget {
             }
         } else {
             record.unreportedMessage = limitText(session?.getLastAssistantText() ?? "");
+
+            if (
+                state === "idle" &&
+                (last?.stopReason === "length" || record.unreportedMessage === "")
+            ) {
+                record.cutShort = true;
+            }
         }
 
         if (error) {

@@ -74,7 +74,7 @@ export function detailRows(run: Run, theme: Theme, width: number): string[] {
         line(
             [
                 turn.state,
-                displayedStatus(turn.state, turn.report?.status),
+                displayedStatus(turn.state, turn.report?.status, turn.cutShort),
                 Number.isFinite(duration) ? formatDuration(duration) : undefined,
             ]
                 .filter((part) => part !== undefined)

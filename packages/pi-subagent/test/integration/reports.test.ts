@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+
 import {
     createFixture,
     errorResponse,
@@ -177,4 +179,100 @@ test("an aborted settle of the interactive main agent sends a queued notice for 
     const sent = await fx.pi.waitForMessages(2);
 
     assert.deepEqual(sent[1]!.options, { deliverAs: "nextTurn" });
+});
+
+/**
+ * Pi drops a `length` reply that ended below the model's output limit and retries it, so the text
+ * would never reach the run. A reply that used the whole limit is kept; a one-token limit makes
+ * every faux reply do so.
+ */
+async function runCutAtLimit(t: Parameters<typeof createFixture>[0], text: string) {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.models.first.maxTokens = 1;
+    fx.faux.setResponses([fauxAssistantMessage(text, { stopReason: "length" })]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+
+    const [sent] = await fx.pi.waitForMessages(1);
+
+    return { fx, manager, run, content: String(sent!.message.content) };
+}
+
+test("a reply cut at the token limit without a report is cut short and keeps its text", async (t) => {
+    const { run, content } = await runCutAtLimit(t, "I was in the middle of");
+
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.state, "idle");
+    assert.equal(run.lastTurn?.report, undefined);
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(run.lastTurn?.unreportedMessage, "I was in the middle of");
+    // The main agent's text is the same as for any turn without a report.
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.match(content, /I was in the middle of/);
+    assert.doesNotMatch(content, /Report: done/);
+});
+
+test("a turn that left no text without a report is cut short and says the run left no message", async (t) => {
+    const { run, content } = await runOnce(t, textResponse(""));
+
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(run.lastTurn?.unreportedMessage, "");
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.match(content, /The run left no message\./);
+});
+
+test("a normal turn without a report is not cut short", async (t) => {
+    const { run } = await runOnce(t, textResponse("All checked."));
+
+    assert.equal(run.lastTurn?.state, "idle");
+    assert.equal(run.lastTurn?.unreportedMessage, "All checked.");
+    assert.equal(run.lastTurn?.cutShort, undefined);
+});
+
+test("a report in the turn wins even when the last reply was cut at the token limit", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.models.first.maxTokens = 1;
+
+    const { run, gate } = await startGated(
+        fx,
+        manager,
+        { task: "work" },
+        reportResponse("blocked", "Did half.", { reason: "No network." }),
+    );
+
+    // A steer continues the turn; its reply is cut, but the turn already holds a report.
+    fx.faux.appendResponses([fauxAssistantMessage("and then", { stopReason: "length" })]);
+    await manager.send(run, "one more thing", "main-agent");
+
+    gate.open();
+    await waitForTurns(manager, run, 1);
+
+    const [sent] = await fx.pi.waitForMessages(1);
+
+    assert.equal(run.lastTurn?.report?.status, "blocked");
+    assert.equal(run.lastTurn?.cutShort, undefined);
+    assert.match(String(sent!.message.content), /Report: blocked/);
+});
+
+test("a cut-short turn is still cut short after the run is restored from its file", async (t) => {
+    const { fx, manager: first, run } = await runCutAtLimit(t, "Cut here");
+
+    await first.shutdown();
+
+    const second = fx.createManager();
+
+    second.restore();
+
+    const restored = second.branchRun(run.id)!;
+
+    assert.equal(restored.state, "idle");
+    assert.equal(restored.lastTurn?.cutShort, true);
+    assert.equal(restored.lastTurn?.unreportedMessage, "Cut here");
 });

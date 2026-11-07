@@ -197,6 +197,21 @@ test("the latest part names an idle run whose last turn has no report as done", 
     assert.equal(run("quiet").needsAttention, false);
 });
 
+test("a cut-short turn counts as idle and the latest part does not call it done", (t) => {
+    const { run, text } = fixture(
+        t,
+        {
+            cut: { turns: [turn({ cutShort: true })] },
+            quiet: { turns: [turn({ endedAt: "2026-01-01T00:00:01.000Z" })] },
+        },
+        { now: SHORTLY_AFTER_TURN },
+    );
+
+    assert.equal(text("detail"), "● Agents · 1 done · 1 idle");
+    assert.equal(text("full"), "● Agents · 1 done · 1 idle · latest: cut idle");
+    assert.equal(run("cut").lastTurn?.cutShort, true);
+});
+
 test("a run without any turn counts from its creation time for the latest part", (t) => {
     const { text } = fixture(t, {
         older: { snapshot: { createdAt: "2026-01-01T00:00:01.000Z" } },

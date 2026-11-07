@@ -53,6 +53,7 @@ export interface RunNotificationRun {
     endedAt?: string;
     state: SettledState;
     reportStatus?: ReportStatus;
+    cutShort?: boolean;
     reason?: string;
     question?: string;
     error?: string;
@@ -160,6 +161,7 @@ export function buildRunNotification(batch: readonly RunNotice[]): {
             endedAt: record.endedAt,
             state: record.state,
             reportStatus: report?.status,
+            ...(record.cutShort ? { cutShort: true } : {}),
             reason: report?.reason,
             question: report?.question,
             error: record.error,

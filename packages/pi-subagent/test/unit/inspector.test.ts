@@ -137,11 +137,12 @@ test("the details view shows start values, workspace, usage and the task", (t) =
     assert.match(text, /Task\nReview it\./);
 });
 
-test("the details view shows done for an idle turn without a report and only the state when stopped", (t) => {
+test("the details view shows done for an idle turn without a report and only the state when stopped or cut short", (t) => {
     const agentDir = tempAgentDir(t);
     const cases: Array<[id: string, last: ReturnType<typeof turn>, expected: RegExp]> = [
         ["r1", turn(), /^idle · done · 4\.2s$/m],
         ["r2", turn({ state: "interrupted", stoppedBy: "user" }), /^interrupted · 4\.2s$/m],
+        ["r3", turn({ cutShort: true }), /^idle · 4\.2s$/m],
     ];
 
     for (const [id, last, expected] of cases) {

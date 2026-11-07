@@ -251,7 +251,10 @@ function dockStatus(run: Run): DockStatus {
         return run.state;
     }
 
-    switch (run.lastTurn && displayedStatus(run.state, run.lastTurn.report?.status)) {
+    switch (
+        run.lastTurn &&
+        displayedStatus(run.state, run.lastTurn.report?.status, run.lastTurn.cutShort)
+    ) {
         case "needs_input":
             return "needs input";
         case "blocked":

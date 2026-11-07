@@ -174,7 +174,11 @@ class RunNotificationBox implements Component {
                 summary: run.question ?? run.reason ?? firstLine(this.body(run)),
                 status: activityStatus(run.state),
                 detail:
-                    [run.reportStatus, earlierCount(run), run.copied ? "copied" : undefined]
+                    [
+                        displayedStatus(run.state, run.reportStatus, run.cutShort),
+                        earlierCount(run),
+                        run.copied ? "copied" : undefined,
+                    ]
                         .filter((part) => part !== undefined)
                         .join(" · ") || undefined,
                 durationMs: run.durationMs,
@@ -210,7 +214,7 @@ class RunNotificationBox implements Component {
     /** `<name> · <state> · <report status, if any> · <duration>`; the name is clipped first. */
     private runRow(run: RunNotificationRun, width: number): string {
         const parts = [this.theme.fg(stateColor(run.state), run.state)];
-        const report = displayedStatus(run.state, run.reportStatus);
+        const report = displayedStatus(run.state, run.reportStatus, run.cutShort);
 
         if (report) {
             parts.push(this.theme.fg(reportColor(report), report));
@@ -367,14 +371,16 @@ export function stateColor(state: string): ThemeColor {
 
 /**
  * The task status the user sees. A turn that ended normally without a report shows as done: its last
- * message reaches the main agent anyway, and a separate label read as if nothing had been sent. The
- * main agent is still told that such a turn has no task status.
+ * message reaches the main agent anyway, and a separate label read as if nothing had been sent. A
+ * turn that was cut short shows only its state, because its work may not be finished. The main agent
+ * is still told that such a turn has no task status.
  */
 export function displayedStatus(
     state: RunState,
     report: ReportStatus | undefined,
+    cutShort: boolean | undefined,
 ): ReportStatus | undefined {
-    return report ?? (state === "idle" ? "done" : undefined);
+    return report ?? (state === "idle" && !cutShort ? "done" : undefined);
 }
 
 export function reportColor(status: string | undefined): ThemeColor {

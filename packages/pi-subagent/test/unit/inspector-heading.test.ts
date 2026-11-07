@@ -3,11 +3,13 @@ import { writeFileSync } from "node:fs";
 import { test, type TestContext } from "node:test";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, wrapTextWithAnsi, type TuiMouseEvent } from "@earendil-works/pi-tui";
 
 import { SubagentInspector } from "../../src/inspector/inspector.ts";
 import { BODY_TOP, paneGeometry } from "../../src/inspector/layout.ts";
 import { runSessionFile } from "../../src/paths.ts";
+import { openRunFile } from "../../src/run/run-file.ts";
 import {
     assistantMessage,
     fakeCtx,
@@ -53,6 +55,7 @@ function panel(
 
     return {
         inspector,
+        run: manager.branchRuns()[0]!,
         /** The right pane's body rows, without borders and padding. */
         right(width: number): string[] {
             const geometry = paneGeometry(width, ROWS);
@@ -180,18 +183,11 @@ test("a run of another branch is labelled after its report", (t) => {
     assert.equal(right(140)[0], "security-reviewer · aaaa0001 · idle · done · other branch");
 });
 
-test("a turn without a report shows done when idle and only its state when it failed or stopped", (t) => {
+test("a turn without a report shows done when idle and only its state when it failed or was cut short", (t) => {
     const cases: Array<[label: string, spec: RunFileSpec]> = [
         ["idle · done", { ...named("reviewer"), turns: [turn()] }],
+        ["idle", { ...named("reviewer"), turns: [turn({ cutShort: true })] }],
         ["failed", { ...named("reviewer"), turns: [turn({ state: "failed", error: "boom" })] }],
-        [
-            // A restored run whose unfinished turn follows an earlier idle one without a report.
-            "interrupted",
-            {
-                ...named("reviewer"),
-                turns: [turn(), turn({ state: "interrupted", stoppedBy: "user" })],
-            },
-        ],
     ];
 
     for (const [label, spec] of cases) {
@@ -202,6 +198,29 @@ test("a turn without a report shows done when idle and only its state when it fa
         assert.match(screen, new RegExp(`● reviewer ${label.replace(" · ", " ")}\\s`));
         assert.doesNotMatch(screen, /unreported/i);
     }
+});
+
+test("a restored run with messages after its last idle turn shows interrupted, never done", (t) => {
+    const { inspector, right, run } = panel(
+        t,
+        { ...named("reviewer"), turns: [turn()] },
+        {
+            // A message after the last turn record: the parent stopped before the turn was recorded.
+            damage: (file) => {
+                openRunFile(file).appendMessage(
+                    userMessage("Continue.") as Parameters<SessionManager["appendMessage"]>[0],
+                );
+            },
+        },
+    );
+    const screen = inspector.render(140).join("\n");
+
+    // Guard the fixture: the run state and the last turn record must differ.
+    assert.equal(run.state, "interrupted");
+    assert.equal(run.lastTurn?.state, "idle");
+    assert.equal(right(140)[0], "reviewer · aaaa0001 · interrupted");
+    assert.match(screen, /● reviewer interrupted\s/);
+    assert.doesNotMatch(screen, /done/);
 });
 
 /** A transcript longer than the body, scrolled up by one row so one newer row is hidden. */

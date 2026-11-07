@@ -107,13 +107,16 @@ test("a turn without a report shows done when idle and only its state otherwise"
 
 test("displayedStatus lets a report win and calls only an idle turn without one done", () => {
     const cases: Array<[Parameters<typeof displayedStatus>, string | undefined]> = [
-        [["idle", "blocked"], "blocked"],
-        [["idle", "needs_input"], "needs_input"],
-        [["failed", "done"], "done"],
-        [["idle", undefined], "done"],
-        [["failed", undefined], undefined],
-        [["interrupted", undefined], undefined],
-        [["running", undefined], undefined],
+        [["idle", "blocked", undefined], "blocked"],
+        [["idle", "needs_input", undefined], "needs_input"],
+        [["failed", "done", undefined], "done"],
+        [["idle", undefined, undefined], "done"],
+        [["failed", undefined, undefined], undefined],
+        [["interrupted", undefined, undefined], undefined],
+        [["running", undefined, undefined], undefined],
+        // A cut-short turn shows only its state, but a report still wins.
+        [["idle", undefined, true], undefined],
+        [["idle", "blocked", true], "blocked"],
     ];
 
     for (const [args, expected] of cases) {
@@ -121,6 +124,39 @@ test("displayedStatus lets a report win and calls only an idle turn without one 
 
         assert.equal(actual, expected, args.join(" / "));
     }
+});
+
+test("a cut-short turn shows only its state in the box and carries cutShort in the details", () => {
+    const { content, details } = message([
+        notice("r1", turn({ unreportedMessage: "Cut here", cutShort: true })),
+        notice("r2", turn({ unreportedMessage: "Finished." })),
+    ]);
+
+    const text = renderRunNotificationBox({ content, details }, options(), fakeTheme())!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · idle · 4\.2s/);
+    assert.doesNotMatch(text, /agent-r1 \(r1\) · idle · done/);
+    assert.match(text, /agent-r2 \(r2\) · idle · done · 4\.2s/);
+    assert.equal(details.runs[0]!.cutShort, true);
+    assert.equal("cutShort" in details.runs[1]!, false);
+    // The main agent's text is the same as for any turn without a report.
+    assert.match(content, /No task status: the turn ended without a report\./);
+});
+
+test("details from before cutShort existed still show an idle turn as done", () => {
+    const { content, details } = message([notice("r1", turn({ unreportedMessage: "Finished." }))]);
+    const { cutShort: _dropped, ...older } = details.runs[0]!;
+    const text = renderRunNotificationBox(
+        { content, details: { ...details, runs: [older] } },
+        options(),
+        fakeTheme(),
+    )!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · idle · done · 4\.2s/);
 });
 
 test("a collapsed box previews five report lines and an expanded one shows them all", () => {
@@ -203,7 +239,7 @@ test("with Core Theme the box delegates to its activity renderer, keeping state 
     assert.equal(calls[0]!.activity.entries[1]!.summary, "First line.");
 });
 
-test("with Core Theme a failed or idle turn without a report has no detail", () => {
+test("with Core Theme the detail is the displayed task status, not the session state", () => {
     const calls: LuneActivity[] = [];
 
     globals[RENDERER_KEY] = {
@@ -218,16 +254,50 @@ test("with Core Theme a failed or idle turn without a report has no detail", () 
     const { content, details } = message([
         notice("r1", turn({ state: "failed", error: "boom" })),
         notice("r2", turn({ unreportedMessage: "I stopped here." })),
+        notice("r3", turn({ unreportedMessage: "Cut here", cutShort: true })),
+        notice("r4", turn({ state: "interrupted", stoppedBy: "user" })),
     ]);
 
     renderRunNotificationBox({ content, details }, options(), fakeTheme())!.render(50);
 
     const actual = calls[0]!.entries.map((entry) => [entry.name, entry.status, entry.detail]);
 
-    assert.deepEqual(actual, [
+    // `status` is the session state, which the theme has no idle word for, so idle maps to
+    // "done". `detail` is the task status: only a normal idle turn shows "done" there.
+    const expected = [
         ["agent-r1", "failed", undefined],
-        ["agent-r2", "done", undefined],
+        ["agent-r2", "done", "done"],
+        ["agent-r3", "done", undefined],
+        ["agent-r4", "cancelled", undefined],
+    ];
+
+    assert.deepEqual(actual, expected);
+});
+
+test("with Core Theme a cut-short turn keeps its other detail parts without a status", () => {
+    const calls: LuneActivity[] = [];
+
+    globals[RENDERER_KEY] = {
+        version: 1,
+        renderActivity: (activity: LuneActivity) => {
+            calls.push(activity);
+
+            return { render: () => ["themed"], invalidate() {} };
+        },
+    };
+
+    const { content, details } = message([
+        {
+            ...notice("r1", turn({ unreportedMessage: "Cut here", cutShort: true })),
+            copied: true,
+        },
     ]);
+
+    renderRunNotificationBox({ content, details }, options(), fakeTheme())!.render(50);
+
+    const actual = calls[0]!.entries[0]!.detail;
+
+    assert.equal(actual, "copied");
 });
 
 test("the renderer is looked up on every render, so removing it restores the standalone box", () => {
