@@ -129,11 +129,28 @@ test("the details view shows start values, workspace, usage and the task", (t) =
     assert.match(text, /Input 2\.0k · output 100/);
     assert.match(text, /Total 2\.1k tokens · \$0\.250/);
     assert.match(text, /Not included in the main session's totals\./);
-    assert.match(text, /failed · unreported · 4\.2s/);
+    assert.match(text, /^failed · 4\.2s$/m);
+    assert.doesNotMatch(text, /unreported/i);
     assert.match(text, /Stopped by: user/);
     assert.match(text, /Error: boom/);
     assert.match(text, /Definition body\nBe strict\./);
     assert.match(text, /Task\nReview it\./);
+});
+
+test("the details view shows done for an idle turn without a report and only the state when stopped", (t) => {
+    const agentDir = tempAgentDir(t);
+    const cases: Array<[id: string, last: ReturnType<typeof turn>, expected: RegExp]> = [
+        ["r1", turn(), /^idle · done · 4\.2s$/m],
+        ["r2", turn({ state: "interrupted", stoppedBy: "user" }), /^interrupted · 4\.2s$/m],
+    ];
+
+    for (const [id, last, expected] of cases) {
+        const run = restoredRun(agentDir, id, { turns: [last] });
+        const text = detailRows(run, fakeTheme(), 100).join("\n");
+
+        assert.match(text, expected);
+        assert.doesNotMatch(text, /unreported/i);
+    }
 });
 
 test("the details view of an unreadable run stops after the load error", (t) => {

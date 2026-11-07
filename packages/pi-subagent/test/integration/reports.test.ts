@@ -77,13 +77,14 @@ test("a blocked report without a reason is rejected and the run can report again
     assert.equal(run.turns, 1);
 });
 
-test("a turn that ends without report is unreported, never done", async (t) => {
+test("a turn that ends without report has no task status, never done", async (t) => {
     const { run, content } = await runOnce(t, textResponse("I looked around and found nothing."));
 
     assert.equal(run.state, "idle");
     assert.equal(run.lastTurn?.report, undefined);
     assert.equal(run.lastTurn?.unreportedMessage, "I looked around and found nothing.");
-    assert.match(content, /Unreported/);
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.doesNotMatch(content, /unreported/i);
     assert.match(content, /I looked around and found nothing\./);
     assert.doesNotMatch(content, /Report: done/);
 });

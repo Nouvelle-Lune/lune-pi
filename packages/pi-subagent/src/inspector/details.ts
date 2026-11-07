@@ -1,6 +1,7 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
+import { displayedStatus } from "../notify/notification-box.ts";
 import { displayLines } from "../render/text.ts";
 import type { Run } from "../run/run.ts";
 import { formatDuration, formatTokens, startValueLines, workspaceLines } from "../tools/format.ts";
@@ -71,8 +72,13 @@ export function detailRows(run: Run, theme: Theme, width: number): string[] {
         const duration = Date.parse(turn.endedAt) - Date.parse(turn.startedAt);
 
         line(
-            `${turn.state} · ${turn.report?.status ?? "unreported"}` +
-                (Number.isFinite(duration) ? ` · ${formatDuration(duration)}` : ""),
+            [
+                turn.state,
+                displayedStatus(turn.state, turn.report?.status),
+                Number.isFinite(duration) ? formatDuration(duration) : undefined,
+            ]
+                .filter((part) => part !== undefined)
+                .join(" · "),
         );
 
         if (turn.stoppedBy) {

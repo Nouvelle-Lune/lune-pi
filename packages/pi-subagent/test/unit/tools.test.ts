@@ -678,7 +678,7 @@ test("formatRunStatus gives the whole report; formatRunList only a clipped previ
     assert.match(list, /Call subagent_status with a runId/);
 });
 
-test("an unreported last turn is shown as having no task status", (t) => {
+test("a last turn without a report is shown as having no task status", (t) => {
     const run = restoredRun(tempAgentDir(t), "r1", {
         turns: [turn({ state: "failed", error: "boom" })],
     });
@@ -686,9 +686,27 @@ test("an unreported last turn is shown as having no task status", (t) => {
     const status = formatRunStatus(run);
     const list = formatRunList([run], 0);
 
-    assert.match(status, /Error: boom\nUnreported: the turn ended without a report/);
+    assert.match(status, /Error: boom\nNo task status: the turn ended without a report\./);
+    assert.doesNotMatch(status, /unreported/i);
+    assert.doesNotMatch(status, /Report: done/);
     assert.match(status, /The run left no message\./);
     assert.match(list, /Last message: none/);
+});
+
+test("a last turn without a report still gives the main agent its last message", (t) => {
+    const run = restoredRun(tempAgentDir(t), "r1", {
+        turns: [turn({ unreportedMessage: "I stopped here." })],
+    });
+
+    const status = formatRunStatus(run);
+    const list = formatRunList([run], 0);
+
+    assert.match(
+        status,
+        /No task status: the turn ended without a report\.\nLast message:\nI stopped here\./,
+    );
+    assert.match(list, /Last message: I stopped here\./);
+    assert.doesNotMatch(`${status}\n${list}`, /unreported|Report: done/i);
 });
 
 test("an empty list says there are no runs here", () => {

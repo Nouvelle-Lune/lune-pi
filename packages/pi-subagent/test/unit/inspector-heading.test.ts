@@ -180,6 +180,30 @@ test("a run of another branch is labelled after its report", (t) => {
     assert.equal(right(140)[0], "security-reviewer · aaaa0001 · idle · done · other branch");
 });
 
+test("a turn without a report shows done when idle and only its state when it failed or stopped", (t) => {
+    const cases: Array<[label: string, spec: RunFileSpec]> = [
+        ["idle · done", { ...named("reviewer"), turns: [turn()] }],
+        ["failed", { ...named("reviewer"), turns: [turn({ state: "failed", error: "boom" })] }],
+        [
+            // A restored run whose unfinished turn follows an earlier idle one without a report.
+            "interrupted",
+            {
+                ...named("reviewer"),
+                turns: [turn(), turn({ state: "interrupted", stoppedBy: "user" })],
+            },
+        ],
+    ];
+
+    for (const [label, spec] of cases) {
+        const { inspector, right } = panel(t, spec);
+        const screen = inspector.render(140).join("\n");
+
+        assert.equal(right(140)[0], `reviewer · aaaa0001 · ${label}`);
+        assert.match(screen, new RegExp(`● reviewer ${label.replace(" · ", " ")}\\s`));
+        assert.doesNotMatch(screen, /unreported/i);
+    }
+});
+
 /** A transcript longer than the body, scrolled up by one row so one newer row is hidden. */
 function scrolledUp(t: TestContext, name: string) {
     const messages: AgentMessage[] = Array.from({ length: 40 }, (_, index) =>

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import type { MessageRenderOptions } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { renderRunNotificationBox } from "../../src/notify/notification-box.ts";
+import { displayedStatus, renderRunNotificationBox } from "../../src/notify/notification-box.ts";
 import { buildRunNotification, type RunNotice } from "../../src/notify/notifier.ts";
 import type { LuneActivity } from "../../src/render/lune-theme.ts";
 import { fakeTheme, turn } from "./support.ts";
@@ -80,7 +80,47 @@ test("the box shows the reason, the question and the error of each run", () => {
     assert.match(text, /Reason: No key\./);
     assert.match(text, /Question: Which\?/);
     assert.match(text, /Error: boom/);
-    assert.match(text, /failed · unreported/);
+    assert.match(text, /agent-r3 \(r3\) · failed · 4\.2s/);
+    assert.doesNotMatch(text, /unreported/i);
+});
+
+test("a turn without a report shows done when idle and only its state otherwise", () => {
+    const { content, details } = message([
+        notice("r1", turn({ state: "failed", error: "boom" })),
+        notice("r2", turn({ unreportedMessage: "I stopped here." })),
+        notice("r3", turn({ state: "interrupted", stoppedBy: "user" })),
+    ]);
+
+    const text = renderRunNotificationBox({ content, details }, options(), fakeTheme())!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · failed · 4\.2s/);
+    assert.match(text, /agent-r2 \(r2\) · idle · done · 4\.2s/);
+    assert.match(text, /agent-r3 \(r3\) · interrupted · 4\.2s/);
+    assert.doesNotMatch(text, /unreported/i);
+
+    // The main agent is never told "done": the turn sent no task status.
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.doesNotMatch(content, /Report: done/);
+});
+
+test("displayedStatus lets a report win and calls only an idle turn without one done", () => {
+    const cases: Array<[Parameters<typeof displayedStatus>, string | undefined]> = [
+        [["idle", "blocked"], "blocked"],
+        [["idle", "needs_input"], "needs_input"],
+        [["failed", "done"], "done"],
+        [["idle", undefined], "done"],
+        [["failed", undefined], undefined],
+        [["interrupted", undefined], undefined],
+        [["running", undefined], undefined],
+    ];
+
+    for (const [args, expected] of cases) {
+        const actual = displayedStatus(...args);
+
+        assert.equal(actual, expected, args.join(" / "));
+    }
 });
 
 test("a collapsed box previews five report lines and an expanded one shows them all", () => {
@@ -156,11 +196,38 @@ test("with Core Theme the box delegates to its activity renderer, keeping state 
     assert.deepEqual(
         calls[0]!.activity.entries.map((entry) => [entry.name, entry.status, entry.detail]),
         [
-            ["agent-r1", "cancelled", "unreported"],
+            ["agent-r1", "cancelled", undefined],
             ["agent-r2", "done", "done · copied"],
         ],
     );
     assert.equal(calls[0]!.activity.entries[1]!.summary, "First line.");
+});
+
+test("with Core Theme a failed or idle turn without a report has no detail", () => {
+    const calls: LuneActivity[] = [];
+
+    globals[RENDERER_KEY] = {
+        version: 1,
+        renderActivity: (activity: LuneActivity) => {
+            calls.push(activity);
+
+            return { render: () => ["themed"], invalidate() {} };
+        },
+    };
+
+    const { content, details } = message([
+        notice("r1", turn({ state: "failed", error: "boom" })),
+        notice("r2", turn({ unreportedMessage: "I stopped here." })),
+    ]);
+
+    renderRunNotificationBox({ content, details }, options(), fakeTheme())!.render(50);
+
+    const actual = calls[0]!.entries.map((entry) => [entry.name, entry.status, entry.detail]);
+
+    assert.deepEqual(actual, [
+        ["agent-r1", "failed", undefined],
+        ["agent-r2", "done", undefined],
+    ]);
 });
 
 test("the renderer is looked up on every render, so removing it restores the standalone box", () => {

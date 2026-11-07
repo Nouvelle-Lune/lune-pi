@@ -131,7 +131,7 @@ test("the detail line counts the runs by status in a fixed order", (t) => {
 
     const expected =
         "✕ Agents · 2 running · 1 needs input · 1 blocked · 1 failed · 1 interrupted" +
-        " · 1 unreported · 2 done · 1 idle";
+        " · 3 done · 1 idle";
 
     assert.equal(text("detail"), expected);
 });
@@ -160,6 +160,41 @@ test("the full line adds the run whose turn ended last", (t) => {
     });
 
     assert.equal(text("full"), "? Agents · 1 needs input · 1 done · latest: late done");
+});
+
+test("a turn without a report counts as done when idle, and failed or idle otherwise", (t) => {
+    const { run, dock, text } = fixture(
+        t,
+        {
+            quiet: { turns: [turn()] },
+            broken: { turns: [turn({ state: "failed", error: "boom" })] },
+            stopped: { turns: [turn()] },
+            fresh: {},
+        },
+        { now: SHORTLY_AFTER_TURN },
+    );
+
+    // A stopped run keeps an earlier idle turn without a report; its state decides.
+    run("stopped").state = "interrupted";
+    dock.refresh();
+
+    assert.equal(text("detail"), "✕ Agents · 1 failed · 1 interrupted · 1 done · 1 idle");
+    // The display says done, but the turn itself carries no report.
+    assert.equal(run("quiet").lastTurn?.report, undefined);
+    assert.equal(run("quiet").needsInput, false);
+
+    for (const level of ["base", "detail", "full"] as const) {
+        assert.doesNotMatch(text(level), /unreported/i);
+    }
+});
+
+test("the latest part names an idle run whose last turn has no report as done", (t) => {
+    const { run, text } = fixture(t, {
+        quiet: { turns: [turn()] },
+    });
+
+    assert.equal(text("full"), "● Agents · 1 done · latest: quiet done");
+    assert.equal(run("quiet").needsAttention, false);
 });
 
 test("a run without any turn counts from its creation time for the latest part", (t) => {

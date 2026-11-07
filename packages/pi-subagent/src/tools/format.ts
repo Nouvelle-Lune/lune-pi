@@ -327,7 +327,7 @@ function turnLines(turn: TurnRecord, preview: boolean): string[] {
     } else {
         const message = turn.unreportedMessage ?? "";
 
-        lines.push("Unreported: the turn ended without a report, so it has no task status.");
+        lines.push("No task status: the turn ended without a report.");
 
         if (preview) {
             lines.push(`Last message: ${message === "" ? "none" : clip(message)}`);

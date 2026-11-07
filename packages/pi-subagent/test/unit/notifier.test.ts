@@ -157,13 +157,15 @@ test("a blocked report lists its reason and a needs_input report its question", 
     assert.match(content, /Report: needs_input\nQuestion: Which one\?/);
 });
 
-test("a turn without a report says it is unreported and quotes the last message", () => {
+test("a turn without a report says it has no task status and quotes the last message", () => {
     const { content, details } = buildRunNotification([
         { runId: "r1", name: "a", record: turn({ unreportedMessage: "I stopped here." }) },
         { runId: "r2", name: "b", record: turn({ state: "failed", error: "boom" }) },
     ]);
 
-    assert.match(content, /Unreported: the turn ended without a report/);
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.doesNotMatch(content, /unreported/i);
+    assert.doesNotMatch(content, /Report: done/);
     assert.match(content, /The run's last message:\nI stopped here\./);
     assert.match(content, /Error: boom/);
     assert.match(content, /The run left no message\./);

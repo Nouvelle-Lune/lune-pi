@@ -146,7 +146,7 @@ export function buildRunNotification(batch: readonly RunNotice[]): {
         } else {
             const message = record.unreportedMessage ?? "";
 
-            section.line("Unreported: the turn ended without a report, so it has no task status.");
+            section.line("No task status: the turn ended without a report.");
             section.line("");
             section.line(message === "" ? "The run left no message." : "The run's last message:");
             body = section.text(message);

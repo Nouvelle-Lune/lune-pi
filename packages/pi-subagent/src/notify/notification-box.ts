@@ -18,6 +18,7 @@ import {
     type LuneThemeRenderer,
 } from "../render/lune-theme.ts";
 import { bandRow, clipToWidth, displayLines, EXPAND_KEY } from "../render/text.ts";
+import type { ReportStatus, RunState } from "../run/types.ts";
 import { formatDuration } from "../tools/format.ts";
 import type {
     ContentSlice,
@@ -172,13 +173,10 @@ class RunNotificationBox implements Component {
                 name: run.name,
                 summary: run.question ?? run.reason ?? firstLine(this.body(run)),
                 status: activityStatus(run.state),
-                detail: [
-                    run.reportStatus ?? "unreported",
-                    earlierCount(run),
-                    run.copied ? "copied" : undefined,
-                ]
-                    .filter((part) => part !== undefined)
-                    .join(" · "),
+                detail:
+                    [run.reportStatus, earlierCount(run), run.copied ? "copied" : undefined]
+                        .filter((part) => part !== undefined)
+                        .join(" · ") || undefined,
                 durationMs: run.durationMs,
                 error: run.error,
                 output: displayLines(
@@ -209,14 +207,14 @@ class RunNotificationBox implements Component {
         return `${this.runs.length} subagent turns ended`;
     }
 
-    /** `<name> · <state> · <report status> · <duration>`; the name is clipped first. */
+    /** `<name> · <state> · <report status, if any> · <duration>`; the name is clipped first. */
     private runRow(run: RunNotificationRun, width: number): string {
-        const state = this.theme.fg(stateColor(run.state), run.state);
-        const report = this.theme.fg(
-            reportColor(run.reportStatus),
-            run.reportStatus ?? "unreported",
-        );
-        const parts = [state, report];
+        const parts = [this.theme.fg(stateColor(run.state), run.state)];
+        const report = displayedStatus(run.state, run.reportStatus);
+
+        if (report) {
+            parts.push(this.theme.fg(reportColor(report), report));
+        }
 
         if (run.durationMs !== undefined && Number.isFinite(run.durationMs)) {
             parts.push(this.theme.fg("muted", formatDuration(run.durationMs)));
@@ -365,6 +363,18 @@ export function stateColor(state: string): ThemeColor {
         default:
             return "muted";
     }
+}
+
+/**
+ * The task status the user sees. A turn that ended normally without a report shows as done: its last
+ * message reaches the main agent anyway, and a separate label read as if nothing had been sent. The
+ * main agent is still told that such a turn has no task status.
+ */
+export function displayedStatus(
+    state: RunState,
+    report: ReportStatus | undefined,
+): ReportStatus | undefined {
+    return report ?? (state === "idle" ? "done" : undefined);
 }
 
 export function reportColor(status: string | undefined): ThemeColor {

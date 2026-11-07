@@ -186,7 +186,7 @@ A run ends each turn with the `report` tool:
 | `blocked`     | The run cannot finish, for example because it declined the task or finished only part. |
 | `needs_input` | The run needs something before it can continue. Its question goes to the main agent.   |
 
-A turn without a report reaches the main agent as unreported, with the run's last message. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
+A turn that ends normally without a report shows as `done` in the Dock, notifications and `/agents`. The main agent still gets the run's last message, marked as having no task status. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
 
 A message that reaches a run while it reports, for example a steer message from the main agent or from you, continues the same turn, and the run reports again. The last report is the turn's report. The main agent also gets the earlier reports of the turn in the same message, and `subagent_status` shows them.
 
@@ -196,7 +196,7 @@ The run state describes the session, not the task: `running`, `idle`, `failed` (
 
 ## Dock and `/agents`
 
-The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
+The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
 
 The Dock never cuts its line. When the cell is too narrow, it leaves out complete parts, the least urgent first, so the `failed`, `blocked` and `needs input` counts stay longest. Then only `◐ Agents` shows, then only the marker.
 
