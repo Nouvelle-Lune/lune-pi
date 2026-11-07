@@ -28,6 +28,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ### Fixed
 
+- **Full replies after truncation.** When a turn ends without a report and its last message exceeds 20,000 characters, save the complete reply as a Markdown file in the system temporary directory. The truncation hint in the notice and run status includes its path, so the main agent can read the omitted text.
 - **Supported thinking choices.** Custom agents limit selectable levels to the chosen or inherited model's support; with an auto classifier, levels must be shared by the tier models and the main model. The automatic default is labeled correctly, invalid model selections report errors, and unsupported saved levels stay visible as disabled entries.
 
 ### Changed
