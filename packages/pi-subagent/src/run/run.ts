@@ -1,4 +1,7 @@
-import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -614,7 +617,9 @@ export class Run implements RunEventTarget {
                 record.earlierReports = turn.reports.slice(0, -1);
             }
         } else {
-            record.unreportedMessage = limitText(session?.getLastAssistantText() ?? "");
+            record.unreportedMessage = this.unreportedMessage(
+                session?.getLastAssistantText() ?? "",
+            );
         }
 
         if (error) {
@@ -654,6 +659,36 @@ export class Run implements RunEventTarget {
         }
     }
 
+    private unreportedMessage(text: string): string {
+        if (text.length <= MAX_UNREPORTED_CHARS) {
+            return text;
+        }
+
+        const preview = text.slice(0, MAX_UNREPORTED_CHARS);
+        const omitted = text.length - MAX_UNREPORTED_CHARS;
+        let location: string;
+
+        try {
+            const directory = join(tmpdir(), "pi-lune-subagent-responses");
+
+            mkdirSync(directory, { recursive: true, mode: 0o700 });
+
+            // Content hashes keep a later turn from overwriting an earlier reply's copy.
+            const hash = createHash("sha256").update(text).digest("hex");
+            const file = join(directory, `${this.id}.${hash}.md`);
+
+            writeFileSync(file, text, { encoding: "utf8", mode: 0o600 });
+            location = `full response: ${JSON.stringify(file)}`;
+        } catch (error) {
+            const diagnostic = errorDiagnostic("Writing the full response file failed", error);
+
+            this.addDiagnostic(diagnostic);
+            location = `full response file unavailable: ${diagnostic.message}`;
+        }
+
+        return `${preview}\n[${omitted} more characters in the run transcript; ${location}]`;
+    }
+
     private changed(change: RunChange): void {
         this.revision += 1;
         this.host.onChange(this, change);
@@ -663,17 +698,6 @@ export class Run implements RunEventTarget {
 /** A message queued into a busy session steers the turn in progress. */
 function outcome(disposition: "started" | "queued" | "deferred"): SendOutcome {
     return disposition === "queued" ? "steered" : disposition;
-}
-
-function limitText(text: string): string {
-    if (text.length <= MAX_UNREPORTED_CHARS) {
-        return text;
-    }
-
-    return (
-        `${text.slice(0, MAX_UNREPORTED_CHARS)}\n` +
-        `[${text.length - MAX_UNREPORTED_CHARS} more characters in the run transcript]`
-    );
 }
 
 function isDirectory(path: string): boolean {
