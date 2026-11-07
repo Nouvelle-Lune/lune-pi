@@ -239,7 +239,7 @@ test("with Core Theme the box delegates to its activity renderer, keeping state 
     assert.equal(calls[0]!.activity.entries[1]!.summary, "First line.");
 });
 
-test("with Core Theme the detail is the displayed task status, not the session state", () => {
+test("with Core Theme the detail is the task status, or idle for a cut-short turn, not the session state", () => {
     const calls: LuneActivity[] = [];
 
     globals[RENDERER_KEY] = {
@@ -263,18 +263,19 @@ test("with Core Theme the detail is the displayed task status, not the session s
     const actual = calls[0]!.entries.map((entry) => [entry.name, entry.status, entry.detail]);
 
     // `status` is the session state, which the theme has no idle word for, so idle maps to
-    // "done". `detail` is the task status: only a normal idle turn shows "done" there.
+    // "done" and the card marks an idle run like a finished one. `detail` is therefore the task
+    // status, or "idle" for a cut-short turn; the card words a failed or interrupted run itself.
     const expected = [
         ["agent-r1", "failed", undefined],
         ["agent-r2", "done", "done"],
-        ["agent-r3", "done", undefined],
+        ["agent-r3", "done", "idle"],
         ["agent-r4", "cancelled", undefined],
     ];
 
     assert.deepEqual(actual, expected);
 });
 
-test("with Core Theme a cut-short turn keeps its other detail parts without a status", () => {
+test("with Core Theme a cut-short turn names idle and keeps its other detail parts", () => {
     const calls: LuneActivity[] = [];
 
     globals[RENDERER_KEY] = {
@@ -297,7 +298,7 @@ test("with Core Theme a cut-short turn keeps its other detail parts without a st
 
     const actual = calls[0]!.entries[0]!.detail;
 
-    assert.equal(actual, "copied");
+    assert.equal(actual, "idle · copied");
 });
 
 test("the renderer is looked up on every render, so removing it restores the standalone box", () => {

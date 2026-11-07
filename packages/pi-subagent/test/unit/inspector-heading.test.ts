@@ -195,7 +195,8 @@ test("a turn without a report shows done when idle and only its state when it fa
         const screen = inspector.render(140).join("\n");
 
         assert.equal(right(140)[0], `reviewer · aaaa0001 · ${label}`);
-        assert.match(screen, new RegExp(`● reviewer ${label.replace(" · ", " ")}\\s`));
+        // The list cell ends right after the label, so "idle" cannot pass for "idle done".
+        assert.match(screen, new RegExp(`● reviewer ${label.replace(" · ", " ")} *│`));
         assert.doesNotMatch(screen, /unreported/i);
     }
 });

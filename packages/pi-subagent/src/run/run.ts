@@ -69,6 +69,8 @@ interface ActiveTurn {
     userWrote: boolean;
     stoppedBy?: StopSource;
     error?: string;
+    /** The turn's last assistant reply, which the session may no longer hold. */
+    lastReply?: AssistantMessage;
     /** Resolves once the turn's end is recorded. */
     ended: Promise<void>;
     end: () => void;
@@ -346,6 +348,11 @@ export class Run implements RunEventTarget {
                 return;
             case "message_end":
                 this.streaming = undefined;
+
+                if (this.turn && event.message.role === "assistant") {
+                    this.turn.lastReply = event.message;
+                }
+
                 this.changed("transcript");
                 return;
             case "tool_execution_start":
@@ -614,12 +621,15 @@ export class Run implements RunEventTarget {
                 record.earlierReports = turn.reports.slice(0, -1);
             }
         } else {
-            record.unreportedMessage = limitText(session?.getLastAssistantText() ?? "");
+            // Pi drops a reply cut at the token limit from the session to recover, and may then not
+            // retry, so the session alone would name an older reply as the run's last message.
+            const cut = turn.lastReply?.stopReason === "length" ? turn.lastReply : undefined;
 
-            if (
-                state === "idle" &&
-                (last?.stopReason === "length" || record.unreportedMessage === "")
-            ) {
+            record.unreportedMessage = limitText(
+                (cut ? replyText(cut) : session?.getLastAssistantText()) ?? "",
+            );
+
+            if (state === "idle" && (cut || record.unreportedMessage === "")) {
                 record.cutShort = true;
             }
         }
@@ -670,6 +680,13 @@ export class Run implements RunEventTarget {
 /** A message queued into a busy session steers the turn in progress. */
 function outcome(disposition: "started" | "queued" | "deferred"): SendOutcome {
     return disposition === "queued" ? "steered" : disposition;
+}
+
+function replyText(reply: AssistantMessage): string {
+    return reply.content
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("")
+        .trim();
 }
 
 function limitText(text: string): string {

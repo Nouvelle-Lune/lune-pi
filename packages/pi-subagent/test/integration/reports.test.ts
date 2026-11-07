@@ -1,16 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 
 import {
     createFixture,
     errorResponse,
+    gatedResponse,
+    liveSessionOf,
     reportResponse,
     startGated,
     textResponse,
+    waitForState,
     waitForTurns,
 } from "../harness/fixture.ts";
+import { createGate } from "../harness/wait.ts";
 
 async function runOnce(
     t: Parameters<typeof createFixture>[0],
@@ -182,9 +186,10 @@ test("an aborted settle of the interactive main agent sends a queued notice for 
 });
 
 /**
- * Pi drops a `length` reply that ended below the model's output limit and retries it, so the text
- * would never reach the run. A reply that used the whole limit is kept; a one-token limit makes
- * every faux reply do so.
+ * Pi drops a `length` reply that ended below the model's output limit from the session to recover:
+ * it retries only if compaction succeeds, and in a short session compaction declines, so nothing
+ * retries and the session no longer holds the reply. A reply that used the whole limit is kept; a
+ * one-token limit makes every faux reply do so.
  */
 async function runCutAtLimit(t: Parameters<typeof createFixture>[0], text: string) {
     const fx = await createFixture(t);
@@ -275,4 +280,144 @@ test("a cut-short turn is still cut short after the run is restored from its fil
     assert.equal(restored.state, "idle");
     assert.equal(restored.lastTurn?.cutShort, true);
     assert.equal(restored.lastTurn?.unreportedMessage, "Cut here");
+});
+
+// A reply text with a tool call, so the turn continues into a second model request.
+function textWithToolCall(text: string) {
+    return fauxAssistantMessage(
+        [{ type: "text", text }, fauxToolCall("read", { path: "missing.txt" })],
+        {
+            stopReason: "toolUse",
+        },
+    );
+}
+
+function assistantTexts(messages: ReadonlyArray<{ role: string; content?: unknown }>): string[] {
+    return messages
+        .filter((message) => message.role === "assistant")
+        .map((message) =>
+            (message.content as Array<{ type: string; text?: string }>)
+                .map((part) => (part.type === "text" ? part.text : ""))
+                .join(""),
+        );
+}
+
+test("a dropped length reply after a tool round is the turn's message, not the older reply", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([
+        textWithToolCall("Checking the file first."),
+        fauxAssistantMessage("The answer is cut off mid", { stopReason: "length" }),
+    ]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    // Pi dropped the cut reply, so only the older reply is left in the session.
+    const held = assistantTexts(liveSessionOf(run).session.messages);
+
+    assert.deepEqual(held, ["Checking the file first."]);
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.report, undefined);
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(run.lastTurn?.unreportedMessage, "The answer is cut off mid");
+});
+
+test("a follow-up turn whose only reply is a dropped length reply is cut short with that reply's text", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([textResponse("First turn text.")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    fx.faux.setResponses([fauxAssistantMessage("Second turn cut off", { stopReason: "length" })]);
+    await manager.send(run, "continue", "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    assert.deepEqual(assistantTexts(liveSessionOf(run).session.messages), ["First turn text."]);
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(run.lastTurn?.unreportedMessage, "Second turn cut off");
+});
+
+test("a dropped length reply with no text leaves an empty message, not the older text", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([
+        textWithToolCall("Checking the file first."),
+        fauxAssistantMessage([], { stopReason: "length" }),
+    ]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(run.lastTurn?.unreportedMessage, "");
+});
+
+test("an interrupted turn whose aborted reply is empty keeps the earlier text and is not cut short", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+    const gate = createGate();
+    const reached = createGate();
+
+    fx.faux.setResponses([
+        textWithToolCall("Checking the file first."),
+        gatedResponse(gate, reached.open),
+    ]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await reached.opened;
+    await manager.stop(run, "main-agent");
+    await waitForState(manager, run, "interrupted");
+
+    assert.equal(run.lastTurn?.state, "interrupted");
+    assert.equal(run.lastTurn?.cutShort, undefined);
+    assert.equal(run.lastTurn?.unreportedMessage, "Checking the file first.");
+});
+
+test("a length reply that Pi retries after a successful compaction ends the turn with the retried reply", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    // Two long messages give compaction an earlier part to summarize, below the compaction threshold.
+    const long = (word: string) => `${word} `.repeat(24_000);
+
+    fx.faux.setResponses([textResponse("First turn text.")]);
+
+    const run = await manager.start({ task: `work ${long("word")}` }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    // Compaction summarizes the history and the split turn prefix with one model call each.
+    fx.faux.setResponses([
+        fauxAssistantMessage("Cut off text", { stopReason: "length" }),
+        textResponse("## Summary\nsummary of the history"),
+        textResponse("## Summary\nsummary of the turn prefix"),
+        textResponse("Retried reply."),
+    ]);
+    await manager.send(run, `continue ${long("more")}`, "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    const entries = liveSessionOf(run).session.sessionManager.getEntries();
+
+    assert.ok(entries.some((entry) => entry.type === "compaction"));
+    assert.deepEqual(assistantTexts(liveSessionOf(run).session.messages), ["Retried reply."]);
+    assert.equal(fx.faux.getPendingResponseCount(), 0);
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.cutShort, undefined);
+    assert.equal(run.lastTurn?.unreportedMessage, "Retried reply.");
 });

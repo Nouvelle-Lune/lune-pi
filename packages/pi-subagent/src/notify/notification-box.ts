@@ -175,7 +175,7 @@ class RunNotificationBox implements Component {
                 status: activityStatus(run.state),
                 detail:
                     [
-                        displayedStatus(run.state, run.reportStatus, run.cutShort),
+                        activityDetailStatus(run),
                         earlierCount(run),
                         run.copied ? "copied" : undefined,
                     ]
@@ -327,6 +327,17 @@ function notes(run: RunNotificationRun): string[] {
     }
 
     return lines;
+}
+
+/**
+ * The status part of a run's activity detail. The card marks an idle run like a finished one, so a
+ * turn without a task status names its state; the card words a failed or interrupted run itself.
+ */
+function activityDetailStatus(run: RunNotificationRun): string | undefined {
+    return (
+        displayedStatus(run.state, run.reportStatus, run.cutShort) ??
+        (run.state === "idle" ? run.state : undefined)
+    );
 }
 
 function earlierCount(run: RunNotificationRun): string | undefined {
