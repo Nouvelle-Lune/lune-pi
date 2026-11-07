@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import type { MessageRenderOptions } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { renderRunNotificationBox } from "../../src/notify/notification-box.ts";
+import { displayedStatus, renderRunNotificationBox } from "../../src/notify/notification-box.ts";
 import { buildRunNotification, type RunNotice } from "../../src/notify/notifier.ts";
 import type { LuneActivity } from "../../src/render/lune-theme.ts";
 import { fakeTheme, turn } from "./support.ts";
@@ -80,7 +80,83 @@ test("the box shows the reason, the question and the error of each run", () => {
     assert.match(text, /Reason: No key\./);
     assert.match(text, /Question: Which\?/);
     assert.match(text, /Error: boom/);
-    assert.match(text, /failed · unreported/);
+    assert.match(text, /agent-r3 \(r3\) · failed · 4\.2s/);
+    assert.doesNotMatch(text, /unreported/i);
+});
+
+test("a turn without a report shows done when idle and only its state otherwise", () => {
+    const { content, details } = message([
+        notice("r1", turn({ state: "failed", error: "boom" })),
+        notice("r2", turn({ unreportedMessage: "I stopped here." })),
+        notice("r3", turn({ state: "interrupted", stoppedBy: "user" })),
+    ]);
+
+    const text = renderRunNotificationBox({ content, details }, options(), fakeTheme())!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · failed · 4\.2s/);
+    assert.match(text, /agent-r2 \(r2\) · idle · done · 4\.2s/);
+    assert.match(text, /agent-r3 \(r3\) · interrupted · 4\.2s/);
+    assert.doesNotMatch(text, /unreported/i);
+
+    // The main agent is never told "done": the turn sent no task status.
+    assert.match(content, /No task status: the turn ended without a report\./);
+    assert.doesNotMatch(content, /Report: done/);
+});
+
+test("displayedStatus lets a report win and calls only an idle turn without one done", () => {
+    const cases: Array<[Parameters<typeof displayedStatus>, string | undefined]> = [
+        [["idle", "blocked", undefined], "blocked"],
+        [["idle", "needs_input", undefined], "needs_input"],
+        [["failed", "done", undefined], "done"],
+        [["idle", undefined, undefined], "done"],
+        [["failed", undefined, undefined], undefined],
+        [["interrupted", undefined, undefined], undefined],
+        [["running", undefined, undefined], undefined],
+        // A cut-short turn shows only its state, but a report still wins.
+        [["idle", undefined, true], undefined],
+        [["idle", "blocked", true], "blocked"],
+    ];
+
+    for (const [args, expected] of cases) {
+        const actual = displayedStatus(...args);
+
+        assert.equal(actual, expected, args.join(" / "));
+    }
+});
+
+test("a cut-short turn shows only its state in the box and carries cutShort in the details", () => {
+    const { content, details } = message([
+        notice("r1", turn({ unreportedMessage: "Cut here", cutShort: true })),
+        notice("r2", turn({ unreportedMessage: "Finished." })),
+    ]);
+
+    const text = renderRunNotificationBox({ content, details }, options(), fakeTheme())!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · idle · 4\.2s/);
+    assert.doesNotMatch(text, /agent-r1 \(r1\) · idle · done/);
+    assert.match(text, /agent-r2 \(r2\) · idle · done · 4\.2s/);
+    assert.equal(details.runs[0]!.cutShort, true);
+    assert.equal("cutShort" in details.runs[1]!, false);
+    // The main agent's text is the same as for any turn without a report.
+    assert.match(content, /No task status: the turn ended without a report\./);
+});
+
+test("details from before cutShort existed still show an idle turn as done", () => {
+    const { content, details } = message([notice("r1", turn({ unreportedMessage: "Finished." }))]);
+    const { cutShort: _dropped, ...older } = details.runs[0]!;
+    const text = renderRunNotificationBox(
+        { content, details: { ...details, runs: [older] } },
+        options(),
+        fakeTheme(),
+    )!
+        .render(100)
+        .join("\n");
+
+    assert.match(text, /agent-r1 \(r1\) · idle · done · 4\.2s/);
 });
 
 test("a collapsed box previews five report lines and an expanded one shows them all", () => {
@@ -156,11 +232,73 @@ test("with Core Theme the box delegates to its activity renderer, keeping state 
     assert.deepEqual(
         calls[0]!.activity.entries.map((entry) => [entry.name, entry.status, entry.detail]),
         [
-            ["agent-r1", "cancelled", "unreported"],
+            ["agent-r1", "cancelled", undefined],
             ["agent-r2", "done", "done · copied"],
         ],
     );
     assert.equal(calls[0]!.activity.entries[1]!.summary, "First line.");
+});
+
+test("with Core Theme the detail is the task status, or idle for a cut-short turn, not the session state", () => {
+    const calls: LuneActivity[] = [];
+
+    globals[RENDERER_KEY] = {
+        version: 1,
+        renderActivity: (activity: LuneActivity) => {
+            calls.push(activity);
+
+            return { render: () => ["themed"], invalidate() {} };
+        },
+    };
+
+    const { content, details } = message([
+        notice("r1", turn({ state: "failed", error: "boom" })),
+        notice("r2", turn({ unreportedMessage: "I stopped here." })),
+        notice("r3", turn({ unreportedMessage: "Cut here", cutShort: true })),
+        notice("r4", turn({ state: "interrupted", stoppedBy: "user" })),
+    ]);
+
+    renderRunNotificationBox({ content, details }, options(), fakeTheme())!.render(50);
+
+    const actual = calls[0]!.entries.map((entry) => [entry.name, entry.status, entry.detail]);
+
+    // `status` is the session state, which the theme has no idle word for, so idle maps to
+    // "done" and the card marks an idle run like a finished one. `detail` is therefore the task
+    // status, or "idle" for a cut-short turn; the card words a failed or interrupted run itself.
+    const expected = [
+        ["agent-r1", "failed", undefined],
+        ["agent-r2", "done", "done"],
+        ["agent-r3", "done", "idle"],
+        ["agent-r4", "cancelled", undefined],
+    ];
+
+    assert.deepEqual(actual, expected);
+});
+
+test("with Core Theme a cut-short turn names idle and keeps its other detail parts", () => {
+    const calls: LuneActivity[] = [];
+
+    globals[RENDERER_KEY] = {
+        version: 1,
+        renderActivity: (activity: LuneActivity) => {
+            calls.push(activity);
+
+            return { render: () => ["themed"], invalidate() {} };
+        },
+    };
+
+    const { content, details } = message([
+        {
+            ...notice("r1", turn({ unreportedMessage: "Cut here", cutShort: true })),
+            copied: true,
+        },
+    ]);
+
+    renderRunNotificationBox({ content, details }, options(), fakeTheme())!.render(50);
+
+    const actual = calls[0]!.entries[0]!.detail;
+
+    assert.equal(actual, "idle · copied");
 });
 
 test("the renderer is looked up on every render, so removing it restores the standalone box", () => {

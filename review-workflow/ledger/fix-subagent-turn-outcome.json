@@ -1,0 +1,48 @@
+{
+    "schemaVersion": 1,
+    "change": "fix-subagent-turn-outcome",
+    "createdAt": "2026-11-07T04:27:23.498Z",
+    "intent": "Remove the unreported task-status label. A normally ended turn without report displays done in the Dock, notifications and /agents; a failed, interrupted, token-limited or textless turn keeps its state without an invented task status. Preserve any explicit report. Decide the final state, error and text from the active turn last assistant reply, including replies Pi removes during recovery, so older replies and errors do not replace the current outcome. Continue forwarding the last message to the main agent as having no task status.",
+    "tier": "high",
+    "tierReasons": ["packages/pi-subagent/src/tools/format.ts"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+    "headRev": "2e3f24c275c90b6c82d1ca1748882f78a76952d0",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/src/dock/dock-contribution.ts",
+        "packages/pi-subagent/src/inspector/details.ts",
+        "packages/pi-subagent/src/inspector/inspector.ts",
+        "packages/pi-subagent/src/notify/notification-box.ts",
+        "packages/pi-subagent/src/notify/notifier.ts",
+        "packages/pi-subagent/src/run/run.ts",
+        "packages/pi-subagent/src/run/types.ts",
+        "packages/pi-subagent/src/tools/format.ts",
+        "packages/pi-subagent/test/integration/reports.test.ts",
+        "packages/pi-subagent/test/integration/unreported-response-file.test.ts",
+        "packages/pi-subagent/test/unit/dock.test.ts",
+        "packages/pi-subagent/test/unit/inspector-heading.test.ts",
+        "packages/pi-subagent/test/unit/inspector.test.ts",
+        "packages/pi-subagent/test/unit/notification-box.test.ts",
+        "packages/pi-subagent/test/unit/notifier.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-07T04:27:23.616Z",
+            "scope": "full",
+            "base": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+            "head": "2e3f24c275c90b6c82d1ca1748882f78a76952d0",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-11-07T04:31:59.206Z"
+}

@@ -72,6 +72,8 @@ interface ActiveTurn {
     userWrote: boolean;
     stoppedBy?: StopSource;
     error?: string;
+    /** The turn's last assistant reply, which the session may no longer hold. */
+    lastReply?: AssistantMessage;
     /** Resolves once the turn's end is recorded. */
     ended: Promise<void>;
     end: () => void;
@@ -349,6 +351,11 @@ export class Run implements RunEventTarget {
                 return;
             case "message_end":
                 this.streaming = undefined;
+
+                if (this.turn && event.message.role === "assistant") {
+                    this.turn.lastReply = event.message;
+                }
+
                 this.changed("transcript");
                 return;
             case "tool_execution_start":
@@ -586,9 +593,13 @@ export class Run implements RunEventTarget {
             userWrote: false,
         };
         const session = this.live?.session;
-        const last = session?.messages.findLast(
-            (message): message is AssistantMessage => message.role === "assistant",
-        );
+        // Pi drops a failed or cut reply from the session to recover, and may then not retry, so the
+        // session's last reply can be an older one. A tracked turn goes by its own last reply.
+        const reply = this.turn
+            ? this.turn.lastReply
+            : session?.messages.findLast(
+                  (message): message is AssistantMessage => message.role === "assistant",
+              );
         let state: SettledState = "idle";
         let error = turn.error;
 
@@ -596,9 +607,9 @@ export class Run implements RunEventTarget {
             state = "interrupted";
         } else if (error) {
             state = "failed";
-        } else if (last?.stopReason === "error") {
+        } else if (reply?.stopReason === "error") {
             state = "failed";
-            error = last.errorMessage ?? "The model request failed.";
+            error = reply.errorMessage ?? "The model request failed.";
         }
 
         const record: TurnRecord = {
@@ -617,9 +628,19 @@ export class Run implements RunEventTarget {
                 record.earlierReports = turn.reports.slice(0, -1);
             }
         } else {
-            record.unreportedMessage = this.unreportedMessage(
-                session?.getLastAssistantText() ?? "",
-            );
+            let text = reply ? replyText(reply) : "";
+
+            // An interrupted reply can be empty and a rejected message leaves none, so the text
+            // before them is the run's last message.
+            if (text === "" && (aborted || !reply)) {
+                text = session?.getLastAssistantText() ?? "";
+            }
+
+            record.unreportedMessage = this.unreportedMessage(text);
+
+            if (state === "idle" && (reply?.stopReason === "length" || text === "")) {
+                record.cutShort = true;
+            }
         }
 
         if (error) {
@@ -698,6 +719,13 @@ export class Run implements RunEventTarget {
 /** A message queued into a busy session steers the turn in progress. */
 function outcome(disposition: "started" | "queued" | "deferred"): SendOutcome {
     return disposition === "queued" ? "steered" : disposition;
+}
+
+function replyText(reply: AssistantMessage): string {
+    return reply.content
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("")
+        .trim();
 }
 
 function isDirectory(path: string): boolean {

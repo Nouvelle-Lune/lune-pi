@@ -7,6 +7,7 @@ import {
     type LuneDockSnapshot,
 } from "@lune_99/pi-lune-extensions-core/dock";
 
+import { displayedStatus } from "../notify/notification-box.ts";
 import { fitRanked, type RankedPart } from "../render/text.ts";
 import type { RunManager } from "../run/run-manager.ts";
 import type { Run } from "../run/run.ts";
@@ -22,7 +23,6 @@ type DockStatus =
     | "blocked"
     | "failed"
     | "interrupted"
-    | "unreported"
     | "done"
     | "idle";
 
@@ -36,7 +36,6 @@ const STATUS_RANKS: ReadonlyArray<readonly [DockStatus, number]> = [
     ["blocked", 9],
     ["failed", 10],
     ["interrupted", 5],
-    ["unreported", 4],
     ["done", 3],
     ["idle", 2],
 ];
@@ -252,7 +251,10 @@ function dockStatus(run: Run): DockStatus {
         return run.state;
     }
 
-    switch (run.lastTurn?.report?.status) {
+    switch (
+        run.lastTurn &&
+        displayedStatus(run.state, run.lastTurn.report?.status, run.lastTurn.cutShort)
+    ) {
         case "needs_input":
             return "needs input";
         case "blocked":
@@ -260,7 +262,7 @@ function dockStatus(run: Run): DockStatus {
         case "done":
             return "done";
         default:
-            return run.lastTurn ? "unreported" : "idle";
+            return "idle";
     }
 }
 

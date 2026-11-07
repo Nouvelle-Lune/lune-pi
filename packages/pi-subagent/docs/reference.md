@@ -186,7 +186,7 @@ A run ends each turn with the `report` tool:
 | `blocked`     | The run cannot finish, for example because it declined the task or finished only part. |
 | `needs_input` | The run needs something before it can continue. Its question goes to the main agent.   |
 
-A turn without a report reaches the main agent as unreported, with the run's last message. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
+A turn that ends normally without a report shows as `done` in the Dock, notifications and `/agents`. A turn whose last reply hit the token limit or left no text shows no task status, only its state, because its work may not be finished. The main agent still gets the run's last message, marked as having no task status. A run never asks you directly: the main agent answers a question when it can and asks you when only you can.
 
 If that last message exceeds 20,000 characters, the notice and `subagent_status` for that run keep the first 20,000 and append the omitted count and the absolute path to a Markdown copy of the full reply. The main agent can read that file to recover the rest. Copies live in `pi-lune-subagent-responses/` under the system temporary directory, with a separate filename for each run and reply content; they remain available until the system cleans them up. If writing a copy fails, the truncation hint says the file is unavailable and the run records an error diagnostic.
 
@@ -198,7 +198,7 @@ The run state describes the session, not the task: `running`, `idle`, `failed` (
 
 ## Dock and `/agents`
 
-The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `unreported`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
+The Dock counts the runs of the current branch by status, for example `◐ Agents · 2 running · 1 needs input`. The statuses are `running`, `needs input`, `blocked`, `failed`, `interrupted`, `done` and `idle`. A run of another branch counts too while it runs, for example after you kept it running when you left its branch, and while its report waits for that branch. The line says how many such runs there are. The full Dock level also names the run that changed last, for example `latest: reviewer done`. Without runs every level shows only `○ Agents`, as Shell and Ask do.
 
 The Dock never cuts its line. When the cell is too narrow, it leaves out complete parts, the least urgent first, so the `failed`, `blocked` and `needs input` counts stay longest. Then only `◐ Agents` shows, then only the marker.
 

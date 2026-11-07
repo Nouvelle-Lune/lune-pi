@@ -151,6 +151,8 @@ export interface TurnRecord {
     error?: string;
     /** The run's last text, kept when the turn ended without `report`. */
     unreportedMessage?: string;
+    /** An idle turn without `report` whose last reply hit the token limit or left no text. */
+    cutShort?: boolean;
     /** The user wrote to the run from the inspector during this turn. */
     userWrote: boolean;
     stoppedBy?: StopSource;
