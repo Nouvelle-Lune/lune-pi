@@ -14,6 +14,7 @@ import {
     waitForState,
     waitForTurns,
 } from "../harness/fixture.ts";
+import { displayedStatus } from "../../src/notify/notification-box.ts";
 import { createGate } from "../harness/wait.ts";
 
 async function runOnce(
@@ -420,4 +421,162 @@ test("a length reply that Pi retries after a successful compaction ends the turn
     assert.equal(run.state, "idle");
     assert.equal(run.lastTurn?.cutShort, undefined);
     assert.equal(run.lastTurn?.unreportedMessage, "Retried reply.");
+});
+
+const OVERFLOW = "prompt is too long";
+
+function overflowResponse() {
+    return fauxAssistantMessage("", { stopReason: "error", errorMessage: OVERFLOW });
+}
+
+// Two long messages give compaction an earlier part to summarize, below the compaction threshold.
+async function longSession(
+    t: Parameters<typeof createFixture>[0],
+    followUps: Parameters<Awaited<ReturnType<typeof createFixture>>["faux"]["setResponses"]>[0],
+) {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+    const long = (word: string) => `${word} `.repeat(24_000);
+
+    fx.faux.setResponses([textResponse("First turn text.")]);
+
+    const run = await manager.start({ task: `work ${long("word")}` }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+    fx.faux.setResponses(followUps);
+    await manager.send(run, `continue ${long("more")}`, "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    return { fx, run };
+}
+
+function assertFailedWithOverflow(run: Awaited<ReturnType<typeof longSession>>["run"]) {
+    const turn = run.lastTurn;
+
+    assert.equal(turn?.state, "failed");
+    assert.equal(turn?.error, OVERFLOW);
+    assert.equal(turn?.cutShort, undefined);
+    assert.equal(turn?.unreportedMessage, "");
+    assert.equal(displayedStatus(run.state, turn?.report?.status, turn?.cutShort), undefined);
+}
+
+test("an overflow error after a tool round fails the turn with its error and forwards no older text", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([textWithToolCall("Checking the file first."), overflowResponse()]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    assert.equal(run.state, "failed");
+    assertFailedWithOverflow(run);
+});
+
+test("an overflow error in a follow-up turn fails that turn and does not forward the first turn's text", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([textResponse("First answer")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+    fx.faux.setResponses([overflowResponse()]);
+    await manager.send(run, "continue", "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    assert.equal(run.state, "failed");
+    assertFailedWithOverflow(run);
+});
+
+test("an overflow error whose compaction summary request fails still fails the turn with its error", async (t) => {
+    const { run } = await longSession(t, [
+        overflowResponse(),
+        errorResponse("summary request failed"),
+        errorResponse("summary request failed"),
+    ]);
+
+    assert.equal(run.state, "failed");
+    assertFailedWithOverflow(run);
+});
+
+test("a follow-up turn with a dropped length reply after a failed turn is cut short without the earlier error", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([errorResponse("boom")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    assert.equal(run.lastTurn?.error, "boom");
+
+    fx.faux.setResponses([fauxAssistantMessage("Second turn cut off", { stopReason: "length" })]);
+    await manager.send(run, "continue", "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    const turn = run.lastTurn;
+
+    assert.equal(run.state, "idle");
+    assert.equal(turn?.state, "idle");
+    assert.equal(turn?.error, undefined);
+    assert.equal(turn?.cutShort, true);
+    assert.equal(turn?.unreportedMessage, "Second turn cut off");
+    assert.equal(displayedStatus(run.state, turn?.report?.status, turn?.cutShort), undefined);
+});
+
+test("a follow-up turn with a normal reply after a failed turn is idle, shown as done, and has no error", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([errorResponse("boom")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    fx.faux.setResponses([textResponse("Recovered answer.")]);
+    await manager.send(run, "continue", "main-agent");
+    await waitForTurns(manager, run, 2);
+
+    const turn = run.lastTurn;
+
+    assert.equal(run.state, "idle");
+    assert.equal(turn?.state, "idle");
+    assert.equal(turn?.error, undefined);
+    assert.equal(turn?.cutShort, undefined);
+    assert.equal(turn?.unreportedMessage, "Recovered answer.");
+    assert.equal(displayedStatus(run.state, turn?.report?.status, turn?.cutShort), "done");
+});
+
+test("a follow-up the session rejects before its run begins fails the turn and keeps the earlier text", async (t) => {
+    const fx = await createFixture(t);
+    const manager = fx.createManager();
+
+    fx.faux.setResponses([textResponse("First turn text.")]);
+
+    const run = await manager.start({ task: "work" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+    await fx.pi.waitForMessages(1);
+
+    // Without its provider the session finds no credentials and rejects the prompt before a run begins.
+    fx.runtime.unregisterProvider("faux");
+    await fx.runtime.refresh({ allowNetwork: false });
+
+    await assert.rejects(manager.send(run, "continue", "main-agent"), /No API key found/);
+
+    const turn = run.lastTurn;
+
+    assert.equal(run.turns, 2);
+    assert.equal(run.state, "failed");
+    assert.equal(turn?.state, "failed");
+    assert.match(turn?.error ?? "", /No API key found/);
+    assert.equal(turn?.report, undefined);
+    assert.equal(turn?.cutShort, undefined);
+    assert.equal(turn?.unreportedMessage, "First turn text.");
 });

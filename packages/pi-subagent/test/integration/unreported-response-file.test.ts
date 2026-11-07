@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { test, type TestContext } from "node:test";
 
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 
 import type { RunManager } from "../../src/run/run-manager.ts";
@@ -254,4 +255,31 @@ test("an unwritable response file leaves the turn settled with an error diagnost
 
     assert.ok(status.includes(diagnostic.message));
     assert.deepEqual(responseFiles(isolated.tempRoot), []);
+});
+
+test("a dropped length reply over the limit still gets a response file and a truncated message", async (t) => {
+    const fx = await createFixture(t);
+    const isolated = isolateTemp(t);
+    const manager = fx.createManager();
+    const fullText = longReply(LIMIT + 5_000, "tail: the cut reply");
+    const omission = "[5000 more characters in the run transcript; full response:";
+
+    fx.faux.setResponses([fauxAssistantMessage(fullText, { stopReason: "length" })]);
+
+    const run = await manager.start({ task: "write a long answer" }, fx.ctx);
+
+    await waitForTurns(manager, run, 1);
+
+    const [sent] = await fx.pi.waitForMessages(1);
+    const notice = String(sent!.message.content);
+    const noticeFile = quotedResponseFile(notice);
+    const message = run.lastTurn?.unreportedMessage ?? "";
+
+    assert.equal(run.state, "idle");
+    assert.equal(run.lastTurn?.cutShort, true);
+    assert.equal(message.slice(0, LIMIT), fullText.slice(0, LIMIT));
+    assert.ok(message.includes(omission));
+    assert.equal(message.includes("tail: the cut reply"), false);
+    assert.equal(readFileSync(noticeFile, "utf8"), fullText);
+    assert.deepEqual(responseFiles(isolated.tempRoot), [noticeFile]);
 });

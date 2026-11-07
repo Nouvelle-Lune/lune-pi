@@ -593,9 +593,13 @@ export class Run implements RunEventTarget {
             userWrote: false,
         };
         const session = this.live?.session;
-        const last = session?.messages.findLast(
-            (message): message is AssistantMessage => message.role === "assistant",
-        );
+        // Pi drops a failed or cut reply from the session to recover, and may then not retry, so the
+        // session's last reply can be an older one. A tracked turn goes by its own last reply.
+        const reply = this.turn
+            ? this.turn.lastReply
+            : session?.messages.findLast(
+                  (message): message is AssistantMessage => message.role === "assistant",
+              );
         let state: SettledState = "idle";
         let error = turn.error;
 
@@ -603,9 +607,9 @@ export class Run implements RunEventTarget {
             state = "interrupted";
         } else if (error) {
             state = "failed";
-        } else if (last?.stopReason === "error") {
+        } else if (reply?.stopReason === "error") {
             state = "failed";
-            error = last.errorMessage ?? "The model request failed.";
+            error = reply.errorMessage ?? "The model request failed.";
         }
 
         const record: TurnRecord = {
@@ -624,15 +628,17 @@ export class Run implements RunEventTarget {
                 record.earlierReports = turn.reports.slice(0, -1);
             }
         } else {
-            // Pi drops a reply cut at the token limit from the session to recover, and may then not
-            // retry, so the session alone would name an older reply as the run's last message.
-            const cut = turn.lastReply?.stopReason === "length" ? turn.lastReply : undefined;
+            let text = reply ? replyText(reply) : "";
 
-            record.unreportedMessage = this.unreportedMessage(
-                (cut ? replyText(cut) : session?.getLastAssistantText()) ?? "",
-            );
+            // An interrupted reply can be empty and a rejected message leaves none, so the text
+            // before them is the run's last message.
+            if (text === "" && (aborted || !reply)) {
+                text = session?.getLastAssistantText() ?? "";
+            }
 
-            if (state === "idle" && (cut || record.unreportedMessage === "")) {
+            record.unreportedMessage = this.unreportedMessage(text);
+
+            if (state === "idle" && (reply?.stopReason === "length" || text === "")) {
                 record.cutShort = true;
             }
         }
