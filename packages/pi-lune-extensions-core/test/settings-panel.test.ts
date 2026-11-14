@@ -17,6 +17,7 @@ import {
     type TUI,
 } from "@earendil-works/pi-tui";
 import luneCore from "../src/extension.ts";
+import { coreSettings } from "../src/core/settings.ts";
 import { isolateExternalSessions } from "./harness/session-fixtures.ts";
 import { defineSettings, assertSettingsSchema } from "../src/settings/index.ts";
 import { acquireSettings } from "../src/settings/advanced.ts";
@@ -180,6 +181,46 @@ async function fixture(t: TestContext, options: { projectTrusted?: boolean } = {
     };
 }
 
+/** Runs Core's own Pi entry against a recording host and returns its handlers and commands. */
+async function startCore(
+    t: TestContext,
+    env: {
+        ctx: ExtensionContext;
+        ui: PanelUi;
+        releases: Array<() => void | Promise<void>>;
+        root: string;
+    },
+) {
+    isolateExternalSessions(t, env.root);
+    // Core startup also installs session mentions, which register an editor autocomplete provider.
+    Object.assign(env.ui, { addAutocompleteProvider: () => {} });
+    const context = { ...env.ctx, sessionManager: SessionManager.inMemory(env.ctx.cwd) };
+    type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
+    const handlers = new Map<string, Set<Handler>>();
+    const commands = new Map<
+        string,
+        { handler(args: string, ctx: ExtensionContext): Promise<void> }
+    >();
+    const emit = async (name: string) => {
+        for (const handler of [...(handlers.get(name) ?? [])])
+            await handler({ type: name }, context);
+    };
+    env.releases.push(() => emit("session_shutdown"));
+    await luneCore({
+        on(name: string, handler: Handler) {
+            const listeners = handlers.get(name) ?? new Set<Handler>();
+            handlers.set(name, listeners);
+            listeners.add(handler);
+            return () => listeners.delete(handler);
+        },
+        registerCommand: (
+            name: string,
+            definition: { handler(args: string, ctx: ExtensionContext): Promise<void> },
+        ) => commands.set(name, definition),
+    } as unknown as ExtensionAPI);
+    return { handlers, commands, emit, context };
+}
+
 // Fixtures scope real persistence through PI_CODING_AGENT_DIR and remain serial in this process.
 describe("unified settings panel", { concurrency: false, timeout: 10000 }, () => {
     test("pins Core before string-ordered labels and resolves equal labels by ID regardless of registration order", async (t) => {
@@ -258,63 +299,121 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         await opening;
     });
 
-    test("Core startup mounts an empty first-position placeholder and shutdown removes only Core", async (t) => {
+    test("Core startup mounts a first-position section with the Mention menu and shutdown removes only Core", async (t) => {
         const { ctx, ui, releases, settingsPath, root } = await fixture(t);
-        isolateExternalSessions(t, root);
-        // Core startup also installs session mentions, which register an editor autocomplete provider.
-        Object.assign(ui, { addAutocompleteProvider: () => {} });
-        const context = { ...ctx, sessionManager: SessionManager.inMemory(ctx.cwd) };
-        type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
-        const handlers = new Map<string, Set<Handler>>();
-        const commands = new Map<
-            string,
-            { handler(args: string, ctx: ExtensionContext): Promise<void> }
-        >();
-        const emit = async (name: string) => {
-            for (const handler of [...(handlers.get(name) ?? [])])
-                await handler({ type: name }, context);
-        };
-        releases.push(() => emit("session_shutdown"));
-        await luneCore({
-            on(name: string, handler: Handler) {
-                const listeners = handlers.get(name) ?? new Set<Handler>();
-                handlers.set(name, listeners);
-                listeners.add(handler);
-                return () => listeners.delete(handler);
-            },
-            registerCommand: (
-                name: string,
-                definition: { handler(args: string, ctx: ExtensionContext): Promise<void> },
-            ) => commands.set(name, definition),
-        } as unknown as ExtensionAPI);
+        const core = await startCore(t, { ctx, ui, releases, root });
         const registry = getSettingsPanelRegistry();
         const expectedBeforeStartup = ["sample"];
         const actualBeforeStartup = registry.getSections(ui).map(({ id }) => id);
         assert.deepEqual(actualBeforeStartup, expectedBeforeStartup);
-        await emit("session_start");
-        const expectedCore = [{ id: "core", label: "Core", fields: 0 }];
+        await core.emit("session_start");
+        const expectedCore = [{ id: "core", label: "Core", fields: 1 }];
         const actualCore = registry
             .getSections(ui)
             .filter(({ id }) => id === "core")
             .map(({ id, label, fields }) => ({ id, label, fields: fields.length }));
         assert.deepEqual(actualCore, expectedCore);
-        const opening = commands.get("lune-core-settings")!.handler("", context);
+        const opening = core.commands.get("lune-core-settings")!.handler("", core.context);
         const expectedTabs = "Core / Sample";
         const actualTabs = ui.panel!.render(200)[2];
         assert.equal(actualTabs, expectedTabs);
-        assert.match(ui.text(), /No settings are available in this section yet/);
+        assert.doesNotMatch(ui.text(), /No settings are available in this section yet/);
         await ui.save(keys.saveReload);
         await assert.rejects(readFile(settingsPath("global"), "utf8"), { code: "ENOENT" });
         ui.press(keys.tab);
         assert.match(ui.text(), /enabled/);
         ui.press(keys.escape);
         await opening;
-        await emit("session_shutdown");
+        await core.emit("session_shutdown");
         const expectedAfterShutdown = ["sample"];
         const actualAfterShutdown = registry.getSections(ui).map(({ id }) => id);
         assert.deepEqual(actualAfterShutdown, expectedAfterShutdown);
-        assert.equal(handlers.get("session_start")?.size, 0);
-        assert.equal(handlers.get("session_shutdown")?.size, 0);
+        assert.equal(core.handlers.get("session_start")?.size, 0);
+        assert.equal(core.handlers.get("session_shutdown")?.size, 0);
+    });
+
+    test("Core lists both Mention settings and edits them inside the menu", async (t) => {
+        const { ctx, ui, releases, root, sandbox } = await fixture(t);
+        const core = await startCore(t, { ctx, ui, releases, root });
+        await core.emit("session_start");
+        const opening = core.commands.get("lune-core-settings")!.handler("core", core.context);
+
+        assert.match(ui.text(), /Mention →\s+cache 4 MB · text 8000 chars/);
+        assert.doesNotMatch(ui.text(), /Session cache size/);
+        ui.press(keys.enter);
+        assert.match(ui.text(), /Lune settings › Mention/);
+        assert.match(ui.text(), /Session cache size\s+4 MB/);
+        assert.match(ui.text(), /Session text limit\s+8000 characters/);
+        ui.press(keys.enter);
+        ui.press(keys.end);
+        ui.press(keys.backspace);
+        ui.press("8");
+        await ui.save();
+
+        assert.match(ui.text(), /Session cache size\s+8 MB/);
+        ui.press(keys.down);
+        ui.press(keys.enter);
+        ui.press(keys.end);
+        for (let i = 0; i < 4; i++) ui.press(keys.backspace);
+        ui.press("12000");
+        await ui.save();
+        assert.match(ui.text(), /Session text limit\s+12000 characters/);
+        const expected = { $version: 2, mention: { cacheSizeMB: 8, textLimit: 12000 } };
+        const actual = JSON.parse(
+            await readFile(sandbox.settingsFile(coreSettings, "global"), "utf8"),
+        );
+        assert.deepEqual(actual, expected);
+        ui.press(keys.escape);
+        assert.match(ui.text(), /Mention →\s+cache 8 MB · text 12000 chars/);
+        ui.press(keys.escape);
+        await opening;
+    });
+
+    test("a Core cache size outside 1 to 64 MB is rejected and nothing is saved", async (t) => {
+        const { ctx, ui, releases, root, sandbox } = await fixture(t);
+        const core = await startCore(t, { ctx, ui, releases, root });
+        await core.emit("session_start");
+        const opening = core.commands.get("lune-core-settings")!.handler("core", core.context);
+        ui.press(keys.enter);
+
+        ui.press(keys.enter);
+        ui.press(keys.end);
+        ui.press(keys.backspace);
+        for (const key of "100") ui.press(key);
+        ui.press(keys.enter);
+
+        assert.match(ui.text(), /Invalid value for Session cache size/);
+        await assert.rejects(readFile(sandbox.settingsFile(coreSettings, "global"), "utf8"), {
+            code: "ENOENT",
+        });
+        ui.press(keys.escape);
+        ui.press(keys.escape);
+        ui.press(keys.escape);
+        await opening;
+    });
+
+    test("in project scope the Core cache size is global only and refuses edits", async (t) => {
+        const { ctx, ui, releases, root, sandbox } = await fixture(t);
+        const core = await startCore(t, { ctx, ui, releases, root });
+        await core.emit("session_start");
+        const opening = core.commands.get("lune-core-settings")!.handler("core", core.context);
+        ui.press(keys.enter);
+
+        ui.press(keys.scope);
+
+        assert.match(ui.text(), /Session cache size\s+4 MB · global only/);
+        assert.match(ui.text(), /Session text limit\s+8000 characters · global only/);
+        ui.press(keys.enter);
+        assert.match(ui.text(), /Session cache size can only be set globally/);
+        ui.press(keys.down);
+        ui.press(keys.enter);
+        assert.match(ui.text(), /Session text limit can only be set globally/);
+        await assert.rejects(readFile(sandbox.settingsFile(coreSettings, "project"), "utf8"), {
+            code: "ENOENT",
+        });
+        ui.press(keys.escape);
+        ui.press(keys.escape);
+        await opening;
     });
 
     test("custom backend leases expose selected fields in order while callbacks see all scoped values", async (t) => {

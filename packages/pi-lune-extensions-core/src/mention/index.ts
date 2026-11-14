@@ -16,12 +16,26 @@ import {
 import { ExternalSessionParseError, type LocalSession } from "./session.ts";
 import { buildTranscript } from "./transcript.ts";
 
+export interface MentionOptions {
+    /**
+     * Bytes the session index may keep, asked again on every load of the session list.
+     * Without it, or when it rejects, the index keeps INDEX_BUDGET_BYTES.
+     */
+    indexBudget?(ctx: ExtensionContext): Promise<number>;
+    /** Characters kept per text field, asked again on every session-list load. */
+    indexTextLimit?(ctx: ExtensionContext): Promise<number>;
+}
+
 /**
  * `@` lists local sessions with pi's file matches, and `@@` lists sessions only. A picked
  * session becomes a source-specific token. On submit, each such token becomes an `@` reference to
  * a filtered copy of that session, which the model reads when it needs the background.
  */
-export function installMentions(pi: ExtensionAPI, resources: ResourceScope): void {
+export function installMentions(
+    pi: ExtensionAPI,
+    resources: ResourceScope,
+    options: MentionOptions = {},
+): void {
     let catalog: SessionCatalog | undefined;
     const transcripts = new TranscriptCache();
     const retire = () => {
@@ -38,7 +52,13 @@ export function installMentions(pi: ExtensionAPI, resources: ResourceScope): voi
                 if (catalog !== sessions) return;
                 ctx.ui.notify(`Session list failed: ${errorMessage(error)}`, "error");
             };
-            const sessions = new SessionCatalog(ctx.sessionManager.getSessionDir(), report);
+            const { indexBudget, indexTextLimit } = options;
+            const sessions = new SessionCatalog(
+                ctx.sessionManager.getSessionDir(),
+                report,
+                indexBudget && (() => indexBudget(ctx)),
+                indexTextLimit && (() => indexTextLimit(ctx)),
+            );
             catalog = sessions;
             if (ctx.mode !== "tui") return;
             // Pi drops autocomplete wrappers when it replaces the session, so add one per start.

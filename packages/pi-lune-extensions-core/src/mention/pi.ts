@@ -3,58 +3,34 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { fileVersion, type SessionIndex } from "./session-index.ts";
+import type { SessionFile } from "./session-index.ts";
 import type { LocalSession } from "./session.ts";
 
-/** Pi's own listing reads ten session files at a time; files are streamed line by line. */
-const READ_CONCURRENCY = 10;
-
-interface SessionFile {
-    path: string;
-    stats: Stats;
-}
-
 /**
- * Pi sessions with the fields `SessionManager.listAll` builds, read through the index.
- * listAll keeps no cache and reads every file again on each call.
+ * Pi session files whose sessions have the fields `SessionManager.listAll` builds.
+ * listAll keeps no cache and reads every file again on each call; these are read through
+ * the index.
  */
 export class PiSessions {
     private readonly sessionDir: string;
-    private readonly index: SessionIndex;
 
-    constructor(sessionDir: string, index: SessionIndex) {
+    constructor(sessionDir: string) {
         this.sessionDir = sessionDir;
-        this.index = index;
     }
 
-    async list(signal: AbortSignal, report: (error: unknown) => void): Promise<LocalSession[]> {
-        const files = await sessionFiles(this.sessionDir, signal);
-        const errors: Error[] = [];
-        const sessions = await mapLimit(files, READ_CONCURRENCY, async ({ path, stats }) => {
-            signal.throwIfAborted();
-            const version = fileVersion(stats);
-            let entry = this.index.get(path, version);
-            if (!entry) {
-                try {
-                    entry = { version, session: await readSession(path, stats, signal) };
-                } catch (error) {
-                    signal.throwIfAborted();
-                    // Removed since the directory was listed.
-                    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-                    const message = error instanceof Error ? error.message : String(error);
-                    errors.push(new Error(`Pi: ${path}: ${message}`, { cause: error }));
-                    return undefined;
-                }
-                this.index.set(path, entry);
-            }
-            return entry.session;
-        });
-        signal.throwIfAborted();
-        if (errors.length > 0) {
-            report(new AggregateError(errors, errors.map((error) => error.message).join("\n")));
-        }
-        return sessions.filter((session) => session !== undefined);
+    async list(signal: AbortSignal): Promise<SessionFile[]> {
+        return (await sessionFiles(this.sessionDir, signal)).map(({ path, stats }) => ({
+            path,
+            stats,
+            label: "Pi",
+            read: (readSignal) => readSession(path, stats, readSignal),
+        }));
     }
+}
+
+interface StatFile {
+    path: string;
+    stats: Stats;
 }
 
 /**
@@ -62,7 +38,7 @@ export class PiSessions {
  * the agent's sessions root, and a custom session directory holds every session itself.
  * The order is listAll's, so sessions with equal activity times keep its order.
  */
-async function sessionFiles(sessionDir: string, signal: AbortSignal): Promise<SessionFile[]> {
+async function sessionFiles(sessionDir: string, signal: AbortSignal): Promise<StatFile[]> {
     const root = join(getAgentDir(), "sessions");
     if (sessionDir !== "" && resolve(dirname(sessionDir)) !== resolve(root)) {
         const names = (await jsonlFiles(sessionDir)).sort((a, b) => b.localeCompare(a));
@@ -103,7 +79,7 @@ async function jsonlFiles(directory: string): Promise<string[]> {
     }
 }
 
-async function withStats(paths: readonly string[], signal: AbortSignal): Promise<SessionFile[]> {
+async function withStats(paths: readonly string[], signal: AbortSignal): Promise<StatFile[]> {
     const files = await Promise.all(
         paths.map(async (path) => {
             try {
@@ -213,21 +189,4 @@ function timeOf(value: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function mapLimit<T, R>(
-    items: readonly T[],
-    limit: number,
-    map: (item: T) => Promise<R>,
-): Promise<R[]> {
-    const results = new Array<R>(items.length);
-    let next = 0;
-    const worker = async () => {
-        while (next < items.length) {
-            const index = next++;
-            results[index] = await map(items[index]!);
-        }
-    };
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return results;
 }
