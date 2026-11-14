@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { parseDocument } from "yaml";
+import { isMap, isNode, isScalar, parseDocument } from "yaml";
 
 import { parseDefinition, type AgentDefinition } from "./definitions.ts";
 import { AUTO_MODEL } from "./models.ts";
@@ -106,6 +106,36 @@ export function setFrontmatterField(
     }
 
     if (field === "model" && value === AUTO_MODEL) {
+        if (isMap(document.contents)) {
+            const items = document.contents.items;
+            const index = items.findIndex(
+                (item) => isScalar(item.key) && item.key.value === "thinking",
+            );
+            const removed = items[index];
+
+            if (removed) {
+                // Removing the override must not discard the user's notes attached to its nodes.
+                const comments = [removed.key, removed.value].flatMap((node) =>
+                    isNode(node)
+                        ? [node.commentBefore, node.comment].filter((comment) => comment != null)
+                        : [],
+                );
+                const next = items[index + 1]?.key;
+
+                if (comments.length > 0) {
+                    if (isNode(next)) {
+                        next.commentBefore = [...comments, next.commentBefore]
+                            .filter((comment) => comment != null)
+                            .join("\n");
+                    } else {
+                        document.comment = [...comments, document.comment]
+                            .filter((comment) => comment != null)
+                            .join("\n");
+                    }
+                }
+            }
+        }
+
         document.delete("thinking");
     }
 
