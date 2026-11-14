@@ -1,0 +1,75 @@
+{
+    "schemaVersion": 1,
+    "change": "subagent-auto-thinking",
+    "createdAt": "2026-11-14T07:12:34.146Z",
+    "intent": "Route model and thinking together for every model:auto run; reject thinking overrides, hide both parameters in Auto mode only, and keep custom-agent editing consistent.",
+    "tier": "high",
+    "tierReasons": ["packages/pi-subagent/src/tools/subagent-tools.ts"],
+    "roundCap": 3,
+    "minIndependentReviews": 2,
+    "baseRev": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+    "headRev": "64e2fea457e42cb462513ff0df9111b6710954a2",
+    "files": [
+        "packages/pi-subagent/CHANGELOG.md",
+        "packages/pi-subagent/README.md",
+        "packages/pi-subagent/docs/reference.md",
+        "packages/pi-subagent/skills/create-lune-subagent/SKILL.md",
+        "packages/pi-subagent/src/auto-model.ts",
+        "packages/pi-subagent/src/definition-file.ts",
+        "packages/pi-subagent/src/definitions.ts",
+        "packages/pi-subagent/src/run/run-manager.ts",
+        "packages/pi-subagent/src/run/types.ts",
+        "packages/pi-subagent/src/settings/agents-menu.ts",
+        "packages/pi-subagent/src/settings/panel.ts",
+        "packages/pi-subagent/src/settings/thinking-choices.ts",
+        "packages/pi-subagent/src/tools/subagent-tools.ts",
+        "packages/pi-subagent/test/integration/auto-model.test.ts",
+        "packages/pi-subagent/test/unit/agents-menu.test.ts",
+        "packages/pi-subagent/test/unit/auto-model.test.ts",
+        "packages/pi-subagent/test/unit/definition-file.test.ts",
+        "packages/pi-subagent/test/unit/definitions.test.ts",
+        "packages/pi-subagent/test/unit/tools.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-14T07:12:38.342Z",
+            "scope": "full",
+            "base": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+            "head": "64e2fea457e42cb462513ff0df9111b6710954a2",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-11-14T07:23:17.583Z",
+            "scope": "diff-after-previous-round",
+            "base": "64e2fea457e42cb462513ff0df9111b6710954a2",
+            "head": "6f9dc1e988220c329882f3ceb32422c9e0bb7815",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-subagent/src/definition-file.ts:109:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-subagent/src/definition-file.ts",
+            "line": 109,
+            "summary": "Selecting auto drops comments attached to the removed thinking key/value. Reproduced with setFrontmatterField on '# keep\\nthinking: high # why': both comments disappear, violating the documented comment-preservation contract. Independent review A reported this; independent review B returned no findings.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Preserve comments from the removed thinking key/value on the following field or document tail. Regression tests reproduce both positions before the fix and pass afterward (18 pass).",
+            "resolvedAt": "2026-11-14T07:18:45.596Z"
+        }
+    ],
+    "convergedAt": "2026-11-14T07:26:01.915Z"
+}
