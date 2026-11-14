@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { SessionManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { coreSettings } from "../../src/core/settings.ts";
 import luneCore from "../../src/extension.ts";
 import { createSettingsSandbox } from "../../src/testing/index.ts";
@@ -41,6 +42,7 @@ async function startCore(t: TestContext) {
 
     const handlers = new Map<string, Handler[]>();
     const notices: string[] = [];
+    const providers: Array<(current: AutocompleteProvider) => AutocompleteProvider> = [];
     const ctx = {
         mode: "tui",
         hasUI: true,
@@ -49,7 +51,9 @@ async function startCore(t: TestContext) {
         ui: {
             notify: (message: string) => notices.push(message),
             setEditorText: () => undefined,
-            addAutocompleteProvider: () => undefined,
+            addAutocompleteProvider: (
+                factory: (current: AutocompleteProvider) => AutocompleteProvider,
+            ) => providers.push(factory),
         },
         sessionManager: SessionManager.inMemory(sandbox.cwd),
     };
@@ -79,19 +83,63 @@ async function startCore(t: TestContext) {
         )) as { action: string };
         return result.action === "transform";
     };
-    return { sandbox, start, mentions, notices };
+    const search = async (query: string) => {
+        const current: AutocompleteProvider = {
+            getSuggestions: async () => null,
+            applyCompletion: (lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol }),
+        };
+        const provider = providers.at(-1)!(current);
+        const input = `@@${query}`;
+        return provider.getSuggestions([input], 0, input.length, {
+            signal: new AbortController().signal,
+            force: false,
+        });
+    };
+    return { sandbox, start, mentions, notices, projectDir, search };
 }
 
 test("Core's cache size setting limits the mentionable sessions to the newest that fit, and a change applies at the next session start", async (t) => {
     const env = await startCore(t);
-    await env.sandbox.writeStored(coreSettings, "global", { mention: { cacheSizeMB: 1 } });
+    await env.sandbox.writeStored(coreSettings, "global", {
+        mention: { cacheSizeMB: 1, textLimit: 8000 },
+    });
 
     await env.start();
     const small = { oldest: await env.mentions(1), newest: await env.mentions(SESSIONS) };
-    await env.sandbox.writeStored(coreSettings, "global", { mention: { cacheSizeMB: 2 } });
+    await env.sandbox.writeStored(coreSettings, "global", {
+        mention: { cacheSizeMB: 2, textLimit: 8000 },
+    });
     await env.start();
     const large = { oldest: await env.mentions(1), newest: await env.mentions(SESSIONS) };
 
     assert.deepEqual(small, { oldest: false, newest: true });
     assert.deepEqual(large, { oldest: true, newest: true });
+});
+
+test("Core's text setting makes later session text searchable after the next start", async (t) => {
+    const env = await startCore(t);
+    const file = new SessionFile("search-text-000001", "/work");
+    file.user("short question");
+    file.assistant("uniquesearchneedle");
+    await writeFile(
+        path.join(env.projectDir, "2026-01-01T00-00-00-000Z_search-text-000001.jsonl"),
+        file.jsonl(),
+    );
+    await env.sandbox.writeStored(coreSettings, "global", {
+        mention: { cacheSizeMB: 4, textLimit: 5 },
+    });
+
+    await env.start();
+    const clipped = await env.search("uniquesearchneedle");
+    await env.sandbox.writeStored(coreSettings, "global", {
+        mention: { cacheSizeMB: 4, textLimit: 100 },
+    });
+    await env.start();
+    const restored = await env.search("uniquesearchneedle");
+
+    assert.equal(clipped, null);
+    assert.deepEqual(
+        restored?.items.map((item) => item.value),
+        ["@session:search-text-0"],
+    );
 });

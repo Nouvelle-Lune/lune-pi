@@ -5,12 +5,12 @@ import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { SessionCatalog } from "../../src/mention/catalog.ts";
+import { SESSION_TEXT_LIMIT } from "../../src/mention/budget.ts";
 import { PiSessions } from "../../src/mention/pi.ts";
 import type { Stats } from "node:fs";
 import type { LocalSession } from "../../src/mention/session.ts";
 import {
     SessionIndex,
-    TEXT_LIMIT,
     sessionIndexFile,
     type SessionFile as IndexedFile,
 } from "../../src/mention/session-index.ts";
@@ -36,8 +36,12 @@ async function fixture(t: TestContext) {
     const catalogs: SessionCatalog[] = [];
     const errors: Error[] = [];
     /** Each catalog stands for one Pi session start; all of them share the on-disk index. */
-    const open = () => {
-        const catalog = new SessionCatalog(customDir, (error) => errors.push(error as Error));
+    const open = (budget?: number) => {
+        const catalog = new SessionCatalog(
+            customDir,
+            (error) => errors.push(error as Error),
+            budget === undefined ? undefined : async () => budget,
+        );
         catalogs.push(catalog);
         return catalog;
     };
@@ -75,6 +79,7 @@ async function fixture(t: TestContext) {
     const storedFiles = async () => {
         const stored = JSON.parse(await readFile(sessionIndexFile(agentDir), "utf8")) as {
             format: number;
+            textLimit: number;
             files: Record<string, unknown>;
         };
         return stored;
@@ -210,6 +215,31 @@ test("a Codex title renamed between session starts is picked up and saved", asyn
     assert.doesNotMatch(stored, /Old title/);
 });
 
+test("an omitted Codex session is listed after its separate title shrinks", async (t) => {
+    const env = await fixture(t);
+    const budget = 1024 * 1024;
+    const rollout = await env.writeCodex("codex text");
+    const titles = path.join(env.codexHome, "session_index.jsonl");
+    await writeFile(titles, jsonl([{ id: CODEX_ID, thread_name: "x".repeat(budget) }]));
+    const before = await stat(rollout);
+
+    assert.deepEqual(await env.open(budget).reload(), []);
+    const marker = (await env.storedFiles()).files[rollout] as { omittedBytes?: number };
+    assert.equal(typeof marker.omittedBytes, "number");
+    await writeFile(titles, jsonl([{ id: CODEX_ID, thread_name: "Short title" }]));
+    const after = await stat(rollout);
+    assert.deepEqual(
+        [after.ino, after.size, after.mtimeMs],
+        [before.ino, before.size, before.mtimeMs],
+    );
+
+    const sessions = await env.open(budget).reload();
+
+    assert.deepEqual(ids(sessions), [CODEX_ID]);
+    assert.equal(sessions[0]!.name, "Short title");
+    assert.deepEqual(env.errors, []);
+});
+
 test("Pi sessions equal SessionManager.listAll for malformed, headerless, renamed and empty files", async (t) => {
     const env = await fixture(t);
     const session = (id: string, build: (file: SessionFile) => void) => {
@@ -300,7 +330,10 @@ test("the index file is written owner-only", async (t) => {
 for (const [description, content] of [
     ["is not JSON", "{ not json"],
     ["has no format", JSON.stringify({ files: {} })],
-    ["holds an entry without a version", JSON.stringify({ format: 2, files: { "/a": {} } })],
+    [
+        "holds an entry without a version",
+        JSON.stringify({ format: 3, textLimit: SESSION_TEXT_LIMIT, files: { "/a": {} } }),
+    ],
 ] as const) {
     test(`an index that ${description} is reported once, the list stays correct and the file is rewritten`, async (t) => {
         const env = await fixture(t);
@@ -314,7 +347,8 @@ for (const [description, content] of [
         assert.deepEqual(actual, ["pi-session-0000001"]);
         assert.equal(env.errors.length, 1);
         assert.match(env.errors[0]!.message, /unreadable session index/);
-        assert.equal((await env.storedFiles()).format, 2);
+        assert.equal((await env.storedFiles()).format, 3);
+        assert.equal((await env.storedFiles()).textLimit, SESSION_TEXT_LIMIT);
         assert.equal(Object.keys((await env.storedFiles()).files).length, 1);
         // The rewritten index loads without further reports.
         await env.open().reload();
@@ -333,7 +367,7 @@ test("an index with another format number is ignored silently and rewritten", as
 
     assert.deepEqual(actual, ["pi-session-0000001"]);
     assert.deepEqual(env.errors, []);
-    assert.equal((await env.storedFiles()).format, 2);
+    assert.equal((await env.storedFiles()).format, 3);
 });
 
 test("a failed index write is reported and the list is still returned", async (t) => {
@@ -425,8 +459,8 @@ async function indexFixture(t: TestContext) {
     const file = path.join(root, "index.json");
     const signal = new AbortController().signal;
     /** One index instance stands for one process start. */
-    const open = async (budget?: number) => {
-        const index = new SessionIndex(file, budget);
+    const open = async (budget?: number, textLimit?: number) => {
+        const index = new SessionIndex(file, budget, textLimit);
         await index.load(signal);
         return index;
     };
@@ -446,6 +480,47 @@ async function indexFixture(t: TestContext) {
     };
     return { file, signal, open, stored, sessionSize };
 }
+
+test("escaped session text keeps the saved index within a one MiB budget", async (t) => {
+    const env = await indexFixture(t);
+    const budget = 1024 * 1024;
+    const files = Array.from({ length: 100 }, (_, i) =>
+        fakeFile(`session-${i}`, 100 - i, { text: "\u0001".repeat(8_000) }),
+    );
+    const index = await env.open(budget);
+
+    const { sessions, errors } = await index.scan(files, env.signal);
+    await index.save();
+
+    const size = (await stat(env.file)).size;
+    assert.ok(size <= budget, `saved index uses ${size} bytes, budget is ${budget}`);
+    assert.ok(sessions.length > 0 && sessions.length < files.length);
+    assert.deepEqual(
+        ids(sessions),
+        files
+            .slice(0, sessions.length)
+            .map((file) => file.path.split("/").pop()!.replace(".jsonl", "")),
+    );
+    assert.deepEqual(errors, []);
+});
+
+test("a boundary marker that does not fit is skipped without evicting the newest session", async (t) => {
+    const env = await indexFixture(t);
+    const newest = fakeFile("newest", 2);
+    const older = fakeFile("older", 1);
+    const probe = await env.open();
+    await probe.scan([newest], env.signal);
+    await probe.save();
+    const budget = (await stat(env.file)).size;
+    const index = await env.open(budget);
+
+    const { sessions } = await index.scan([newest, older], env.signal);
+    await index.save();
+
+    assert.deepEqual(ids(sessions), ["newest"]);
+    assert.ok((await stat(env.file)).size <= budget);
+    assert.deepEqual(Object.keys(await env.stored()), [newest.path]);
+});
 
 test("a scan lists the newest files that fit the budget and never reads or stores older ones", async (t) => {
     const env = await indexFixture(t);
@@ -535,8 +610,8 @@ test("scan returns sessions in the order of the files it was given, not by modif
 
 test("long message text is clipped without splitting a surrogate pair and restored sessions equal fresh reads", async (t) => {
     const env = await indexFixture(t);
-    const emojiAtCut = "a".repeat(TEXT_LIMIT - 1) + "\u{1F600}" + "tail";
-    const plain = "b".repeat(TEXT_LIMIT + 500);
+    const emojiAtCut = "a".repeat(SESSION_TEXT_LIMIT - 1) + "\u{1F600}" + "tail";
+    const plain = "b".repeat(SESSION_TEXT_LIMIT + 500);
     const files = [
         fakeFile("emoji", 2, { text: emojiAtCut }),
         fakeFile("plain", 1, { text: plain }),
@@ -549,15 +624,69 @@ test("long message text is clipped without splitting a surrogate pair and restor
     const second = await env.open();
     const restored = (await second.scan(files, env.signal)).sessions;
 
-    assert.equal(fresh[0]!.firstMessage, "a".repeat(TEXT_LIMIT - 1));
-    assert.equal(fresh[0]!.allMessagesText, "a".repeat(TEXT_LIMIT - 1));
-    assert.equal(fresh[1]!.firstMessage, plain.slice(0, TEXT_LIMIT));
-    assert.equal(fresh[1]!.allMessagesText.length, TEXT_LIMIT);
+    assert.equal(fresh[0]!.firstMessage, "a".repeat(SESSION_TEXT_LIMIT - 1));
+    assert.equal(fresh[0]!.allMessagesText, "a".repeat(SESSION_TEXT_LIMIT - 1));
+    assert.equal(fresh[1]!.firstMessage, plain.slice(0, SESSION_TEXT_LIMIT));
+    assert.equal(fresh[1]!.allMessagesText.length, SESSION_TEXT_LIMIT);
     assert.deepEqual(
         files.map((file) => file.reads),
         [0, 0],
     );
     assert.deepEqual(restored, fresh);
+});
+
+test("changing the text limit on one index rereads and clips both message fields", async (t) => {
+    const env = await indexFixture(t);
+    const file = fakeFile("text", 1, { text: "abcdefghijklmnop" });
+    const index = await env.open(undefined, 10);
+    const first = (await index.scan([file], env.signal)).sessions[0]!;
+    assert.deepEqual([first.firstMessage, first.allMessagesText], ["abcdefghij", "abcdefghij"]);
+
+    index.textLimit = 4;
+    const smaller = (await index.scan([file], env.signal)).sessions[0]!;
+    assert.deepEqual([smaller.firstMessage, smaller.allMessagesText], ["abcd", "abcd"]);
+    assert.equal(file.reads, 2);
+
+    index.textLimit = 12;
+    const larger = (await index.scan([file], env.signal)).sessions[0]!;
+    assert.deepEqual(
+        [larger.firstMessage, larger.allMessagesText],
+        ["abcdefghijkl", "abcdefghijkl"],
+    );
+    assert.equal(file.reads, 3);
+});
+
+test("reopening a saved index with changed text limits rereads and persists both fields", async (t) => {
+    const env = await indexFixture(t);
+    const file = fakeFile("text", 1, { text: "abcdefghijklmnop" });
+    const first = await env.open(undefined, 10);
+    await first.scan([file], env.signal);
+    await first.save();
+
+    const smallerIndex = await env.open(undefined, 4);
+    const smaller = (await smallerIndex.scan([file], env.signal)).sessions[0]!;
+    await smallerIndex.save();
+    assert.deepEqual([smaller.firstMessage, smaller.allMessagesText], ["abcd", "abcd"]);
+    assert.equal(file.reads, 2);
+    assert.equal(JSON.parse(await readFile(env.file, "utf8")).textLimit, 4);
+
+    const largerIndex = await env.open(undefined, 12);
+    const larger = (await largerIndex.scan([file], env.signal)).sessions[0]!;
+    await largerIndex.save();
+    assert.deepEqual(
+        [larger.firstMessage, larger.allMessagesText],
+        ["abcdefghijkl", "abcdefghijkl"],
+    );
+    assert.equal(file.reads, 3);
+    assert.equal(JSON.parse(await readFile(env.file, "utf8")).textLimit, 12);
+
+    const restoredIndex = await env.open(undefined, 12);
+    const restored = (await restoredIndex.scan([file], env.signal)).sessions[0]!;
+    assert.deepEqual(
+        [restored.firstMessage, restored.allMessagesText],
+        ["abcdefghijkl", "abcdefghijkl"],
+    );
+    assert.equal(file.reads, 3);
 });
 
 test("a read error is reported with its label and path, spends no budget and ends no walk", async (t) => {
@@ -596,7 +725,11 @@ for (const omittedBytes of [-1, "12", null]) {
         const env = await indexFixture(t);
         await writeFile(
             env.file,
-            JSON.stringify({ format: 2, files: { "/a": { version: "1:2:3", omittedBytes } } }),
+            JSON.stringify({
+                format: 3,
+                textLimit: SESSION_TEXT_LIMIT,
+                files: { "/a": { version: "1:2:3", omittedBytes } },
+            }),
         );
 
         await assert.rejects(

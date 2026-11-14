@@ -22,6 +22,8 @@ export interface MentionOptions {
      * Without it, or when it rejects, the index keeps INDEX_BUDGET_BYTES.
      */
     indexBudget?(ctx: ExtensionContext): Promise<number>;
+    /** Characters kept per text field, asked again on every session-list load. */
+    indexTextLimit?(ctx: ExtensionContext): Promise<number>;
 }
 
 /**
@@ -50,11 +52,12 @@ export function installMentions(
                 if (catalog !== sessions) return;
                 ctx.ui.notify(`Session list failed: ${errorMessage(error)}`, "error");
             };
-            const { indexBudget } = options;
+            const { indexBudget, indexTextLimit } = options;
             const sessions = new SessionCatalog(
                 ctx.sessionManager.getSessionDir(),
                 report,
                 indexBudget && (() => indexBudget(ctx)),
+                indexTextLimit && (() => indexTextLimit(ctx)),
             );
             catalog = sessions;
             if (ctx.mode !== "tui") return;

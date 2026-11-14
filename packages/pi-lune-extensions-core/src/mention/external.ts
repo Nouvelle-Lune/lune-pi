@@ -26,10 +26,18 @@ export class ExternalSessions {
                 try {
                     const paths = await this.paths(source);
                     const names = source === "codex" ? await this.codexNames(signal) : undefined;
+                    const currentVersion =
+                        source === "codex" ? this.titleIndex?.version : undefined;
                     const files = await Promise.all(
                         paths.map(async (path) => {
                             try {
-                                return externalFile(source, path, await stat(path), names);
+                                return externalFile(
+                                    source,
+                                    path,
+                                    await stat(path),
+                                    names,
+                                    currentVersion,
+                                );
                             } catch (error) {
                                 // Removed since the directory was listed.
                                 if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -139,11 +147,13 @@ function externalFile(
     path: string,
     stats: Stats,
     codexNames: ReadonlyMap<string, string> | undefined,
+    currentVersion: string | undefined,
 ): SessionFile {
     return {
         path,
         stats,
         label: SOURCE_NAMES[source],
+        currentVersion,
         async read(signal) {
             const content = await readFile(path, { encoding: "utf8", signal });
             return parseExternalSession(source, content, path)?.session;

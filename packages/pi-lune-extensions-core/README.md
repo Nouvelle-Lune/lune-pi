@@ -254,15 +254,17 @@ Core loads all three sources into its `SessionCatalog` when a session starts. It
 read from each session file in `<agentDir>/lune-cache/session-index.json`, written owner-only
 because it holds the message text, and reads a file again only when its inode, size or
 modification time changed. Because every load reads the whole index and every change rewrites
-it, the index holds at most about 4 MB by default: session files are taken newest first by
+it, the index holds at most 4 MB by default: session files are taken newest first by
 modification time until the next one does not fit. Older sessions are neither read nor listed,
-and a typed reference to one is not found. To change the size, open `/lune-core-settings`, then
-**Core › Mention › Session cache size** (1 to 64 MB, a global setting only). Each megabyte adds
-about 4 ms to every load and save of the index. The new size applies at the next load of the
-list; other running Pi processes read the setting again when their next session starts. Each session keeps the first 8,000 characters of its first
-message and of its message text, so `@@` searches only that part. Otherwise Pi sessions get the
-same fields as Pi's `SessionManager.listAll()`. Only the first load reads every file that fits;
-with large session stores it can take a few seconds.
+and a typed reference to one is not found. Open `/lune-core-settings`, then **Core › Mention**,
+to configure **Session cache size** (1 to 64 MB) and **Session text limit** (a positive integer,
+defaulting to 8,000 characters). The text limit applies separately to each session's first
+message and searchable message text, so `@@` searches only those retained characters. Both
+settings are global and apply at the next load of the list; other running Pi processes read
+them again when their next session starts. Changing the text limit rebuilds the cached text,
+so increasing it makes more text searchable. Otherwise Pi sessions get the same fields as
+Pi's `SessionManager.listAll()`. A new index or a changed text limit reads every file that
+fits; with large session stores it can take a few seconds.
 An unreadable index is reported and rebuilt from the session files. Lookups use the list and
 reload it in the background when it is older than one minute, so a new session can take up to
 a minute to appear. A plain `@` never waits for the list. `@@` lists only sessions, so it waits

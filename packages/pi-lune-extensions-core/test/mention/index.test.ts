@@ -15,6 +15,7 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ResourceScope } from "../../src/resources/index.ts";
 import { installMentions } from "../../src/mention/index.ts";
+import { SessionCatalog } from "../../src/mention/catalog.ts";
 import {
     claudeMessage,
     codexMeta,
@@ -39,8 +40,23 @@ async function setup(
     } = {},
 ) {
     const root = await mkdtemp(path.join(os.tmpdir(), "session-mention-"));
+    const resources = new ResourceScope();
+    const pending = new Set<Promise<unknown>>();
+    const reload = SessionCatalog.prototype.reload;
+    t.mock.method(SessionCatalog.prototype, "reload", function (this: SessionCatalog) {
+        const load = reload.call(this);
+        pending.add(load);
+        void load.then(
+            () => pending.delete(load),
+            () => pending.delete(load),
+        );
+        return load;
+    });
+    t.after(async () => {
+        await resources.dispose();
+        await Promise.allSettled(pending);
+    });
     const externalHomes = isolateExternalSessions(t, root);
-    t.after(() => rm(root, { recursive: true, force: true }));
     const tempDir = path.join(root, options.tempDirName ?? "tmp");
     // Cover both POSIX and Windows temp-directory precedence without sharing real temp files.
     const directories = {
@@ -56,6 +72,7 @@ async function setup(
             else process.env[key] = value;
         }
     });
+    t.after(() => rm(root, { recursive: true, force: true }));
     await mkdir(tempDir, { recursive: true });
     const sessionDir = path.join(root, "custom-sessions");
     await mkdir(sessionDir, { recursive: true });
@@ -88,8 +105,6 @@ async function setup(
         },
     } as unknown as ExtensionContext;
 
-    const resources = new ResourceScope();
-    t.after(() => resources.dispose());
     installMentions(pi, resources, { indexBudget: options.indexBudget });
 
     const call = (name: string, event: unknown) => handlers.get(name)![0]!(event, ctx);

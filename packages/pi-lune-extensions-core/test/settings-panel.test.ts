@@ -332,17 +332,18 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         assert.equal(core.handlers.get("session_shutdown")?.size, 0);
     });
 
-    test("Core lists Mention as a menu row with its summary and edits the cache size inside it", async (t) => {
+    test("Core lists both Mention settings and edits them inside the menu", async (t) => {
         const { ctx, ui, releases, root, sandbox } = await fixture(t);
         const core = await startCore(t, { ctx, ui, releases, root });
         await core.emit("session_start");
         const opening = core.commands.get("lune-core-settings")!.handler("core", core.context);
 
-        assert.match(ui.text(), /Mention →\s+cache 4 MB/);
+        assert.match(ui.text(), /Mention →\s+cache 4 MB · text 8000 chars/);
         assert.doesNotMatch(ui.text(), /Session cache size/);
         ui.press(keys.enter);
         assert.match(ui.text(), /Lune settings › Mention/);
         assert.match(ui.text(), /Session cache size\s+4 MB/);
+        assert.match(ui.text(), /Session text limit\s+8000 characters/);
         ui.press(keys.enter);
         ui.press(keys.end);
         ui.press(keys.backspace);
@@ -350,13 +351,20 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         await ui.save();
 
         assert.match(ui.text(), /Session cache size\s+8 MB/);
-        const expected = { mention: { cacheSizeMB: 8 } };
+        ui.press(keys.down);
+        ui.press(keys.enter);
+        ui.press(keys.end);
+        for (let i = 0; i < 4; i++) ui.press(keys.backspace);
+        ui.press("12000");
+        await ui.save();
+        assert.match(ui.text(), /Session text limit\s+12000 characters/);
+        const expected = { $version: 2, mention: { cacheSizeMB: 8, textLimit: 12000 } };
         const actual = JSON.parse(
             await readFile(sandbox.settingsFile(coreSettings, "global"), "utf8"),
         );
         assert.deepEqual(actual, expected);
         ui.press(keys.escape);
-        assert.match(ui.text(), /Mention →\s+cache 8 MB/);
+        assert.match(ui.text(), /Mention →\s+cache 8 MB · text 12000 chars/);
         ui.press(keys.escape);
         await opening;
     });
@@ -394,8 +402,12 @@ describe("unified settings panel", { concurrency: false, timeout: 10000 }, () =>
         ui.press(keys.scope);
 
         assert.match(ui.text(), /Session cache size\s+4 MB · global only/);
+        assert.match(ui.text(), /Session text limit\s+8000 characters · global only/);
         ui.press(keys.enter);
         assert.match(ui.text(), /Session cache size can only be set globally/);
+        ui.press(keys.down);
+        ui.press(keys.enter);
+        assert.match(ui.text(), /Session text limit can only be set globally/);
         await assert.rejects(readFile(sandbox.settingsFile(coreSettings, "project"), "utf8"), {
             code: "ENOENT",
         });

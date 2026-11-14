@@ -3,19 +3,16 @@ import type { Stats } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { INDEX_BUDGET_MB, megabytes } from "./budget.ts";
+import { INDEX_BUDGET_MB, megabytes, SESSION_TEXT_LIMIT } from "./budget.ts";
 import { SOURCE_NAMES, type LocalSession } from "./session.ts";
 
 /** Raise when the stored shape or what a reader takes from a session file changes. */
-const FORMAT = 2;
+const FORMAT = 3;
 /**
  * The default budget; Core settings let the user change it. The newest sessions whose entries
- * fit are indexed and listed; older ones are neither read nor listed. Loading and saving the
- * index each block the event loop for about 4 ms per megabyte.
+ * fit are indexed and listed; older ones are neither read nor listed.
  */
 export const INDEX_BUDGET_BYTES = megabytes(INDEX_BUDGET_MB);
-/** Characters kept from the start of a session's first message and of its message text. */
-export const TEXT_LIMIT = 8_000;
 const STRING_FIELDS = ["path", "id", "cwd", "firstMessage", "allMessagesText"] as const;
 const OPTIONAL_STRING_FIELDS = ["name", "parentSessionPath"] as const;
 const DATE_FIELDS = ["created", "modified"] as const;
@@ -39,6 +36,8 @@ export interface SessionFile {
     read(signal: AbortSignal): Promise<LocalSession | undefined>;
     /** The session with state kept outside its file, such as a Codex title, applied. */
     current?(session: LocalSession): LocalSession;
+    /** Invalidates an omitted entry's size when state outside its file changes. */
+    readonly currentVersion?: string;
 }
 
 export interface SessionScan {
@@ -56,7 +55,8 @@ interface IndexEntry {
      * scans stop there without reading it until it changes or room is freed.
      */
     omitted?: true;
-    /** About what the entry with its session takes in the index file. */
+    currentVersion?: string;
+    /** Bytes the full entry takes in JSON, including a separating comma. */
     bytes: number;
 }
 
@@ -66,7 +66,7 @@ interface IndexEntry {
  * stores reach gigabytes because of tool output the list never uses.
  *
  * Every load and every changed scan reads or writes the whole index, so it holds only the
- * newest sessions that fit its budget, with their text clipped to TEXT_LIMIT.
+ * newest sessions that fit its budget, with their text clipped to the configured limit.
  *
  * Several Pi processes share the file. Each writes a complete index and renames it into
  * place, so readers always see a whole index and the last writer wins.
@@ -78,13 +78,16 @@ export class SessionIndex {
      * next scan; a larger one reads the files the last scan left out.
      */
     budget: number;
+    textLimit: number;
     private entries = new Map<string, IndexEntry>();
+    private indexedTextLimit: number | undefined;
     private loaded = false;
     private changed = false;
 
-    constructor(file: string, budget = INDEX_BUDGET_BYTES) {
+    constructor(file: string, budget = INDEX_BUDGET_BYTES, textLimit = SESSION_TEXT_LIMIT) {
         this.file = file;
         this.budget = budget;
+        this.textLimit = textLimit;
     }
 
     /**
@@ -102,7 +105,13 @@ export class SessionIndex {
             throw error;
         }
         try {
-            this.entries = parseIndex(content);
+            const stored = parseIndex(content);
+            if (stored) {
+                this.entries = stored.entries;
+                this.indexedTextLimit = stored.textLimit;
+            } else {
+                this.changed = true;
+            }
         } catch (error) {
             this.changed = true;
             const reason = error instanceof Error ? error.message : String(error);
@@ -118,20 +127,32 @@ export class SessionIndex {
      * for large rollouts and keeps the order. Entries for every other file are dropped.
      */
     async scan(files: readonly SessionFile[], signal: AbortSignal): Promise<SessionScan> {
+        signal.throwIfAborted();
+        if (this.indexedTextLimit !== this.textLimit) {
+            // A larger limit needs text that the saved entries no longer contain.
+            this.changed ||= this.indexedTextLimit !== undefined;
+            this.entries.clear();
+            this.indexedTextLimit = this.textLimit;
+        }
         const sessions = new Array<LocalSession | undefined>(files.length);
         const errors: Error[] = [];
         const kept = new Map<string, IndexEntry>();
         const newestFirst = files
             .map((_, position) => position)
             .sort((left, right) => files[right]!.stats.mtimeMs - files[left]!.stats.mtimeMs);
-        let used = 0;
+        let used = Buffer.byteLength(serializeIndex(new Map(), this.textLimit));
         for (const position of newestFirst) {
             signal.throwIfAborted();
             const file = files[position]!;
             const version = fileVersion(file.stats);
             const stored = this.entries.get(file.path);
             let entry = stored?.version === version ? stored : undefined;
-            if (!entry || (entry.omitted && used + entry.bytes <= this.budget)) {
+            if (
+                !entry ||
+                (entry.omitted &&
+                    (used + entry.bytes - Number(kept.size === 0) <= this.budget ||
+                        entry.currentVersion !== file.currentVersion))
+            ) {
                 let session: LocalSession | undefined;
                 try {
                     session = await file.read(signal);
@@ -145,18 +166,32 @@ export class SessionIndex {
                     );
                     continue;
                 }
-                entry = indexEntry(file.path, version, session && clipped(session));
+                entry = indexEntry(file.path, version, session && clipped(session, this.textLimit));
             }
             if (entry.session && file.current) {
                 const session = file.current(entry.session);
                 if (session !== entry.session) entry = indexEntry(file.path, version, session);
             }
-            if (used + entry.bytes > this.budget) {
-                if (!entry.omitted) entry = { version, omitted: true, bytes: entry.bytes };
-                kept.set(file.path, entry);
+            const separator = Number(kept.size === 0);
+            if (used + entry.bytes - separator > this.budget) {
+                if (!entry.omitted) {
+                    entry = {
+                        version,
+                        omitted: true,
+                        bytes: entry.bytes,
+                        currentVersion: file.currentVersion,
+                    };
+                }
+                const markerBytes = serializedEntryBytes(file.path, {
+                    version,
+                    omittedBytes: entry.bytes,
+                    currentVersion: entry.currentVersion,
+                });
+                // A boundary marker must not push the index beyond its configured size.
+                if (used + markerBytes - separator <= this.budget) kept.set(file.path, entry);
                 break;
             }
-            used += entry.bytes;
+            used += entry.bytes - separator;
             kept.set(file.path, entry);
             sessions[position] = entry.session;
         }
@@ -173,7 +208,7 @@ export class SessionIndex {
     /** Writes the index if the last scan changed it. */
     async save(): Promise<void> {
         if (!this.changed) return;
-        const content = serializeIndex(this.entries);
+        const content = serializeIndex(this.entries, this.textLimit);
         await mkdir(dirname(this.file), { recursive: true, mode: 0o700 });
         const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`;
         try {
@@ -194,49 +229,42 @@ function indexEntry(path: string, version: string, session?: LocalSession): Inde
         : { version, bytes: entryBytes(path, version) };
 }
 
-/**
- * Serializing every entry to measure it would cost as much as saving the index, so this
- * counts UTF-8 bytes and JSON punctuation but not escapes.
- */
 function entryBytes(path: string, version: string, session?: LocalSession): number {
-    // "path":{"version":"…"},
-    let bytes = Buffer.byteLength(path) + version.length + 18;
-    if (!session) return bytes;
-    // ,"session":{}
-    bytes += 13;
-    for (const [key, value] of Object.entries(storedSession(session))) {
-        // "key":value,
-        bytes += key.length + 4;
-        bytes += typeof value === "string" ? Buffer.byteLength(value) + 2 : String(value).length;
-    }
-    return bytes;
+    return serializedEntryBytes(
+        path,
+        session ? { version, session: storedSession(session) } : { version },
+    );
 }
 
-function clipped(session: LocalSession): LocalSession {
-    const firstMessage = clip(session.firstMessage);
-    const allMessagesText = clip(session.allMessagesText);
+function serializedEntryBytes(path: string, value: unknown): number {
+    return Buffer.byteLength(JSON.stringify(path)) + Buffer.byteLength(JSON.stringify(value)) + 2;
+}
+
+function clipped(session: LocalSession, limit: number): LocalSession {
+    const firstMessage = clip(session.firstMessage, limit);
+    const allMessagesText = clip(session.allMessagesText, limit);
     return firstMessage === session.firstMessage && allMessagesText === session.allMessagesText
         ? session
         : { ...session, firstMessage, allMessagesText };
 }
 
-function clip(text: string): string {
-    if (text.length <= TEXT_LIMIT) return text;
-    const last = text.charCodeAt(TEXT_LIMIT - 1);
+function clip(text: string, limit: number): string {
+    if (text.length <= limit) return text;
+    const last = text.charCodeAt(limit - 1);
     // Never keep half of a surrogate pair.
-    return text.slice(0, last >= 0xd800 && last <= 0xdbff ? TEXT_LIMIT - 1 : TEXT_LIMIT);
+    return text.slice(0, last >= 0xd800 && last <= 0xdbff ? limit - 1 : limit);
 }
 
-function serializeIndex(entries: ReadonlyMap<string, IndexEntry>): string {
+function serializeIndex(entries: ReadonlyMap<string, IndexEntry>, textLimit: number): string {
     const files: Record<string, unknown> = {};
-    for (const [path, { version, session, omitted, bytes }] of entries) {
+    for (const [path, { version, session, omitted, bytes, currentVersion }] of entries) {
         files[path] = omitted
-            ? { version, omittedBytes: bytes }
+            ? { version, omittedBytes: bytes, currentVersion }
             : session
               ? { version, session: storedSession(session) }
               : { version };
     }
-    return JSON.stringify({ format: FORMAT, files });
+    return JSON.stringify({ format: FORMAT, textLimit, files });
 }
 
 // JSON drops undefined values, but the readers set `name` and `parentSessionPath` keys that
@@ -250,13 +278,19 @@ function storedSession(session: LocalSession): Record<string, unknown> {
     );
 }
 
-function parseIndex(content: string): Map<string, IndexEntry> {
+function parseIndex(
+    content: string,
+): { entries: Map<string, IndexEntry>; textLimit: number } | undefined {
     const entries = new Map<string, IndexEntry>();
     const stored: unknown = JSON.parse(content);
     if (!isRecord(stored) || typeof stored["format"] !== "number") {
         throw new Error("missing format");
     }
-    if (stored["format"] !== FORMAT) return entries;
+    if (stored["format"] !== FORMAT) return undefined;
+    const textLimit = stored["textLimit"];
+    if (typeof textLimit !== "number" || !Number.isInteger(textLimit) || textLimit < 1) {
+        throw new Error("invalid textLimit");
+    }
     const files = stored["files"];
     if (!isRecord(files)) throw new Error("missing files");
     for (const [path, value] of Object.entries(files)) {
@@ -269,7 +303,11 @@ function parseIndex(content: string): Map<string, IndexEntry> {
             if (typeof omittedBytes !== "number" || !(omittedBytes >= 0)) {
                 throw new Error(`invalid omittedBytes for ${path}`);
             }
-            entries.set(path, { version, omitted: true, bytes: omittedBytes });
+            const currentVersion = value["currentVersion"];
+            if (currentVersion !== undefined && typeof currentVersion !== "string") {
+                throw new Error(`invalid currentVersion for ${path}`);
+            }
+            entries.set(path, { version, omitted: true, bytes: omittedBytes, currentVersion });
             continue;
         }
         entries.set(
@@ -283,7 +321,7 @@ function parseIndex(content: string): Map<string, IndexEntry> {
             ),
         );
     }
-    return entries;
+    return { entries, textLimit };
 }
 
 function restoredSession(value: unknown, path: string): LocalSession {

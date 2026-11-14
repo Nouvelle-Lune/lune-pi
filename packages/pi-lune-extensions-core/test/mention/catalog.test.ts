@@ -281,6 +281,36 @@ test("each reload asks for the budget again, so a changed value applies to the n
     assert.equal(asked, 3);
 });
 
+test("a changed text limit applies on reload and restores text from an unchanged session file", async (t) => {
+    const { customDir } = await fixture(t);
+    const file = new SessionFile("text-limit-000001", "/work/project");
+    file.user("abc😀def");
+    file.assistant("later searchable text");
+    await writeFile(
+        path.join(customDir, "2026-01-01T00-00-00-000Z_text-limit-000001.jsonl"),
+        file.jsonl(),
+    );
+    let limit = 4;
+    const catalog = new SessionCatalog(
+        customDir,
+        silent,
+        async () => 1024 * 1024,
+        async () => limit,
+    );
+    t.after(() => catalog.dispose());
+
+    const small = await catalog.reload();
+    limit = 100;
+    const cached = await catalog.list();
+    const large = await catalog.reload();
+
+    assert.equal(small[0]!.firstMessage, "abc");
+    assert.equal(small[0]!.allMessagesText, "abc");
+    assert.strictEqual(cached, small);
+    assert.equal(large[0]!.firstMessage, "abc😀def");
+    assert.match(large[0]!.allMessagesText, /later searchable text/);
+});
+
 test("a budget that rejects falls back to the default size without reporting an error", async (t) => {
     const { customDir, write } = await fixture(t);
     await write(customDir, "sess-old-00000001", 1);

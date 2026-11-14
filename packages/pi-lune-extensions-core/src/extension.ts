@@ -39,5 +39,6 @@ export default scopedExtension((pi, resources) => {
     installMentions(pi, resources, {
         indexBudget: async (ctx) =>
             megabytes((await settings.view(ctx)).get("mention").cacheSizeMB),
+        indexTextLimit: async (ctx) => (await settings.view(ctx)).get("mention").textLimit,
     });
 });

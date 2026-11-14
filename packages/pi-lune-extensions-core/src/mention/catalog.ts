@@ -1,3 +1,4 @@
+import { SESSION_TEXT_LIMIT } from "./budget.ts";
 import { ExternalSessions } from "./external.ts";
 import { PiSessions } from "./pi.ts";
 import { INDEX_BUDGET_BYTES, SessionIndex, sessionIndexFile } from "./session-index.ts";
@@ -18,6 +19,7 @@ const REFRESH_AFTER_MS = 60_000;
 export class SessionCatalog {
     private readonly onBackgroundError: (error: unknown) => void;
     private readonly budget: () => Promise<number>;
+    private readonly textLimit: () => Promise<number>;
     private readonly abort = new AbortController();
     private readonly index = new SessionIndex(sessionIndexFile());
     private readonly pi: PiSessions;
@@ -32,10 +34,12 @@ export class SessionCatalog {
         sessionDir: string,
         onBackgroundError: (error: unknown) => void,
         budget: () => Promise<number> = async () => INDEX_BUDGET_BYTES,
+        textLimit: () => Promise<number> = async () => SESSION_TEXT_LIMIT,
     ) {
         this.pi = new PiSessions(sessionDir);
         this.onBackgroundError = onBackgroundError;
         this.budget = budget;
+        this.textLimit = textLimit;
     }
 
     /** The cached list, empty before the first load. A stale list starts a background reload. */
@@ -92,6 +96,7 @@ export class SessionCatalog {
         // Settings that cannot be read are reported where they are edited; the session list
         // keeps working with the default size instead.
         this.index.budget = await this.budget().catch(() => INDEX_BUDGET_BYTES);
+        this.index.textLimit = await this.textLimit().catch(() => SESSION_TEXT_LIMIT);
         const [pi, external] = await Promise.all([
             this.pi.list(signal),
             this.external.list(signal, this.onBackgroundError),
