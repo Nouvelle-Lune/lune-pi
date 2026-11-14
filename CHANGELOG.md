@@ -25,5 +25,6 @@
 
 - **Preview capture from a local skill.** Move the README screenshot and recording pipeline out of `tools/` into the repository-level `capture-readme-previews` skill, drop the root `docs:previews` script, and point the preview guides at the skill. The capture code regenerates maintainer assets rather than shipping with any package, so it no longer belongs in the workspace.
 - **Settled rows in the review rules.** `REVIEW.md` now treats live partial output in a collapsed card, group preview row, or pinned footer as a failure, and keeps an incomplete fix that still adds rows mid-call in scope instead of `preExisting`. A fresh-context replay of `case-collapsed-group-live-output` produces the missed `ui-instability` finding, so the case is fixed and the regression set is clean.
+- **Package publishing policy.** The agent guide now prohibits creating GitHub Releases when publishing new versions.
 
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev
