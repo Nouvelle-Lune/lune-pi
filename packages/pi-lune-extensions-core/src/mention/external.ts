@@ -1,72 +1,45 @@
+import type { Stats } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseClaudeSession } from "./claude.ts";
 import { parseCodexSession } from "./codex.ts";
 import { jsonl, string } from "./jsonl.ts";
-import {
-    SOURCE_NAMES,
-    type ExternalSession,
-    type LocalSession,
-    type SessionSource,
-} from "./session.ts";
-import { fileVersion, type SessionIndex } from "./session-index.ts";
+import { SOURCE_NAMES, type ExternalSession, type SessionSource } from "./session.ts";
+import type { SessionFile } from "./session-index.ts";
 
 type ExternalSource = Exclude<SessionSource, "pi">;
 
-/** Parsed sessions live in the shared index; the Codex title index is cached per Pi session. */
+/** Codex and Claude Code session files; the Codex title index is cached per Pi session. */
 export class ExternalSessions {
     private readonly codexHome = resolve(process.env["CODEX_HOME"] ?? join(homedir(), ".codex"));
     private readonly claudeHome = resolve(
         process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude"),
     );
-    private readonly index: SessionIndex;
     private titleIndex: { version: string; names: Map<string, string> } | undefined;
 
-    constructor(index: SessionIndex) {
-        this.index = index;
-    }
-
-    async list(signal: AbortSignal, report: (error: unknown) => void): Promise<LocalSession[]> {
+    async list(signal: AbortSignal, report: (error: unknown) => void): Promise<SessionFile[]> {
         const errors: Error[] = [];
         const sources: ExternalSource[] = ["codex", "claude"];
         const results = await Promise.all(
             sources.map(async (source) => {
                 try {
                     const paths = await this.paths(source);
-                    const names = source === "codex" ? await this.codexNames(signal) : new Map();
-                    const sessions: LocalSession[] = [];
-                    // One file per source at a time bounds memory when rollouts contain large tool results.
-                    for (const path of paths) {
-                        signal.throwIfAborted();
-                        try {
-                            const version = fileVersion(await stat(path));
-                            let entry = this.index.get(path, version);
-                            if (!entry) {
-                                const content = await readFile(path, { encoding: "utf8", signal });
-                                entry = {
-                                    version,
-                                    session: parseExternalSession(source, content, path)?.session,
-                                };
-                                this.index.set(path, entry);
-                            }
-                            let session = entry.session;
-                            if (session) {
-                                const name =
-                                    source === "codex" ? names.get(session.id) : session.name;
-                                if (name !== session.name) {
-                                    session = { ...session, name };
-                                    this.index.set(path, { version, session });
+                    const names = source === "codex" ? await this.codexNames(signal) : undefined;
+                    const files = await Promise.all(
+                        paths.map(async (path) => {
+                            try {
+                                return externalFile(source, path, await stat(path), names);
+                            } catch (error) {
+                                // Removed since the directory was listed.
+                                if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+                                    errors.push(fileError(source, path, error));
                                 }
-                                // Stable objects preserve autocomplete's existing WeakMap search cache.
-                                sessions.push(session);
+                                return undefined;
                             }
-                        } catch (error) {
-                            signal.throwIfAborted();
-                            errors.push(fileError(source, path, error));
-                        }
-                    }
-                    return sessions;
+                        }),
+                    );
+                    return files.filter((file) => file !== undefined);
                 } catch (error) {
                     signal.throwIfAborted();
                     errors.push(
@@ -159,6 +132,31 @@ export class ExternalSessions {
         if (!signal.aborted) this.titleIndex = { version, names };
         return names;
     }
+}
+
+function externalFile(
+    source: ExternalSource,
+    path: string,
+    stats: Stats,
+    codexNames: ReadonlyMap<string, string> | undefined,
+): SessionFile {
+    return {
+        path,
+        stats,
+        label: SOURCE_NAMES[source],
+        async read(signal) {
+            const content = await readFile(path, { encoding: "utf8", signal });
+            return parseExternalSession(source, content, path)?.session;
+        },
+        // Codex keeps titles in its own index, so a rename does not change the rollout.
+        current: codexNames
+            ? (session) => {
+                  const name = codexNames.get(session.id);
+                  // The same object keeps autocomplete's search cache for the session.
+                  return name === session.name ? session : { ...session, name };
+              }
+            : undefined,
+    };
 }
 
 export function parseExternalSession(

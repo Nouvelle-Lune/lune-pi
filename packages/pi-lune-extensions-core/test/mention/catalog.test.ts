@@ -254,3 +254,50 @@ test("a background failure after dispose is not reported", async (t) => {
 
     assert.deepEqual(errors, []);
 });
+
+test("each reload asks for the budget again, so a changed value applies to the next load", async (t) => {
+    const { customDir, write } = await fixture(t);
+    await write(customDir, "sess-old-00000001", 1);
+    await write(customDir, "sess-mid-00000002", 2);
+    await write(customDir, "sess-new-00000003", 3);
+    let budget = 64 * 1024 * 1024;
+    let asked = 0;
+    const catalog = new SessionCatalog(customDir, silent, async () => {
+        asked++;
+        return budget;
+    });
+    t.after(() => catalog.dispose());
+
+    const roomy = await catalog.reload();
+    // Smaller than any entry: the first file over the budget ends the walk.
+    budget = 1;
+    const cramped = await catalog.reload();
+    budget = 64 * 1024 * 1024;
+    const restored = await catalog.reload();
+
+    assert.deepEqual(ids(roomy), ["sess-new-00000003", "sess-mid-00000002", "sess-old-00000001"]);
+    assert.deepEqual(ids(cramped), []);
+    assert.deepEqual(ids(restored), ids(roomy));
+    assert.equal(asked, 3);
+});
+
+test("a budget that rejects falls back to the default size without reporting an error", async (t) => {
+    const { customDir, write } = await fixture(t);
+    await write(customDir, "sess-old-00000001", 1);
+    await write(customDir, "sess-new-00000002", 2);
+    const errors: unknown[] = [];
+    const catalog = new SessionCatalog(
+        customDir,
+        (error) => errors.push(error),
+        async () => {
+            throw new Error("settings unreadable");
+        },
+    );
+    t.after(() => catalog.dispose());
+
+    const expected = ["sess-new-00000002", "sess-old-00000001"];
+    const actual = ids(await catalog.reload());
+
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(errors, []);
+});

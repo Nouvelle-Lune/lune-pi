@@ -498,9 +498,9 @@ function holdPiListing(t: TestContext) {
     t.mock.method(
         PiSessions.prototype,
         "list",
-        async function (this: PiSessions, signal: AbortSignal, report: (error: unknown) => void) {
+        async function (this: PiSessions, signal: AbortSignal) {
             await gate;
-            return original.call(this, signal, report);
+            return original.call(this, signal);
         },
     );
     return release;

@@ -1,13 +1,15 @@
 import { ExternalSessions } from "./external.ts";
 import { PiSessions } from "./pi.ts";
-import { SessionIndex, sessionIndexFile } from "./session-index.ts";
+import { INDEX_BUDGET_BYTES, SessionIndex, sessionIndexFile } from "./session-index.ts";
 import type { LocalSession } from "./session.ts";
 
 /** A list older than this is reloaded in the background on the next lookup. */
 const REFRESH_AFTER_MS = 60_000;
 
 /**
- * Local Pi, Codex and Claude Code main sessions, newest activity first.
+ * The newest local Pi, Codex and Claude Code main sessions that fit the index budget, newest
+ * activity first. Each load asks for the budget again, so a changed setting applies to the
+ * next load.
  *
  * Every load checks each session file and reads only those that changed since the saved
  * index. Lookups serve the cached list and reload it in the background. The owner disposes
@@ -15,18 +17,25 @@ const REFRESH_AFTER_MS = 60_000;
  */
 export class SessionCatalog {
     private readonly onBackgroundError: (error: unknown) => void;
+    private readonly budget: () => Promise<number>;
     private readonly abort = new AbortController();
     private readonly index = new SessionIndex(sessionIndexFile());
     private readonly pi: PiSessions;
-    private readonly external = new ExternalSessions(this.index);
+    private readonly external = new ExternalSessions();
     private sessions: readonly LocalSession[] = [];
     private loaded = false;
     private loadedAt = 0;
     private loading: Promise<readonly LocalSession[]> | undefined;
 
-    constructor(sessionDir: string, onBackgroundError: (error: unknown) => void) {
-        this.pi = new PiSessions(sessionDir, this.index);
+    /** `budget` gives the bytes the session index may keep. */
+    constructor(
+        sessionDir: string,
+        onBackgroundError: (error: unknown) => void,
+        budget: () => Promise<number> = async () => INDEX_BUDGET_BYTES,
+    ) {
+        this.pi = new PiSessions(sessionDir);
         this.onBackgroundError = onBackgroundError;
+        this.budget = budget;
     }
 
     /** The cached list, empty before the first load. A stale list starts a background reload. */
@@ -80,15 +89,24 @@ export class SessionCatalog {
         const signal = this.abort.signal;
         // A failed index only costs a full read; the scan below writes a new one.
         await this.index.load(signal).catch((error: unknown) => this.report(error));
-        this.index.beginScan();
+        // Settings that cannot be read are reported where they are edited; the session list
+        // keeps working with the default size instead.
+        this.index.budget = await this.budget().catch(() => INDEX_BUDGET_BYTES);
         const [pi, external] = await Promise.all([
-            this.pi.list(signal, this.onBackgroundError),
+            this.pi.list(signal),
             this.external.list(signal, this.onBackgroundError),
         ]);
+        // Pi first, so sessions with equal activity times keep listAll's order.
+        const { sessions: listed, errors } = await this.index.scan([...pi, ...external], signal);
         signal.throwIfAborted();
-        await this.index.endScan().catch((error: unknown) => this.report(error));
+        if (errors.length > 0) {
+            this.report(
+                new AggregateError(errors, errors.map((error) => error.message).join("\n")),
+            );
+        }
+        await this.index.save().catch((error: unknown) => this.report(error));
         signal.throwIfAborted();
-        const sessions = [...pi, ...external].sort(
+        const sessions = listed.sort(
             (left, right) => right.modified.getTime() - left.modified.getTime(),
         );
         this.sessions = sessions;

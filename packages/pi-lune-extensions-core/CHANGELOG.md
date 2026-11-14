@@ -49,10 +49,10 @@ All notable changes are documented here using
   lifetime signals, and late acquisition is cleaned rather than published.
 - **Local resource ownership.** `ResourceScope` provides reverse-order, idempotent
   cleanup and aggregates failures without depending on Settings, UI or Pi.
-- **Core settings placeholder.** Core's Pi entry registers an empty `Core` section
-  declared in `src/core/`, giving its own configuration a reserved first tab and a
-  namespace bound through the same Settings and Panel APIs as any consumer. Empty
-  sections report that no settings are available instead of rendering an empty list.
+- **Core settings section.** Core's Pi entry registers a reserved first tab and a
+  namespace bound through the same Settings and Panel APIs as any consumer. Its
+  **Mention** submenu configures the global session cache size. Empty sections report
+  that no settings are available instead of rendering an empty list.
 - **Per-namespace settings files.** Each settings id owns its own JSON file per scope
   (`<agentDir>/lune-settings/<id>.json` and `<project>/.pi/lune-settings/<id>.json`), so
   a damaged file only affects its own namespace. Files hold the overrides plus an
@@ -97,10 +97,14 @@ All notable changes are documented here using
 
 ### Changed
 
-- **Session mentions keep an index on disk.** Core saves what it read from each Pi, Codex and
+- **Session mentions keep a bounded index on disk.** Core saves what it read from each Pi, Codex and
   Claude Code session file in `<agentDir>/lune-cache/session-index.json` (owner-only, since it
   holds message text) and reads a file again only when it changes. A new session now loads the
-  list in tens of milliseconds instead of reading every session file again.
+  list in tens of milliseconds instead of reading every session file again. The index keeps only
+  the newest sessions that fit in about 4 MB, with the first 8,000 characters of their text for
+  `@@` search; older sessions are no longer listed or accepted as references.
+  Change the size under `/lune-core-settings` › **Core › Mention › Session cache size**
+  (1 to 64 MB, global only); it applies at the next load of the list.
 - **Release metadata and README badges.** Prepare version 0.2.0 for consumers of the new Panel menu API, including Lune Subagent. Add npm version, weekly download and license badges to match the other package READMEs.
 - **Session mention copies use the system temporary directory.** Store filtered transcripts
   under `<os.tmpdir()>/pi-lune-session-refs/` so the operating system can reclaim them according

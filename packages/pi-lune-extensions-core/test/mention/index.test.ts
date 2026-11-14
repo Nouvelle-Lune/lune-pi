@@ -31,7 +31,12 @@ const ID_C = "01c24931-31bb-7000-8000-cccccccccccc";
 
 async function setup(
     t: TestContext,
-    options: { hasUI?: boolean; mode?: string; tempDirName?: string } = {},
+    options: {
+        hasUI?: boolean;
+        mode?: string;
+        tempDirName?: string;
+        indexBudget?: (ctx: ExtensionContext) => Promise<number>;
+    } = {},
 ) {
     const root = await mkdtemp(path.join(os.tmpdir(), "session-mention-"));
     const externalHomes = isolateExternalSessions(t, root);
@@ -85,7 +90,7 @@ async function setup(
 
     const resources = new ResourceScope();
     t.after(() => resources.dispose());
-    installMentions(pi, resources);
+    installMentions(pi, resources, { indexBudget: options.indexBudget });
 
     const call = (name: string, event: unknown) => handlers.get(name)![0]!(event, ctx);
     const writeSession = async (id: string, build?: (file: SessionFile) => void) => {
@@ -566,4 +571,29 @@ test("a temp directory that was removed is recreated on the next mention", async
 
     assert.equal(second, first);
     assert.match(await readFile(second, "utf8"), /\[User\]: request /);
+});
+
+test("the indexBudget option limits the listed sessions and is asked again on every session start", async (t) => {
+    let budget = 1;
+    const contexts: unknown[] = [];
+    const env = await setup(t, {
+        indexBudget: async (ctx) => {
+            contexts.push(ctx);
+            return budget;
+        },
+    });
+    await env.writeSession(ID_A);
+    const text = `look at @session:${ID_A}`;
+
+    await env.call("session_start", {});
+    const refused = await env.call("input", { text });
+    budget = 64 * 1024 * 1024;
+    await env.call("session_start", {});
+    const accepted = (await env.call("input", { text })) as { action: string };
+
+    assert.deepEqual(refused, { action: "handled" });
+    assert.match(env.notices[0]!.message, /^Prompt not sent\. No local session matches/);
+    assert.equal(accepted.action, "transform");
+    assert.ok(contexts.length >= 2);
+    assert.ok(contexts.every((ctx) => typeof (ctx as { mode?: unknown }).mode === "string"));
 });

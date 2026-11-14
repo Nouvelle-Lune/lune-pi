@@ -13,6 +13,7 @@ import { registerSettingsPanel } from "./panel/registration.ts";
 import { openSettingsPanel } from "./panel/tui.ts";
 import { scopedExtension } from "./resources/scoped-extension.ts";
 import { installMentions } from "./mention/index.ts";
+import { megabytes } from "./mention/budget.ts";
 import { bindSettings } from "./settings/binding.ts";
 
 /**
@@ -35,5 +36,8 @@ export default scopedExtension((pi, resources) => {
             await openSettingsPanel(ctx, { section: args.trim() || undefined });
         },
     });
-    installMentions(pi, resources);
+    installMentions(pi, resources, {
+        indexBudget: async (ctx) =>
+            megabytes((await settings.view(ctx)).get("mention").cacheSizeMB),
+    });
 });
