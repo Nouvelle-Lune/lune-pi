@@ -217,6 +217,12 @@ export function parseDefinition(
         definition.thinking = oneOf(fields, "thinking", THINKING_LEVELS);
     }
 
+    if (definition.model === AUTO_MODEL && definition.thinking !== undefined) {
+        throw new Error(
+            "Model auto chooses both the model and thinking level; remove thinking from this definition.",
+        );
+    }
+
     if (fields.isolation !== undefined) {
         definition.isolation = oneOf(fields, "isolation", ISOLATION_MODES);
     }

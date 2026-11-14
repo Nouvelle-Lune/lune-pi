@@ -118,40 +118,49 @@ test("the model enum lists the allowed models and is absent when the list is emp
     assert.equal("model" in without, false);
 });
 
-test("with Auto mode only the start schema has no model", (t) => {
+test("with Auto mode only the start schema has no model and no thinking", (t) => {
     const models = ["a/one", "b/two"];
     const on = toolsFor(t, { models, autoOnly: true }).byName("subagent_start");
     const off = toolsFor(t, { models, autoOnly: false }).byName("subagent_start");
 
     assert.equal("model" in properties(on), false);
+    assert.equal("thinking" in properties(on), false);
     assert.equal("model" in properties(off), true);
+    assert.equal("thinking" in properties(off), true);
+    assert.deepEqual(Object.keys(properties(on)), ["title", "task", "tools", "isolation"]);
 });
 
-test("under Auto mode only, SDK validation rejects a model the schema omits", (t) => {
+test("under Auto mode only, SDK validation rejects a model or a thinking level the schema omits", (t) => {
     const start = toolsFor(t, { models: ["a/one"], autoOnly: true }).byName("subagent_start");
+    const cases: Array<[string, ToolCall["arguments"]]> = [
+        ["model", { task: "one", model: "a/one" }],
+        ["thinking", { task: "one", thinking: "high" }],
+    ];
 
-    assert.throws(
-        () => validateStart(start, { task: "one", model: "a/one" }),
-        (error: Error) => {
-            assert.match(error.message, /^Validation failed for tool "subagent_start":/);
-            assert.match(error.message, /model/);
+    for (const [field, params] of cases) {
+        assert.throws(
+            () => validateStart(start, params),
+            (error: Error) => {
+                assert.match(error.message, /^Validation failed for tool "subagent_start":/);
+                assert.match(error.message, new RegExp(field));
 
-            return true;
-        },
-    );
+                return true;
+            },
+            field,
+        );
+    }
 });
 
-test("with Auto mode only the descriptions name only thinking, tools and isolation as inline settings", (t) => {
+test("with Auto mode only the descriptions name only tools and isolation as inline settings", (t) => {
     const definitions = ["reviewer"];
     const on = toolsFor(t, { definitions, autoOnly: true }).byName("subagent_start");
     const off = toolsFor(t, { definitions, autoOnly: false }).byName("subagent_start");
 
-    assert.match(on.description, /sets thinking, tools and isolation in the call/);
+    assert.match(on.description, /sets tools and isolation in the call/);
+    assert.doesNotMatch(on.description, /sets [^.;]*thinking/);
     assert.match(off.description, /sets model, thinking, tools and isolation in the call/);
-    assert.match(
-        properties(on)["agent"]!.description,
-        /set thinking, tools and isolation in this call/,
-    );
+    assert.match(properties(on)["agent"]!.description, /set tools and isolation in this call/);
+    assert.doesNotMatch(properties(on)["agent"]!.description, /set [^.;]*thinking/);
 });
 
 test("the start schema requires task and offers no tasks parameter", (t) => {

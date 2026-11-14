@@ -168,7 +168,7 @@ const withTiers = (
     tiers: { ...DEFAULT_AUTO_MODEL_SETTINGS.tiers, ...tiers },
     ...risk,
 });
-const input = { task: "Find callers of foo", isolation: "shared" as const, thinkingSet: false };
+const input = { task: "Find callers of foo", isolation: "shared" as const };
 
 test("without a classifier the main agent's model runs, with no thinking and no classifier asked", async () => {
     const { ctx, calls } = fakeCtx();
@@ -193,24 +193,6 @@ test("without a classifier and without a current model the start fails", async (
         chooseAutoModel({ ctx, settings: DEFAULT_AUTO_MODEL_SETTINGS, ...input }),
         /main agent has no current model/,
     );
-});
-
-test("with no tier model and the thinking set nothing is rated and no classifier is asked", async () => {
-    const { ctx, calls } = fakeCtx();
-
-    const actual = await chooseAutoModel({
-        ctx,
-        settings: withTiers(),
-        ...input,
-        thinkingSet: true,
-    });
-
-    assert.deepEqual(actual, {
-        ref: { provider: "prov", id: "big" },
-        choice: { by: "nothing-to-rate" },
-    });
-    assert.equal(calls.typed, 0);
-    assert.equal(calls.classified.length, 0);
 });
 
 test("with no tier model the main agent's model is the only one reachable, so one request rates its thinking", async () => {
@@ -309,7 +291,7 @@ test("the thinking options are the levels Pi says the model supports, in order",
     }
 });
 
-test("a model with one level gets no thinking question and no thinking", async () => {
+test("a model with one level gets no thinking question and returns that level", async () => {
     const { ctx, calls } = fakeCtx({ available: ALL });
 
     const actual = await chooseAutoModel({
@@ -319,9 +301,9 @@ test("a model with one level gets no thinking question and no thinking", async (
     });
 
     assert.deepEqual(Object.keys(calls.classified[0]!.request.questions), ["tier", "risk"]);
-    assert.equal(actual.thinking, undefined);
+    assert.equal(actual.thinking, "off");
     assert.ok(actual.choice.by === "rating");
-    assert.equal("thinking" in actual.choice, false);
+    assert.equal(actual.choice.modelFrom, "light");
 });
 
 test("models with the same levels share one request, and the tier question has every tier", async () => {
@@ -389,7 +371,7 @@ test("the second request asks about the levels of the model the tier led to, not
     assert.equal(actual.thinking, "medium");
 });
 
-test("a chosen model with one level needs no second request", async () => {
+test("a chosen model with one level needs no second request and uses its level", async () => {
     const { ctx, calls } = fakeCtx({ available: ALL, tier: { choice: "light", confidence: 0.9 } });
 
     const actual = await chooseAutoModel({
@@ -400,7 +382,7 @@ test("a chosen model with one level needs no second request", async () => {
 
     assert.equal(calls.classified.length, 1);
     assert.deepEqual(actual.ref, SMALL);
-    assert.equal(actual.thinking, undefined);
+    assert.equal(actual.thinking, "off");
 });
 
 test("the main agent's model counts toward the shared levels only while the deep tier has no model", async () => {
@@ -577,24 +559,6 @@ test("a tier model that is not used is not checked against the allowed set", asy
     assert.deepEqual(actual.ref, BIG);
 });
 
-test("an explicit thinking level sends no thinking question and no thinking, but still picks the model", async () => {
-    const { ctx, calls } = fakeCtx({ available: ALL });
-
-    const actual = await chooseAutoModel({
-        ctx,
-        settings: withTiers({ light: SMALL, deep: BIG }),
-        ...input,
-        thinkingSet: true,
-    });
-
-    assert.deepEqual(actual.ref, SMALL);
-    assert.equal(actual.thinking, undefined);
-    assert.equal(calls.classified.length, 1);
-    assert.deepEqual(Object.keys(calls.classified[0]!.request.questions), ["tier", "risk"]);
-    assert.ok(actual.choice.by === "rating");
-    assert.equal("thinking" in actual.choice, false);
-});
-
 /** The start still gets the main agent's model, with the failure recorded and no thinking. */
 async function failedChoice(ctx: ExtensionContext, extra: Partial<typeof input> = {}) {
     const actual = await chooseAutoModel({
@@ -734,14 +698,6 @@ test("a result without answers falls back", async () => {
     assert.match(actual.error, /gave no valid tier/);
 });
 
-test("a failed classifier falls back even when the start set the thinking", async () => {
-    const { ctx } = fakeCtx({ classifiers: [] });
-
-    const actual = await failedChoice(ctx, { thinkingSet: true });
-
-    assert.equal(actual.classifier, "cls/judge");
-});
-
 test("a start cancelled before the request rethrows and asks nothing", async () => {
     const { ctx, calls } = fakeCtx();
     const controller = new AbortController();
@@ -800,7 +756,6 @@ test("the request carries the task, access, tools and workspace, and no agent wi
         task: "Find callers of foo",
         tools: ["read", "grep"],
         isolation: "worktree",
-        thinkingSet: false,
     });
 
     assert.deepEqual(calls.classified[0]!.request.state, {
@@ -1083,7 +1038,7 @@ test("a classifier window that is too small falls back without any classify call
 
 const ROUTED = { light: SMALL, standard: FREE, complex: BIG, deep: XBIG };
 
-/** The routing of one task with the given tier and risk answers; the thinking is set. */
+/** The routing of one task with the given tier and risk answers; the thinking is always rated. */
 async function routed(options: {
     task?: string;
     tier: AutoTier;
@@ -1107,7 +1062,6 @@ async function routed(options: {
         }),
         ...input,
         ...(options.task === undefined ? {} : { task: options.task }),
-        thinkingSet: true,
     });
 
     assert.ok(actual.choice.by === "rating");
@@ -1235,7 +1189,6 @@ test("a floor model outside the allowed set fails the start like any tier model"
             ctx,
             settings: withTiers({ light: SMALL, deep: XBIG }),
             ...input,
-            thinkingSet: true,
         }),
         /The deep auto tier uses prov\/xbig, which is not in the allowed set/,
     );

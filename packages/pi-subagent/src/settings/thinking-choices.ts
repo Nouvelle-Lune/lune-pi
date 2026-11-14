@@ -4,8 +4,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SettingsChoice, SettingsChoiceSource } from "@lune_99/pi-lune-extensions-core/panel";
 import type { DeepReadonly } from "@lune_99/pi-lune-extensions-core/settings";
 
-import { AUTO_MODEL, allowedModels, formatModelRef, type ModelRef } from "../models.ts";
-import { AUTO_TIERS } from "../run/types.ts";
+import { AUTO_MODEL, allowedModels, formatModelRef } from "../models.ts";
 import type { SubagentSettings } from "./schema.ts";
 
 export function defaultThinkingChoice(
@@ -35,20 +34,16 @@ export function thinkingChoices(
 ): SettingsChoiceSource<ThinkingLevel | null> {
     return {
         load: ({ context }) => {
-            const models = thinkingModels(context, model, values);
-            const [first, ...rest] = models.map(getSupportedThinkingLevels);
-            const levels = first!.filter((level) => rest.every((each) => each.includes(level)));
             const fallback = defaultThinkingChoice(model, values);
 
+            if (model === AUTO_MODEL) {
+                return [fallback];
+            }
+
+            const levels = getSupportedThinkingLevels(thinkingModel(context, model, values));
+
             return [
-                levels.length > 0
-                    ? fallback
-                    : {
-                          ...fallback,
-                          description:
-                              "These models have no shared thinking level. Leave thinking out so " +
-                              "each task uses a supported level.",
-                      },
+                fallback,
                 ...levels.map((level) => ({ value: level, label: level })),
                 ...(current !== undefined && !levels.includes(current)
                     ? [
@@ -66,11 +61,11 @@ export function thinkingChoices(
     };
 }
 
-function thinkingModels(
+function thinkingModel(
     context: ExtensionContext,
     model: string | undefined,
     values: DeepReadonly<SubagentSettings>,
-): Model<Api>[] {
+): Model<Api> {
     const allowed = (): Model<Api>[] => allowedModels(context, values.allowedModels);
     const selected = (ref: string, models: readonly Model<Api>[]): Model<Api> => {
         const found = models.find((each) => formatModelRef(each) === ref);
@@ -86,22 +81,12 @@ function thinkingModels(
     };
 
     if (model !== undefined && model !== AUTO_MODEL) {
-        return [selected(model, allowed())];
+        return selected(model, allowed());
     }
 
     if (!context.model) {
         throw new Error("The main agent has no current model for thinking choices.");
     }
 
-    if (model !== AUTO_MODEL || !values.autoClassifier) {
-        return [context.model];
-    }
-
-    // A failed classifier uses the main model even when every tier has its own model.
-    const models = allowed();
-    const refs = AUTO_TIERS.map((tier) => values.autoTiers[tier]).filter(
-        (ref): ref is ModelRef => ref !== null,
-    );
-
-    return [context.model, ...refs.map((ref) => selected(formatModelRef(ref), models))];
+    return context.model;
 }

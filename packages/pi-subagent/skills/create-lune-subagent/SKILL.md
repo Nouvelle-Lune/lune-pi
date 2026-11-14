@@ -52,8 +52,9 @@ repeat the same information.
   the main agent's model**. Use the current `subagent_start` tool schema's model choices rather than
   a hardcoded list. A fixed model must be available within the current model scope. Auto writes
   `model: auto`: the classifier in the Subagents settings rates each task, and the run uses the
-  model set for the task's tier in those settings. A tier without a model uses the next tier up,
-  then the main agent's model; without a selected classifier the run uses the main agent's model.
+  model set for the task's tier in those settings and a supported thinking level. A tier without a
+  model uses the next tier up, then the main agent's model; without a selected classifier the run
+  uses the main agent's model and thinking. Auto definitions must omit `thinking`.
   Following the main agent means omitting
   `model`; explain that behavior instead of silently omitting the field.
 
@@ -75,18 +76,20 @@ already requested by the user; explain conflicts rather than changing them silen
 
 ### Thinking
 
-Check the selected model's current Pi metadata and supported thinking levels. Use information
-already exposed by the session, or inspect the relevant local model configuration and Pi support
-code on demand; do not install a runtime or start another Pi session to obtain it. The definition
-format accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, but an individual model does not
-necessarily support all of them. Do not infer support from the model name or rely on Pi clamping an
-unsupported recommendation.
+For Auto, omit `thinking`: the router selects both model and a supported thinking level for each
+task. A definition with `model: auto` and a fixed `thinking` is invalid. Explain the main model and
+thinking fallback when no classifier is selected or classification fails, then continue with tools.
+
+For a fixed or inherited model, check its current Pi metadata and supported thinking levels. Use
+information already exposed by the session, or inspect the relevant local model configuration and
+Pi support code on demand; do not install a runtime or start another Pi session to obtain it. The
+definition format accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`, but an
+individual model does not necessarily support all of them. Do not infer support from the model
+name or rely on Pi clamping an unsupported recommendation.
 
 Recommend a supported level based on the reasoning required and the latency or cost tradeoff. Do
-not always recommend the highest level. If the user chose to follow the main model or Auto, analyze
-the current model or the auto tier models, and explain that changing models can change which levels
-are suitable. For Auto, explain that omitting `thinking` lets the classifier set the level for each
-task, and that a set level replaces the classifier's choice. If capability
+not always recommend the highest level. If the user chose to follow the main model, analyze the
+current model and explain that changing models can change which levels are suitable. If capability
 information cannot be verified, say so and resolve that uncertainty with the user before finalizing
 the recommendation. Do not change the parent's model or thinking level merely to inspect it.
 
@@ -161,13 +164,13 @@ Check the draft against the definition format:
   only letters, digits, `.`, `_` or `-`, and is at most 64 characters. `run-<digits>` is reserved.
   Use the approved name exactly; do not silently normalize or rename it.
 - A fixed `model` is the approved `provider/id`, or `auto`. Quote YAML strings when necessary.
-- Any `thinking` value is supported by the chosen model, tool names are exact, and `isolation` is
-  `shared` or `worktree`.
+- With `model: auto`, `thinking` is omitted. Otherwise, any `thinking` value is supported by the
+  chosen model. Tool names are exact, and `isolation` is `shared` or `worktree`.
 
-Explain any omitted optional fields: `model` follows the main model, `thinking` follows the main
-thinking level subject to the selected model's support, `tools` inherits `defaultTools`, and
-`isolation` defaults to `shared`. The main agent cannot change these values when it starts the
-agent; it gives only the task and a title.
+Explain any omitted optional fields: `model` follows the main model, `thinking` is routed with
+`model: auto` and otherwise follows the main thinking level within model limits, `tools` inherits
+`defaultTools`, and `isolation` defaults to `shared`. The main agent cannot change these values when
+it starts the agent; it gives only the task and a title.
 
 Show the chosen scope, exact destination path, recommendation summary, and complete Markdown file
 including its frontmatter and body. Ask the user to approve this draft or request changes. A request

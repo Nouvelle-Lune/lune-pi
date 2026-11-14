@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { fauxProvider, type Api, type FauxProviderHandle, type Model } from "@earendil-works/pi-ai";
 
 import { DEFAULT_AUTO_MODEL_SETTINGS, type AutoModelSettings } from "../../src/auto-model.ts";
 import type { ModelRef } from "../../src/models.ts";
@@ -18,6 +19,7 @@ import {
 
 const FIRST = { provider: "faux", id: "faux-1" };
 const SECOND = { provider: "faux", id: "faux-2" };
+const FLAT = { provider: "flat", id: "flat-1" };
 const JUDGE = { provider: "cls", id: "judge" };
 
 interface Classification {
@@ -35,6 +37,7 @@ function withClassifier(
         probabilities?: Record<string, number>;
         stopReason?: string;
     },
+    options: { available?: readonly Model<Api>[] } = {},
 ) {
     const seen: Classification = { requests: [] };
     const rating = (choice: string | undefined, probabilities: Record<string, number> = {}) => ({
@@ -45,6 +48,7 @@ function withClassifier(
     });
     const registry = {
         ...fx.ctx.modelRegistry,
+        getAvailable: () => [...fx.ctx.modelRegistry.getAvailable(), ...(options.available ?? [])],
         find: (provider: string, id: string) => fx.runtime.getModel(provider, id),
         getAvailableOfType: async () => [{ ...JUDGE, contextWindow: 8_000 }],
         classify: async (_model: unknown, request: unknown) => {
@@ -75,6 +79,16 @@ function withClassifier(
     return { ctx, seen };
 }
 
+/** The rejection of an auto start that also sets thinking: the message names the fix. */
+function autoThinkingProblem(error: Error): boolean {
+    assert.equal(
+        error.message,
+        "Model auto chooses both the model and thinking level; leave out thinking.",
+    );
+
+    return true;
+}
+
 const settingsOf = (
     value: Pick<AutoModelSettings, "classifier" | "tiers"> & Partial<AutoModelSettings>,
 ): AutoModelSettings => ({ ...DEFAULT_AUTO_MODEL_SETTINGS, ...value });
@@ -93,6 +107,10 @@ async function startAuto(
         ctx?: ExtensionContext;
         model?: string;
         thinking?: "minimal";
+        /** Implicit model auto for inline runs, as the Auto mode only setting does. */
+        autoOnly?: boolean;
+        /** The faux provider the run's model answers from; the fixture's by default. */
+        reply?: FauxProviderHandle;
     },
 ) {
     const ctx = options.ctx ?? fx.ctx;
@@ -102,11 +120,12 @@ async function startAuto(
         undefined,
         options.settings && settings(options.settings),
         options.selection ? async () => options.selection! : undefined,
+        options.autoOnly === undefined ? undefined : async () => options.autoOnly!,
     );
     const seen: string[] = [];
     const progress: string[] = [];
 
-    fx.faux.setResponses([
+    (options.reply ?? fx.faux).setResponses([
         (_context, _options, _state, model) => {
             seen.push(`${model.provider}/${model.id}`);
 
@@ -136,7 +155,7 @@ test("auto from the call without settings runs the main agent's model and record
     const { run, seen, progress } = await startAuto(fx, { model: "auto" });
 
     assert.deepEqual(seen, ["faux/faux-1"]);
-    assert.equal(progress[0], "Choosing a model");
+    assert.equal(progress[0], "Choosing a model and thinking level");
     assert.equal(run.snapshot?.model, "faux/faux-1");
     assert.equal(run.snapshot?.sources.model, "call");
     assert.deepEqual(run.snapshot?.autoModel, { by: "no-classifier" });
@@ -152,30 +171,91 @@ test("an explicit model records no auto choice and reports no model choosing", a
     const { run, progress } = await startAuto(fx, { model: "faux/faux-2" });
 
     assert.equal(run.snapshot?.autoModel, undefined);
-    assert.ok(!progress.includes("Choosing a model"));
+    assert.equal(
+        progress.some((text) => text.startsWith("Choosing")),
+        false,
+    );
 });
 
-test("auto from a definition with the thinking set and no tier model asks no classifier", async (t) => {
+test("a definition that sets thinking with model auto is rejected and asks no classifier", async (t) => {
     const fx = await createFixture(t);
     const { ctx, seen: classified } = withClassifier(fx, { tier: "light" });
 
-    const { run, seen } = await startAuto(fx, {
-        ctx,
-        definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
-        params: { agent: "d" },
-        settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
-    });
+    await assert.rejects(
+        startAuto(fx, {
+            ctx,
+            definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
+            params: { agent: "d" },
+            settings: settingsOf({ classifier: JUDGE, tiers: NO_TIERS }),
+        }),
+        autoThinkingProblem,
+    );
 
-    assert.deepEqual(seen, ["faux/faux-1"]);
-    assert.equal(run.snapshot?.sources.model, "definition");
-    assert.deepEqual(run.snapshot?.autoModel, { by: "nothing-to-rate" });
-    assert.equal(run.snapshot?.thinking, "low");
-    assert.equal(run.snapshot?.sources.thinking, "definition");
     assert.equal(classified.requests.length, 0);
     assert.equal(
-        startValueLines(run)[1],
-        "Model: faux/faux-1 (auto from definition: no auto tier has a model and the thinking is set, so the main agent's model)",
+        fx.parent.getEntries().some((entry) => entry.type === "custom"),
+        false,
     );
+    assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+});
+
+test("a call's thinking with model auto is rejected and asks no classifier", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx, seen: classified } = withClassifier(fx, { tier: "light" });
+
+    await assert.rejects(
+        startAuto(fx, {
+            ctx,
+            model: "auto",
+            thinking: "minimal",
+            settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+        }),
+        autoThinkingProblem,
+    );
+
+    assert.equal(classified.requests.length, 0);
+    assert.equal(
+        fx.parent.getEntries().some((entry) => entry.type === "custom"),
+        false,
+    );
+    assert.ok(!existsSync(join(fx.agentDir, "lune-subagents", "sessions")));
+});
+
+test("under Auto mode only a thinking level is rejected like model auto and asks no classifier", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx, seen: classified } = withClassifier(fx, { tier: "light" });
+
+    await assert.rejects(
+        startAuto(fx, {
+            ctx,
+            autoOnly: true,
+            thinking: "minimal",
+            settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+        }),
+        autoThinkingProblem,
+    );
+
+    assert.equal(classified.requests.length, 0);
+    assert.equal(
+        fx.parent.getEntries().some((entry) => entry.type === "custom"),
+        false,
+    );
+});
+
+test("under Auto mode only an inline start routes the rated model and thinking", async (t) => {
+    const fx = await createFixture(t);
+    const { ctx } = withClassifier(fx, { tier: "light", thinking: "high" });
+
+    const { run, seen } = await startAuto(fx, {
+        ctx,
+        autoOnly: true,
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+    });
+
+    assert.deepEqual(seen, ["faux/faux-2"]);
+    assert.equal(run.snapshot?.sources.model, "settings");
+    assert.equal(run.snapshot?.thinking, "high");
+    assert.equal(run.snapshot?.sources.thinking, "auto");
 });
 
 test("auto with a classifier runs the rated tier's model and thinking and names the agent in its request", async (t) => {
@@ -334,41 +414,45 @@ test("a high-risk task runs the floor tier's model, keeps its rated tier and say
     );
 });
 
-test("a call's thinking beats the rated thinking while the tier still picks the model", async (t) => {
+test("an auto run on a model with one thinking level uses it without a thinking question", async (t) => {
     const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "light", thinking: "high" });
-    const manager = fx.createManager(
-        [],
-        ctx,
-        undefined,
-        settings(settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } })),
+    const flat = fauxProvider({
+        provider: "flat",
+        models: [{ id: "flat-1", reasoning: false }],
+    });
+
+    fx.runtime.registerNativeProvider(flat.provider);
+
+    const flatModel = fx.runtime.getModel("flat", "flat-1")!;
+    const { ctx, seen: classified } = withClassifier(
+        fx,
+        { tier: "light" },
+        {
+            available: [flatModel],
+        },
     );
-
-    fx.faux.setResponses([() => reportResponse("done", "ok")]);
-
-    const run = await manager.start({ task: "work", model: "auto", thinking: "minimal" }, ctx);
-
-    await waitForTurns(manager, run, 1);
-
-    assert.equal(run.snapshot?.model, "faux/faux-2");
-    assert.equal(run.snapshot?.thinking, "minimal");
-    assert.equal(run.snapshot?.sources.thinking, "call");
-});
-
-test("a definition's thinking beats the rated thinking while the tier still picks the model", async (t) => {
-    const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "light", thinking: "high" });
 
     const { run, seen } = await startAuto(fx, {
         ctx,
-        definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
-        params: { agent: "d" },
-        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: SECOND } }),
+        model: "auto",
+        reply: flat,
+        settings: settingsOf({ classifier: JUDGE, tiers: { ...NO_TIERS, light: FLAT } }),
     });
 
-    assert.deepEqual(seen, ["faux/faux-2"]);
-    assert.equal(run.snapshot?.thinking, "low");
-    assert.equal(run.snapshot?.sources.thinking, "definition");
+    assert.deepEqual(seen, ["flat/flat-1"]);
+    assert.deepEqual(
+        classified.requests.map((request) =>
+            Object.keys((request as { questions: object }).questions),
+        ),
+        [["tier", "risk"]],
+    );
+    assert.equal(run.snapshot?.model, "flat/flat-1");
+    assert.equal(run.snapshot?.thinking, "off");
+    assert.equal(run.snapshot?.sources.thinking, "auto");
+    assert.deepEqual(startValueLines(run).slice(1, 3), [
+        "Model: flat/flat-1 (auto from call: the classifier cls/judge rated the task light, not high risk (5%); the light tier's model)",
+        "Thinking: off (from auto)",
+    ]);
 });
 
 test("an auto run with no explicit thinking and no classifier keeps the parent's thinking", async (t) => {
@@ -420,38 +504,6 @@ test("a failing classifier starts the run with the main agent's model and thinki
         "Model: faux/faux-1 (auto from call: the main agent's model. The auto classifier cls/judge failed: quota.)",
     );
     assert.equal(startValueLines(run)[2], `Thinking: ${run.snapshot?.thinking} (from parent)`);
-});
-
-test("after a classifier failure the call's and the definition's thinking still apply", async (t) => {
-    const fx = await createFixture(t);
-    const { ctx } = withClassifier(fx, { tier: "light", stopReason: "error" });
-    const settingsValue = settingsOf({
-        classifier: JUDGE,
-        tiers: { ...NO_TIERS, light: SECOND },
-    });
-
-    const fromDefinition = await startAuto(fx, {
-        ctx,
-        definitions: [definition({ name: "d", model: "auto", thinking: "low" })],
-        params: { agent: "d" },
-        settings: settingsValue,
-    });
-    const fromCall = await startAuto(fx, {
-        ctx,
-        model: "auto",
-        settings: settingsValue,
-        thinking: "minimal",
-    });
-
-    assert.deepEqual(
-        [fromDefinition.run.snapshot?.thinking, fromDefinition.run.snapshot?.sources.thinking],
-        ["low", "definition"],
-    );
-    assert.deepEqual(
-        [fromCall.run.snapshot?.thinking, fromCall.run.snapshot?.sources.thinking],
-        ["minimal", "call"],
-    );
-    assert.equal(fromCall.run.snapshot?.autoModel?.by, "classifier-failed");
 });
 
 test("a start cancelled during the classification still fails and leaves no run file or entry", async (t) => {

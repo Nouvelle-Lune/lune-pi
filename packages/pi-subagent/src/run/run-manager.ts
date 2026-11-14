@@ -362,12 +362,10 @@ export class RunManager implements RunHost {
         const model = await this.resolveModel(params, definition, ctx, {
             tools: taskTools,
             isolation,
-            thinkingSet: explicitThinking !== undefined,
             autoOnly,
             options,
         });
-        // An auto run's rating sets the thinking only where the call and definition do not.
-        const thinking = explicitThinking ?? model.thinking ?? ctx.thinkingLevel;
+        const thinking = model.thinking ?? explicitThinking ?? ctx.thinkingLevel;
         const thinkingSource: ValueSource =
             params.thinking !== undefined
                 ? "call"
@@ -810,7 +808,6 @@ export class RunManager implements RunHost {
         run: {
             tools?: readonly string[];
             isolation: Isolation;
-            thinkingSet: boolean;
             autoOnly: boolean;
             options: ProgressOptions;
         },
@@ -818,7 +815,7 @@ export class RunManager implements RunHost {
         ref: { provider: string; id: string };
         source: ValueSource;
         auto?: AutoModelChoice;
-        /** The auto rating's thinking level, when the start set none. */
+        /** The thinking level selected together with the auto model. */
         thinking?: ThinkingLevel;
     }> {
         const requested =
@@ -838,10 +835,19 @@ export class RunManager implements RunHost {
                 : definition?.model !== undefined
                   ? "definition"
                   : "settings";
+        if (
+            requested === AUTO_MODEL &&
+            (params.thinking !== undefined || definition?.thinking !== undefined)
+        ) {
+            throw new Error(
+                "Model auto chooses both the model and thinking level; leave out thinking.",
+            );
+        }
+
         const selection = await this.modelSelection(ctx);
 
         if (requested === AUTO_MODEL) {
-            run.options.onProgress?.("Choosing a model");
+            run.options.onProgress?.("Choosing a model and thinking level");
 
             const { ref, choice, thinking } = await chooseAutoModel({
                 ctx,
@@ -851,7 +857,6 @@ export class RunManager implements RunHost {
                 definition,
                 tools: run.tools,
                 isolation: run.isolation,
-                thinkingSet: run.thinkingSet,
                 signal: run.options.signal,
             });
 
