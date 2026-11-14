@@ -1,0 +1,90 @@
+{
+    "schemaVersion": 1,
+    "change": "mention-cache-budget",
+    "createdAt": "2026-11-14T06:28:17.605Z",
+    "intent": "Bound the shared Pi, Codex and Claude Code session index by evicting the oldest files, clip indexed text, and add a global 1–64 MB Mention cache size menu in Core, defaulting to 4 MB and applied on the next catalog load.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+    "headRev": "9e468719bf64a56548bdd7e0343e88fb496419bb",
+    "files": [
+        "CONTRIBUTING.md",
+        "packages/pi-lune-extensions-core/CHANGELOG.md",
+        "packages/pi-lune-extensions-core/README.md",
+        "packages/pi-lune-extensions-core/src/core/panel.ts",
+        "packages/pi-lune-extensions-core/src/core/settings.ts",
+        "packages/pi-lune-extensions-core/src/extension.ts",
+        "packages/pi-lune-extensions-core/src/mention/budget.ts",
+        "packages/pi-lune-extensions-core/src/mention/catalog.ts",
+        "packages/pi-lune-extensions-core/src/mention/external.ts",
+        "packages/pi-lune-extensions-core/src/mention/index.ts",
+        "packages/pi-lune-extensions-core/src/mention/pi.ts",
+        "packages/pi-lune-extensions-core/src/mention/session-index.ts",
+        "packages/pi-lune-extensions-core/test/core-settings.test.ts",
+        "packages/pi-lune-extensions-core/test/harness/mention-lifecycle-scenario.ts",
+        "packages/pi-lune-extensions-core/test/mention/autocomplete.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/catalog.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/core-budget.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/index.test.ts",
+        "packages/pi-lune-extensions-core/test/mention/session-index.test.ts",
+        "packages/pi-lune-extensions-core/test/settings-panel.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-14T06:28:17.715Z",
+            "scope": "full",
+            "base": "cf14c2a1cbc14fa7145a5fe3b6b630c28dd43782",
+            "head": "9e468719bf64a56548bdd7e0343e88fb496419bb",
+            "status": "ingested",
+            "findings": 2,
+            "newFindings": 2,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-11-14T06:56:46.644Z",
+            "scope": "diff-after-previous-round",
+            "base": "9e468719bf64a56548bdd7e0343e88fb496419bb",
+            "head": "b67cf1f3f41fe6f4be1dcd153ed49e9608bc658e",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-lune-extensions-core/src/mention/session-index.ts:210:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-lune-extensions-core/src/mention/session-index.ts",
+            "line": 210,
+            "summary": "JSON escaping is omitted from the byte budget. A read-only Node reproduction with a 1 MiB budget admitted 64 sessions containing 8,000 control characters each; actual index serialization was 6,154,681 bytes, almost six times the configured limit.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Count exact serialized JSON bytes including escaping, wrapper and markers; skip an overflowing marker. The three formerly failing regressions now pass in the complete 30-test session-index suite.",
+            "resolvedAt": "2026-11-14T06:47:07.440Z"
+        },
+        {
+            "id": "F1-2",
+            "key": "packages/pi-lune-extensions-core/src/mention/session-index.ts:134:wrong-source",
+            "round": 1,
+            "severity": "important",
+            "class": "wrong-source",
+            "file": "packages/pi-lune-extensions-core/src/mention/session-index.ts",
+            "line": 134,
+            "summary": "Omitted Codex entries compare only the rollout version and old size, but titles live in a separate index. A read-only Node reproduction still listed zero sessions after a 2,000-character title changed to short, while a fresh index listed one.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Persist and compare the Codex title index version for omitted entries. Real catalog/external/index persistence regression now lists the shortened title without changing rollout metadata; full session-index suite passes 30/30.",
+            "resolvedAt": "2026-11-14T06:47:07.521Z"
+        }
+    ],
+    "convergedAt": "2026-11-14T06:59:11.114Z"
+}

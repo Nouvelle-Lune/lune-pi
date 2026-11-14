@@ -66,7 +66,7 @@ const startupScan = new Promise<void>((resolve) => {
     startupScanStarted = resolve;
 });
 const originalPiList = PiSessions.prototype.list;
-PiSessions.prototype.list = async function (signal, report) {
+PiSessions.prototype.list = async function (signal) {
     const call = ++scans;
     if (call === 1) {
         startupScanStarted();
@@ -75,10 +75,10 @@ PiSessions.prototype.list = async function (signal, report) {
         if (lateFailure === "io-error") throw new Error("held scan failed");
         // Real listing that reaches its abort check only after the session was replaced.
         signal.throwIfAborted();
-        return originalPiList.call(this, signal, report);
+        return originalPiList.call(this, signal);
     }
     try {
-        return await originalPiList.call(this, signal, report);
+        return await originalPiList.call(this, signal);
     } finally {
         resolveFollowUpScan();
     }

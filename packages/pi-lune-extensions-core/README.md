@@ -126,8 +126,8 @@ session replacement.
 ## The settings screen
 
 Importing Core as a dependency provides building blocks; it does not register commands.
-Load Core's Pi extension entry to add `/lune-core-settings [section-id]` and the reserved
-`Core` placeholder section, or register your own command that calls
+Load Core's Pi extension entry to add `/lune-core-settings [section-id]` and the `Core`
+section with Core's own settings, or register your own command that calls
 `openSettingsPanel(ctx, { section })` from `/panel/tui`.
 The screen lists Core first, then sections by label (JavaScript string comparison, section
 ID breaking ties). The renderer entry needs `@earendil-works/pi-tui`; declarations and
@@ -253,8 +253,18 @@ prompt is not sent and your text returns to the editor.
 Core loads all three sources into its `SessionCatalog` when a session starts. It keeps what it
 read from each session file in `<agentDir>/lune-cache/session-index.json`, written owner-only
 because it holds the message text, and reads a file again only when its inode, size or
-modification time changed. Pi sessions get the same fields as Pi's `SessionManager.listAll()`.
-Only the first load reads every file; with large session stores it can take a few seconds.
+modification time changed. Because every load reads the whole index and every change rewrites
+it, the index holds at most 4 MB by default: session files are taken newest first by
+modification time until the next one does not fit. Older sessions are neither read nor listed,
+and a typed reference to one is not found. Open `/lune-core-settings`, then **Core › Mention**,
+to configure **Session cache size** (1 to 64 MB) and **Session text limit** (a positive integer,
+defaulting to 8,000 characters). The text limit applies separately to each session's first
+message and searchable message text, so `@@` searches only those retained characters. Both
+settings are global and apply at the next load of the list; other running Pi processes read
+them again when their next session starts. Changing the text limit rebuilds the cached text,
+so increasing it makes more text searchable. Otherwise Pi sessions get the same fields as
+Pi's `SessionManager.listAll()`. A new index or a changed text limit reads every file that
+fits; with large session stores it can take a few seconds.
 An unreadable index is reported and rebuilt from the session files. Lookups use the list and
 reload it in the background when it is older than one minute, so a new session can take up to
 a minute to appear. A plain `@` never waits for the list. `@@` lists only sessions, so it waits
@@ -327,7 +337,7 @@ required on `PATH` for `npm run dev` and the interactive demo.
 | `src/resources/`                            | Instance-local reverse-order cleanup and `scopedExtension`, independent of other domains |
 | `src/testing/`                              | `createSettingsSandbox`, the public test helper exported as `/testing`                   |
 | `src/core/host.ts`                          | The single process-local discovery boundary for shared services                          |
-| `src/core/settings.ts`, `src/core/panel.ts` | Core's own configuration and placeholder panel declarations                              |
+| `src/core/settings.ts`, `src/core/panel.ts` | Core's own configuration, such as the Mention menu, and its panel declarations           |
 | `extension.ts`, `src/extension.ts`          | Native Pi entry, the shared settings command and Core's Settings/Panel ownership         |
 | `test/harness/`                             | Isolated Settings fixtures and temporary storage                                         |
 | `.github/workflows/ci.yml`                  | CI: `npm ci`, typecheck, tests and a package dry run                                     |
