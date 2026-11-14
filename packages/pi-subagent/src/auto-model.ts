@@ -165,8 +165,6 @@ export interface AutoModelInput {
     /** The selected task tools; undefined for the defaultTools selection. */
     tools?: readonly string[];
     isolation: Isolation;
-    /** The call or the definition set the thinking level, so the rating must not. */
-    thinkingSet: boolean;
     signal?: AbortSignal;
 }
 
@@ -179,7 +177,7 @@ export type AutoClassifier = Pick<
 export interface AutoModelResult {
     ref: ModelRef;
     choice: AutoModelChoice;
-    /** From the thinking rating, when the start set no thinking level. */
+    /** The routed thinking level, including the only level a model supports. */
     thinking?: ThinkingLevel;
 }
 
@@ -187,9 +185,9 @@ export interface AutoModelResult {
  * Resolve `model: auto`. The classifier rates the task's tier and whether it is high risk; the
  * tier's model, or the next tier up that has one, runs it, and the main agent's model is the
  * ceiling. A high-risk task gets at least the floor tier's model, but keeps its rated tier, so the
- * difficulty and the risk stay apart. Unless the start set the
- * thinking, the classifier also rates it among the levels that Pi says the run's model supports:
- * in the same request when every model that the tier can lead to supports the same levels, else
+ * difficulty and the risk stay apart. The classifier also rates the thinking among the levels
+ * that Pi says the run's model supports: in the same request when every model that the tier can
+ * lead to supports the same levels, else
  * in a second request once the model is known. When the classifier fails, the run gets the main
  * agent's model and thinking, and the choice records why. A tier model outside the allowed set is
  * a settings error and fails the start.
@@ -199,11 +197,6 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
 
     if (!settings.classifier) {
         return { ref: modelRef(mainModel(ctx)), choice: { by: "no-classifier" } };
-    }
-
-    // With no tier model, the rating could only set the thinking, and the start already did.
-    if (input.thinkingSet && AUTO_TIERS.every((tier) => settings.tiers[tier] === null)) {
-        return { ref: modelRef(mainModel(ctx)), choice: { by: "nothing-to-rate" } };
     }
 
     const classifierRef = formatModelRef(settings.classifier);
@@ -224,7 +217,7 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
     };
     // Undefined when the levels depend on the tier's model, so a second request asks for them.
     const models = input.models ?? allowedModels(ctx);
-    const levels = input.thinkingSet ? [] : sharedLevels(ctx, settings, models);
+    const levels = sharedLevels(ctx, settings, models);
     let classifier: ClassifierModel<ClassifierApi>;
     let tier: AutoRating<AutoTier>;
     let thinking: AutoRating<ThinkingLevel> | undefined;
@@ -285,7 +278,7 @@ export async function chooseAutoModel(input: AutoModelInput): Promise<AutoModelR
             ...(thinking ? { thinking } : {}),
             risk,
         },
-        ...(thinking ? { thinking: thinking.used } : {}),
+        thinking: thinking?.used ?? supported[0]!,
     };
 }
 

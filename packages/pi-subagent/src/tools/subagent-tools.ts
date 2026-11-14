@@ -54,7 +54,9 @@ export function createSubagentTools(options: SubagentToolsOptions): ToolDefiniti
             "or quality. Handle quick tasks and tightly coupled steps directly. Use agent to " +
             "run a listed role with its own settings; give only task and title with it. Omit " +
             `agent for an inline run that sets ${inlineSettings(options.autoOnly)} in the call` +
-            (options.autoOnly ? "; the user's auto model settings choose its model. " : ". ") +
+            (options.autoOnly
+                ? "; the user's auto settings choose its model and thinking. "
+                : ". ") +
             'Use isolation "shared" to work in your current directory, including uncommitted ' +
             'changes; use "worktree" for a separate Git checkout at HEAD, without uncommitted or ' +
             "untracked files. Tool selection and worktrees are not a security sandbox. Call once " +
@@ -240,21 +242,21 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
         properties.model = Type.Optional(
             stringEnum([AUTO_MODEL, ...options.models], {
                 description:
-                    `${inlineOnly}provider/id, or "${AUTO_MODEL}" to let a classifier rate the ` +
-                    "task and use the model set for its tier; it also sets thinking when the " +
-                    "call does not. Default: your current model.",
+                    `${inlineOnly}provider/id, or "${AUTO_MODEL}" to route both the model and ` +
+                    "thinking for each task. Omit thinking with auto. Default: your current model.",
             }),
         );
     }
 
-    properties.thinking = Type.Optional(
-        stringEnum(THINKING_LEVELS, {
-            description:
-                `${inlineOnly}Default: the classifier's level` +
-                (options.autoOnly ? "" : ` for model ${AUTO_MODEL}`) +
-                ", then your current level.",
-        }),
-    );
+    if (!options.autoOnly) {
+        properties.thinking = Type.Optional(
+            stringEnum(THINKING_LEVELS, {
+                description:
+                    `${inlineOnly}Only for a fixed or inherited model; omit with model auto, ` +
+                    "which chooses both model and thinking. Default: your current level.",
+            }),
+        );
+    }
     properties.tools = Type.Optional(
         Type.Array(Type.String(), {
             description: `${inlineOnly}${toolsDescription(options.catalog)}`,
@@ -269,7 +271,7 @@ function startProperties(options: SubagentToolsOptions): Record<string, TSchema>
 
 /** The settings an inline run takes from the call; under Auto mode only, the model is auto. */
 function inlineSettings(autoOnly: boolean): string {
-    return autoOnly ? "thinking, tools and isolation" : "model, thinking, tools and isolation";
+    return autoOnly ? "tools and isolation" : "model, thinking, tools and isolation";
 }
 
 function toolsDescription(catalog: ToolCatalog): string {

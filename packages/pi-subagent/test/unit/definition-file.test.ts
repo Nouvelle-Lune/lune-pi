@@ -100,6 +100,23 @@ test("editing a field writes the file and returns the definition it now holds", 
     assert.deepEqual(readdirSync(dir), ["reviewer.md"]);
 });
 
+test("setting the model to auto removes a saved thinking level in the same write", (t) => {
+    const content = FILE.replace("model: prov/big\n", "model: prov/big\nthinking: high\n");
+    const { definitions } = loaded(t, { "reviewer.md": content });
+    const reviewer = byName(definitions, "reviewer");
+
+    const actual = editDefinitionFile(reviewer, "model", "auto", definitions);
+    const written = readFileSync(reviewer.file, "utf8");
+
+    assert.equal(actual.model, "auto");
+    assert.equal(actual.thinking, undefined);
+    assert.doesNotMatch(written, /^thinking:/m);
+    assert.match(written, /# keep this comment/);
+    assert.match(written, /^description: Reviews diffs\.$/m);
+    assert.match(written, /You review\.$/m);
+    assert.deepEqual(actual, parseDefinition(written, reviewer.file, "user"));
+});
+
 test("an edit that makes the file invalid writes nothing", (t) => {
     const { dir, definitions } = loaded(t, { "reviewer.md": FILE });
     const reviewer = byName(definitions, "reviewer");

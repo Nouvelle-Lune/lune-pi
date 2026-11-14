@@ -122,9 +122,9 @@ models remain allowed outside a later session's scope while available in Pi. Exi
 their model, and inheriting the main agent's model is unchanged.
 
 **Custom agents** edits saved definitions; **Classifier model** and **Auto tiers** configure runs
-started with `model: auto`. **Auto mode only** removes the `model` parameter from
-`subagent_start`, so every inline run uses `model: auto`; custom agents keep their own model. Model choices in Custom agents and Auto tiers follow the subagent
-allowed list.
+started with `model: auto`. **Auto mode only** removes the `model` and `thinking` parameters from
+`subagent_start`, so every inline run routes both automatically; custom agents keep their own model.
+Model choices in Custom agents and Auto tiers follow the subagent allowed list.
 
 | Tier     | Intended work                                      |
 | -------- | -------------------------------------------------- |
@@ -134,10 +134,10 @@ allowed list.
 | Deep     | Design decisions, unclear failures and subtle bugs |
 
 Automatic routing supports Pi's classifier models, including TypeSafe's **Jev**. The classifier
-rates the task; you choose the models for the tiers. It also selects a thinking
-level supported by the chosen model unless the call or definition sets one. Empty tiers use the
-next configured tier, then the main agent's model. With no classifier selected, `auto` uses the
-main agent's model and thinking.
+rates the task; you choose the models for the tiers. It also selects a thinking level supported
+by the chosen model. Auto calls and definitions must omit `thinking`; a fixed level requires a
+fixed or inherited model. Empty tiers use the next configured tier, then the main agent's model.
+With no classifier selected, `auto` uses the main agent's model and thinking.
 
 The **High-risk floor** defaults to Deep and applies when the high-risk probability reaches the
 configured threshold, initially 40%. It changes model selection; tool permissions and approvals

@@ -226,8 +226,9 @@ function agentFields(
             id: "model",
             label: "Model",
             description:
-                "A model of the subagent allowed set, auto for the classifier's choice per task, or the " +
-                "main agent's model. Ctrl+R removes the field.",
+                "A model of the subagent allowed set, auto to route both model and thinking per " +
+                "task, or the main agent's model. Selecting auto removes any saved thinking " +
+                "level. Ctrl+R removes the model field.",
             schema: nullable(Type.String({ minLength: 1 })),
             editor: "select",
             value: definition.model,
@@ -238,8 +239,10 @@ function agentFields(
             id: "thinking",
             label: "Thinking",
             description:
-                "Choose a supported level for the model, or one shared by the auto tier models " +
-                "and the main model. Ctrl+R removes the field.",
+                definition.model === AUTO_MODEL
+                    ? "Model auto selects thinking for each task. Fixed levels require a fixed " +
+                      "or inherited model."
+                    : "Choose a supported level for the model. Ctrl+R removes the field.",
             schema: nullable(Type.Union(THINKING_LEVELS.map((level) => Type.Literal(level)))),
             editor: "select",
             value: definition.thinking,
@@ -303,7 +306,8 @@ function modelChoices(
                     value: AUTO_MODEL,
                     label: AUTO_MODEL,
                     description:
-                        "The classifier in the Subagents settings chooses a model for each task.",
+                        "The classifier in the Subagents settings chooses the model and thinking " +
+                        "for each task. Selecting auto removes any saved thinking level.",
                 },
                 ...models.map((model) => ({
                     value: formatModelRef(model),

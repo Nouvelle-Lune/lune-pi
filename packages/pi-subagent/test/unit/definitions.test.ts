@@ -266,6 +266,24 @@ test("model: auto is a valid model and loads as the literal auto", (t) => {
     assert.equal(definitions[0]!.model, "auto");
 });
 
+test("model: auto with thinking is reported and the file is not loaded", (t) => {
+    const agentDir = tempAgentDir(t);
+    const file = writeDefinition(
+        agentDir,
+        "auto-thinking.md",
+        "---\nname: auto-agent\ndescription: D.\nmodel: auto\nthinking: high\n---\n",
+    );
+
+    const { definitions, problems } = loadDefinitions(definitionsDir(agentDir), "user");
+
+    assert.deepEqual(definitions, []);
+    assert.equal(problems[0]!.file, file);
+    assert.equal(
+        problems[0]!.message,
+        "Model auto chooses both the model and thinking level; remove thinking from this definition.",
+    );
+});
+
 test("a model that only starts with auto is still not a provider/id", (t) => {
     const agentDir = tempAgentDir(t);
     const file = writeDefinition(

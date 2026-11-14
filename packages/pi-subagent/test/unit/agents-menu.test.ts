@@ -422,8 +422,8 @@ test("without a model the levels follow the main model, even outside the allowed
     assert.deepEqual(after, [null, "off"]);
 });
 
-test("auto without a classifier uses the main model's levels and the main-thinking label", async (t) => {
-    const { write, open, page, load } = await setup(t, {
+test("auto without a classifier offers only the main-thinking fallback row", async (t) => {
+    const { write, open, page, ctx, load } = await setup(t, {
         models: MODELS,
         stored: { autoTiers: { ...NO_TIERS, light: { provider: "prov", id: "sparse" } } },
         available: ["small", "sparse"],
@@ -432,45 +432,18 @@ test("auto without a classifier uses the main model's levels and the main-thinki
 
     write("global", "reviewer.md", agentFile("reviewer", "model: auto\n"));
 
-    const choices = await load(byId(page(open("global").fields[0]!, "global"), "thinking"));
-
-    assert.deepEqual(
-        choices.map((choice) => choice.value),
-        [null, "off"],
-    );
-    assert.equal(choices[0]!.label, "Main agent's thinking");
-});
-
-test("auto with a classifier keeps the main model in the intersection when the deep tier has a model", async (t) => {
-    const { write, open, page, ctx, load } = await setup(t, {
-        models: MODELS,
-        stored: {
-            autoClassifier: { provider: "cls", id: "judge" },
-            autoTiers: {
-                ...NO_TIERS,
-                light: { provider: "prov", id: "sparse" },
-                deep: { provider: "prov", id: "sparse" },
-            },
-        },
-        available: ["small", "sparse"],
-        mainModel: "small",
-    });
-
-    write("global", "reviewer.md", agentFile("reviewer", "model: auto\n"));
-
     const field = byId(page(open("global").fields[0]!, "global"), "thinking");
     const choices = await load(field);
-    const expected = [null, "off"];
+    const expected = [null];
     const actual = choices.map((choice) => choice.value);
 
     assert.deepEqual(actual, expected);
-    assert.equal(choices[0]!.label, "Automatic thinking");
-    assert.match(choices[0]!.description!, /classifier/i);
-    assert.equal(field.formatValue?.(undefined, ctx, "global"), "Automatic thinking");
+    assert.equal(choices[0]!.label, "Main agent's thinking");
+    assert.equal(field.formatValue?.(undefined, ctx, "global"), "Main agent's thinking");
 });
 
-test("auto with a classifier offers only the levels every tier model and the main model share", async (t) => {
-    const { write, open, page, load } = await setup(t, {
+test("auto with a classifier offers only the automatic thinking row, never a fixed level", async (t) => {
+    const { write, open, page, ctx, load } = await setup(t, {
         models: MODELS,
         stored: {
             autoClassifier: { provider: "cls", id: "judge" },
@@ -486,36 +459,14 @@ test("auto with a classifier offers only the levels every tier model and the mai
 
     write("global", "reviewer.md", agentFile("reviewer", "model: auto\n"));
 
-    const choices = await load(byId(page(open("global").fields[0]!, "global"), "thinking"));
-    const expected = [null, "off", "high"];
+    const field = byId(page(open("global").fields[0]!, "global"), "thinking");
+    const choices = await load(field);
+    const expected = [null];
     const actual = choices.map((choice) => choice.value);
 
     assert.deepEqual(actual, expected);
-});
-
-test("no shared level leaves only the automatic choice with a description saying why", async (t) => {
-    const { write, open, page, ctx, load } = await setup(t, {
-        models: MODELS,
-        stored: {
-            autoClassifier: { provider: "cls", id: "judge" },
-            autoTiers: { ...NO_TIERS, light: { provider: "prov", id: "nothink" } },
-        },
-        available: ["small", "nothink"],
-        mainModel: "small",
-    });
-
-    write("global", "reviewer.md", agentFile("reviewer", "model: auto\n"));
-
-    const field = byId(page(open("global").fields[0]!, "global"), "thinking");
-    const choices = await load(field);
-
-    assert.deepEqual(
-        choices.map((choice) => choice.value),
-        [null],
-    );
     assert.equal(choices[0]!.label, "Automatic thinking");
-    assert.match(choices[0]!.description!, /no shared thinking level/i);
-    assert.equal(choices[0]!.disabled, undefined);
+    assert.match(choices[0]!.description!, /classifier/i);
     assert.equal(field.formatValue?.(undefined, ctx, "global"), "Automatic thinking");
 });
 
@@ -543,70 +494,14 @@ test("a fixed model that is missing or not allowed fails the load instead of shr
     assert.match(sparseError.message, /unavailable|not available|allowed/i);
 });
 
-test("a tier model that is missing or not allowed fails the load instead of dropping that tier", async (t) => {
-    const cases: Array<{
-        name: string;
-        stored: Record<string, unknown>;
-        available: string[];
-        mainModel: string;
-        ref: string;
-    }> = [
-        {
-            name: "missing",
-            stored: {
-                autoClassifier: { provider: "cls", id: "judge" },
-                autoTiers: { ...NO_TIERS, light: { provider: "prov", id: "ghost" } },
-            },
-            available: ["small"],
-            mainModel: "small",
-            ref: "prov/ghost",
-        },
-        {
-            name: "available but not in the allowed set",
-            stored: {
-                autoClassifier: { provider: "cls", id: "judge" },
-                allowedModels: [{ provider: "prov", id: "small" }],
-                autoTiers: { ...NO_TIERS, light: { provider: "prov", id: "sparse" } },
-            },
-            available: ["small", "sparse"],
-            // The main model is never filtered by the allowed set, unlike a tier model.
-            mainModel: "sparse",
-            ref: "prov/sparse",
-        },
-    ];
-
-    for (const each of cases)
-        await t.test(each.name, async (subtest) => {
-            const { write, open, page, loadError } = await setup(subtest, {
-                models: MODELS,
-                stored: each.stored,
-                available: each.available,
-                mainModel: each.mainModel,
-            });
-
-            write("global", "reviewer.md", agentFile("reviewer", "model: auto\n"));
-
-            const error = loadError(byId(page(open("global").fields[0]!, "global"), "thinking"));
-
-            assert.match(error.message, new RegExp(each.ref));
-            assert.match(error.message, /unavailable|not available|allowed/i);
-        });
-});
-
-test("without a current main model the load fails instead of guessing levels", async (t) => {
+test("without a current main model a model-less agent fails instead of guessing levels", async (t) => {
     const { write, open, page, load } = await setup(t, { models: MODELS, available: ["plain"] });
 
     write("global", "plain.md", agentFile("plain", ""));
-    write("global", "auto.md", agentFile("auto", "model: auto\n"));
 
-    const thinking = (name: string) =>
-        byId(
-            page(open("global").fields.find((entry) => entry.label === name)!, "global"),
-            "thinking",
-        );
+    const thinking = byId(page(open("global").fields[0]!, "global"), "thinking");
 
-    assert.throws(() => load(thinking("plain")), /main agent/i);
-    assert.throws(() => load(thinking("auto")), /main agent/i);
+    assert.throws(() => load(thinking), /main agent/i);
 });
 
 test("a saved unsupported level stays visible as a disabled choice and can be reset", async (t) => {
@@ -641,6 +536,32 @@ test("a saved unsupported level stays visible as a disabled choice and can be re
 
     assert.doesNotMatch(readFileSync(file, "utf8"), /^thinking:/m);
     assert.match(readFileSync(file, "utf8"), /^model: prov\/small$/m);
+});
+
+test("changing the model to auto removes the saved thinking level and keeps the file", async (t) => {
+    const { write, open, page } = await setup(t, {
+        models: MODELS,
+        available: ["small", "sparse"],
+    });
+
+    const file = write(
+        "global",
+        "reviewer.md",
+        agentFile("reviewer", "model: prov/small\nthinking: max\n"),
+    );
+    const fields = page(open("global").fields[0]!, "global");
+
+    await byId(fields, "model").set("auto", "global");
+
+    const content = readFileSync(file, "utf8");
+    const reopened = page(open("global").fields[0]!, "global");
+
+    assert.match(content, /^model: auto$/m);
+    assert.doesNotMatch(content, /^thinking:/m);
+    assert.match(content, /^name: reviewer$/m);
+    assert.match(content, /^description: Reviews diffs$/m);
+    assert.match(content, /You review\.$/m);
+    assert.equal(byId(reopened, "thinking").inspect().value, null);
 });
 
 test("changing the model keeps the saved thinking level and reloads its choices", async (t) => {

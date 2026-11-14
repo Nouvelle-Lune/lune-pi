@@ -79,7 +79,7 @@ export interface AutoRisk {
     floor?: AutoTier;
 }
 
-/** How `model: auto` resolved the run's model and, unless the start set it, its thinking. */
+/** How `model: auto` resolved the run's model and thinking together. */
 export type AutoModelChoice =
     | {
           by: "rating";
@@ -88,14 +88,14 @@ export type AutoModelChoice =
           tier: AutoRating<AutoTier>;
           /** The tier whose model the run got, or `main` for the main agent's model. */
           modelFrom: AutoTier | "main";
-          /** Absent when the start set the thinking or the run's model supports one level. */
+          /** Absent when the run's model supports only one level. */
           thinking?: AutoRating<ThinkingLevel>;
           /** Absent for a run that an earlier version started. */
           risk?: AutoRisk;
       }
     /** No classifier is selected, so the run got the main agent's model. */
     | { by: "no-classifier" }
-    /** No tier has a model and the start set the thinking, so no classifier ran. */
+    /** Recorded by earlier versions when an explicit thinking level left nothing to rate. */
     | { by: "nothing-to-rate" }
     /** The classifier failed, so the run got the main agent's model, and thinking if unset. */
     | { by: "classifier-failed"; classifier: string; error: string };

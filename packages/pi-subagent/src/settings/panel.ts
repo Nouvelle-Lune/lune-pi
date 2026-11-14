@@ -129,8 +129,8 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
                 label: "Classifier model",
                 description:
                     "The Pi classifier that rates each task of a run started with model auto and " +
-                    "picks the tier's model and the thinking level, unless the call or definition " +
-                    "sets it. None: auto runs use the main session's model and thinking.",
+                    "picks both the model and thinking level. None: auto runs use the main " +
+                    "session's model and thinking.",
                 formatValue: (value) =>
                     value ? `${value.provider}/${value.id}` : "None · main session model",
                 choiceSource: classifierChoices,
@@ -138,9 +138,9 @@ export function createSubagentPanel(options: AgentsMenuOptions) {
             field("autoOnly", {
                 label: "Auto mode only",
                 description:
-                    "Inline runs always use model auto: the main agent's subagent_start tool has " +
-                    "no model parameter, and a start that still names another model fails. " +
-                    "Custom agents keep their definition's model. Changes apply to the next start.",
+                    "Inline runs always route both model and thinking: subagent_start has no " +
+                    "model or thinking parameters, and explicit overrides fail. Custom agents " +
+                    "keep their definition's model. Changes apply to the next start.",
             }),
             ...AUTO_TIERS.map((tier) =>
                 field(["autoTiers", tier], {

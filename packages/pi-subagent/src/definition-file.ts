@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { parseDocument } from "yaml";
 
 import { parseDefinition, type AgentDefinition } from "./definitions.ts";
+import { AUTO_MODEL } from "./models.ts";
 
 /** The frontmatter fields the settings panel edits; the body stays as written. */
 export type DefinitionField = "name" | "description" | "model" | "thinking" | "tools" | "isolation";
@@ -102,6 +103,10 @@ export function setFrontmatterField(
         document.set(field, value);
     } else {
         document.set(field, document.createNode([...value], { flow: true }));
+    }
+
+    if (field === "model" && value === AUTO_MODEL) {
+        document.delete("thinking");
     }
 
     return `---\n${document.toString({ flowCollectionPadding: false }).trimEnd()}${normalized.slice(end)}`;
