@@ -7,18 +7,18 @@
 All data is in one folder. `LUNE_MEMORY_HOME` sets it; the default is `~/.lune-memory`. Every
 command accepts `--home <dir>` too.
 
-| Path                                      | Content                                                              |
-| ----------------------------------------- | -------------------------------------------------------------------- |
-| `memory.db`                               | SQLite database in WAL mode, the source of truth                     |
-| `config.json`                             | Settings, mode 0600                                                  |
-| `credentials.json`                        | Provider API keys, mode 0600                                         |
-| `daemon.json`                             | Address, token and process id of the running daemon, mode 0600       |
-| `daemon.lock`                             | Lock that keeps one daemon for each memory folder                    |
-| `logs/daemon.log`                         | Daemon log, rotated at 5 MB                                          |
-| `transcripts/<project>/<harness>/<id>.md` | Redacted transcript of each session; `_unassigned` outside a project |
-| `views`                                   | Symlink to the current Markdown generation                           |
-| `.generations/`                           | Markdown generations; `generations` of them stay                     |
-| `projection.lock`                         | Lock that lets one process write a generation at a time              |
+| Path                                      | Content                                                        |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `memory.db`                               | SQLite database in WAL mode, the source of truth               |
+| `config.json`                             | Settings, mode 0600                                            |
+| `credentials.json`                        | Provider API keys, mode 0600                                   |
+| `daemon.json`                             | Address, token and process id of the running daemon, mode 0600 |
+| `daemon.lock`                             | Lock that keeps one daemon for each memory folder              |
+| `logs/daemon.log`                         | Daemon log, rotated at 5 MB                                    |
+| `transcripts/<project>/<harness>/<id>.md` | Transcript of each session; `_unassigned` outside a project    |
+| `views`                                   | Symlink to the current Markdown generation                     |
+| `.generations/`                           | Markdown generations; `generations` of them stay               |
+| `projection.lock`                         | Lock that lets one process write a generation at a time        |
 
 A Markdown generation has this layout:
 
@@ -220,16 +220,22 @@ A file that did not change is not imported again.
 - A message with a content shape that the adapter does not know makes the import of that file
   fail. A Claude Code file with a cycle in the parent chain of its active path fails too. The
   file and its session get the error, `import` prints it and exits with 1, and the earlier events
-  stay. The import does not skip the unknown events, because that would remove them.
+  stay. The import does not skip the unknown events, because that would remove them. A text
+  block whose `text` is not a string is an unknown shape too.
 - Claude Code events take the order of the parent chain. A file that is in chain order keeps its
-  order.
-- A Codex event key comes from the content of its line, so a record keeps its key when other
-  lines change. A record that is written again becomes a removed event and a new event.
-- All tool events of a session that runs in the memory folder come from the memory itself.
+  order. The active path ends at the last message in chain order, not at the last line of the
+  file.
+- A Codex event key is the full SHA-256 of its line, so a record keeps its key when other lines
+  change. A record that is written again becomes a removed event and a new event.
+- A tool call that reads a memory file comes from the memory itself. A relative path counts when
+  it resolves to a memory file from the working folder of the call, or from a folder after `cd`,
+  `workdir` or a similar word. An absolute path outside the memory folder does not count, also in
+  a session that runs in the memory folder.
 - When events are removed or moved, the next remaining event, or the new last event, becomes
-  unprocessed again, so the next pass sees the change.
+  unprocessed again, so the next pass sees the change. A session that loses all its events stays
+  in the queue until a pass reviews the items that cite it.
 - A changed session with no branch in its transcript takes the branch that its work tree has
-  checked out now.
+  checked out now. A work tree on a detached HEAD gives no branch.
 
 ## Session summary (L1)
 
@@ -242,9 +248,16 @@ The summary has these sections, in this order:
 5. Recent sessions not yet in memory, at most 10
 6. How to use this memory: trust labels, view paths and the tools
 
-The budget is 200 lines and 25 KB. The stable sections leave a reserve of 30 lines and 4 KB for
-the recent sessions and the guidance. An item that the user did not state carries its trust,
-`tool` or `inference`, and an item that is not active carries its status.
+The budget is 200 lines and 25 KB on each branch. Sections 1 to 4 are the stable part. Dreaming
+rejects a change that makes the stable part of a branch grow past the budget less a reserve. The
+reserve is measured from the real paths of the memory folder: 10 recent sessions, the count line
+and the guidance. A longer memory folder path makes the reserve larger. When a session starts,
+the recent sessions that fit the budget are listed, and a last line counts the others. The
+stable part and the guidance are never cut. When they alone are over the budget, the summary
+goes in full, and the hook writes a warning to stderr or Pi shows a warning.
+
+An item that the user did not state carries its trust, `tool` or `inference`, and an item that is
+not active carries its status.
 
 ## Projects
 
@@ -278,7 +291,10 @@ count. `main`, `master`, `dev`, `develop` and `trunk` are mainline branches and 
 `split` moves one locator and its sessions to a project of its own and marks those sessions
 unprocessed, so the next pass builds the memory of that project. It also moves each item whose
 evidence all comes from the moved sessions, and each item without evidence that a moved session
-wrote, and prints both counts. A split never moves a locator into a project that is in use.
+wrote, and prints both counts. A provisional note goes with the session that wrote it. When the
+locator was the root of the old project, the root moves to a clone or a path that stays. A
+project with no root gets one on the next request from its repository. A split never moves a
+locator into a project that is in use.
 When the locator made a project that was merged away (the first project of its Git common dir or
 registered path, or the project of an earlier split of the locator), `split` brings that project
 back with its old name, unless you give `--name`. Otherwise the split makes a new project. When
@@ -301,19 +317,24 @@ A session takes part in a pass when it has unprocessed events and no change for 
 Each project commits its changes in its own transaction, with its own run. The global pass
 commits after the projects, in a separate run. When one of them fails, the others stay
 committed and the pass ends `partial`. Each change records the run, so `revert <run>` restores
-the items of the run. A failed session gets another attempt in the next pass, up to
+the items of the run. A restored item stays in the project that it is in now, so a revert after
+a `split` does not move it back. A failed session gets another attempt in the next pass, up to
 `maxAttempts` for each revision.
 
 The import goes on during a pass. A pass commits an event as processed only when its hash is the
 hash that the model saw, so an event that changed during the pass stays unprocessed for the next
-pass. An event that is longer than the session budget is analyzed in parts over several passes.
+pass. An import that removes or moves events during a pass also stops the pass from marking the
+next event processed. An event that is longer than the session budget is analyzed in parts over
+several passes.
 
 ### Evidence
 
 Every change needs live evidence, the project index and the wiki pages included. Live evidence
 is an event that exists, did not come from the memory itself, and has the hash that the model
-saw. Events that the memory put into a session, such as the session summary, are context, not
-evidence. The Analyzer does not take them as new facts.
+saw. This includes the sources of the existing items and preferences that the model saw: a
+change that cites one of them after it changed or was removed is rejected as a whole, and its
+events stay unprocessed. Events that the memory put into a session, such as the session summary,
+are context, not evidence. The Analyzer does not take them as new facts.
 
 An event off the active conversation path, such as an abandoned attempt, supports only a lesson, a
 fact or a reference. An active project item goes to review in the next pass of a session when it
@@ -321,7 +342,9 @@ cites an event of that session that is gone or came from the memory. An item of 
 also goes to review when it cites an event that left the active path. The pass retires the item
 when the Analyzer lists it as unsupported, no other session supports it, and all its other
 evidence in the session was in the snapshot. Otherwise the item drops the dead sources of the
-session. When no live evidence stays, it keeps its sources and becomes `source-missing`.
+session. When no live evidence stays, it keeps its sources and becomes `source-missing`. A pass
+reviews at most 40 items of a session; when more need review, the session stays in the queue for
+the next pass.
 
 ### Branches
 
@@ -333,12 +356,18 @@ item for a closed branch loses its branch.
 
 A change to a global preference needs the user's own words or support in two or more projects.
 A preference is general only when the user's own words say that it applies everywhere; a
-statement that names one project is not general. A global preference retires only with a user
-retraction outside a project, a user retraction whose words say that it applies everywhere, or
-exceptions in two or more projects. A statement that the preference already cites does not
-count. The pass also compares the words of a change with the stored preference.
-This check can only stop a change; it does not prove that two statements are about the same
-preference.
+statement that names one project, or says "this service" or "this project", is not general. A
+global preference retires only with a user retraction outside a project, a user retraction whose
+words say that it applies everywhere, or exceptions in two or more projects. The retraction must
+be in the same clause as a negation and share a topic word with the preference, so "Always answer
+in English, and don't use tabs" does not retire an English rule, and "don't forget" is not a
+retraction. A user retraction in a session outside a project starts the global pass. A statement
+that the preference already cites does not count. The pass also compares the words of a change
+with the stored preference. These checks compare words: they can only stop a change, and they do
+not prove that two statements are about the same preference.
+
+A global note becomes active only when the global pass keeps or corrects it with live evidence.
+Without such a review it stays provisional, and a retract review retires it.
 
 A reverted global run counts as the last global run, so the next pass does not repeat the
 reverted result without new input. `revert <run> --reprocess` marks the sessions of the run
@@ -397,10 +426,13 @@ and `config` events, and a ping comment every 25 seconds.
 
 ## Privacy
 
-- Import redacts private keys, Bearer and Basic credentials, `key=value` secrets, and the token
-  forms of OpenAI, Anthropic, AWS, GitHub, Slack, Google and npm. It also removes passwords from
-  URLs. The redaction runs before an event reaches the database. A note that an agent writes
-  or updates gets the same redaction before it is stored.
+- Import stores the text of each event as the session file has it, and a note stores the text
+  that the agent wrote. Neither is redacted for now. A setting that turns redaction on is
+  planned. Keys, tokens and passwords in a session go into the database, the Markdown views and
+  the Dreaming model.
+- The error text of a failed import is redacted: private keys, Bearer and Basic credentials,
+  `key=value` secrets, the token forms of OpenAI, Anthropic, AWS, GitHub, Slack, Google and npm,
+  and passwords in URLs.
 - Dreaming sends session events to the model provider that you select. Nothing else leaves the
   computer.
 - `forget` deletes the events and the transcript of a session and stops a new import of its file.

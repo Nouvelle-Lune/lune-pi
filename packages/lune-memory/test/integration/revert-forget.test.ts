@@ -6,7 +6,14 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { MemoryOperationError } from "../../src/core/errors.ts";
 import type { SourceRef } from "../../src/core/types.ts";
 import { itemFileName } from "../../src/memory/projection.ts";
-import { getItem, getRun, getSession, listEvents, startRun } from "../../src/store/rows.ts";
+import {
+    deleteItem,
+    getItem,
+    getRun,
+    getSession,
+    listEvents,
+    startRun,
+} from "../../src/store/rows.ts";
 import {
     commitRun,
     createMemoryEnv,
@@ -145,6 +152,75 @@ describe("revert", () => {
         assert.throws(() => env.service.revert(9999), MemoryOperationError);
         assert.throws(() => env.service.revert(running), /not ok/u);
         assert.throws(() => env.service.revert(forgetRun), /cannot be reverted/u);
+    });
+});
+
+describe("revert after a project split or merge", () => {
+    const remote = "https://example.invalid/org/shared.git";
+
+    it("keeps a restored item in the project that a split moved it to", () => {
+        const cloneA = createRepo(env.folder("clone-a"), { remote });
+        const cloneB = createRepo(env.folder("clone-b"), { remote });
+        env.writePiSession({
+            id: "s-a",
+            cwd: cloneA,
+            messages: [{ role: "user", text: "from a" }],
+        });
+        env.writePiSession({
+            id: "s-b",
+            cwd: cloneB,
+            messages: [{ role: "user", text: "from b" }],
+        });
+        env.importNow();
+        const shared = env.service.resolver.resolve(cloneA)?.projectId;
+        assert.ok(shared);
+        const [event] = listEvents(env.store, "pi", "s-a");
+        assert.ok(event);
+        const source: SourceRef = {
+            kind: "event",
+            harness: "pi",
+            sessionId: "s-a",
+            eventKey: event.key,
+        };
+        const item = makeItem({ projectId: shared, title: "Before", sources: [source] });
+        commitRun(env.store, { projectId: shared, changes: [{ before: null, after: item }] });
+        const runId = commitRun(env.store, {
+            projectId: shared,
+            changes: [{ before: item, after: { ...item, title: "After" } }],
+        });
+        const commonDir = env.service
+            .projects()
+            .flatMap((project) => project.locators)
+            .find((l) => l.kind === "git_common_dir" && l.value.includes("clone-a"));
+        assert.ok(commonDir);
+        const split = env.service.split("git_common_dir", commonDir.value, "Clone A");
+        assert.equal(getItem(env.store, item.id)?.projectId, split.project.id);
+
+        env.service.revert(runId);
+
+        const restored = getItem(env.store, item.id);
+        assert.equal(restored?.title, "Before");
+        assert.equal(restored?.projectId, split.project.id);
+    });
+
+    it("puts a restored item whose project was merged away into the live project", () => {
+        const other = createRepo(env.folder("other"));
+        const target = env.service.resolver.resolve(other)?.projectId;
+        assert.ok(target);
+        const item = makeItem({ projectId, title: "Before" });
+        commitRun(env.store, { projectId, changes: [{ before: null, after: item }] });
+        const runId = commitRun(env.store, {
+            projectId,
+            changes: [{ before: item, after: { ...item, title: "After" } }],
+        });
+        deleteItem(env.store, item.id);
+        env.service.merge(projectId, target);
+
+        env.service.revert(runId);
+
+        const restored = getItem(env.store, item.id);
+        assert.equal(restored?.title, "Before");
+        assert.equal(restored?.projectId, target);
     });
 });
 

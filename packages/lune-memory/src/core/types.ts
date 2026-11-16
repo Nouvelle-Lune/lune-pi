@@ -116,6 +116,12 @@ export interface SessionRow {
     attempts: number;
     attemptRevision: number | null;
     processedRevision: number | null;
+    /**
+     * Latest revision whose import removed events of the session. Items that cite the
+     * session wait for review until a pass of this revision or a later one clears it. Only the
+     * store sets it: `putSession` does not write it.
+     */
+    reviewRevision?: number | null;
     warnings: string[];
     filtered: Record<string, number>;
     redactions: number;

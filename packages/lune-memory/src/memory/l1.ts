@@ -1,30 +1,35 @@
-import { globalViewPaths, projectViewPaths, type MemoryPaths } from "../core/paths.ts";
 import {
-    MEMORY_CONTEXT_TAG,
-    type Harness,
-    type Item,
-    type Project,
-    type SessionRow,
-} from "../core/types.ts";
+    globalViewPaths,
+    projectViewPaths,
+    transcriptFile,
+    type MemoryPaths,
+} from "../core/paths.ts";
+import { MEMORY_CONTEXT_TAG, type Harness, type Item, type SessionRow } from "../core/types.ts";
 import { byteLength, firstSentence, lineCount } from "../core/util.ts";
 import type { ProjectResolver } from "../projects/resolver.ts";
 import { text, type Store } from "../store/db.ts";
 import { getProject, listItems, sessionFromRow } from "../store/rows.ts";
 import { itemViewPath } from "./projection.ts";
 
-/** Budget of the whole L1 text. Dreaming keeps L1 inside it. Injection never cuts L1. */
+/**
+ * Budget of the whole L1 text. Dreaming keeps the stable part inside it less the request reserve,
+ * and the request-time part shows only the recent sessions that fit. Injection never cuts the
+ * stable part.
+ */
 export const L1_MAX_LINES = 200;
 export const L1_MAX_BYTES = 25 * 1024;
 
-/**
- * Space that the request-time part of L1 can use: recent unprocessed sessions and the reading
- * guidance. Dreaming validates the rest of L1 against the budget less this reserve.
- */
-export const L1_RESERVE_LINES = 30;
-export const L1_RESERVE_BYTES = 4 * 1024;
-
 /** Recent unprocessed sessions that L1 lists at most. */
 export const L1_RECENT_LIMIT = 10;
+
+/**
+ * Placeholders that size the request reserve. The session id is longer than a UUID and than a
+ * Codex page id (`<thread id>~<time>`), and "claude" is the longest harness name.
+ */
+const RESERVE_SESSION_ID = "x".repeat(64);
+const RESERVE_TIME = "0000-00-00T00:00:00.000Z";
+const RESERVE_HARNESS: Harness = "claude";
+const RESERVE_MORE = 99;
 
 export interface L1Target {
     projectId: string | null;
@@ -207,22 +212,30 @@ export function stableL1Sections(
     return sections;
 }
 
-function recentSection(sessions: SessionRow[]): string | null {
-    if (!sessions.length) return null;
-    const shown = sessions.slice(0, L1_RECENT_LIMIT);
-    const lines = shown.map((session) => {
+const RECENT_HEADING = "## Recent sessions not yet in memory";
+
+function moreLine(more: number, listed: boolean): string {
+    return listed
+        ? `- ${more} more. Use transcript_search to find them.`
+        : `- ${more} sessions. Use transcript_search to find them.`;
+}
+
+/** Recent sessions with the first `shown` listed and a count of the rest. */
+function recentSection(sessions: SessionRow[], shown: number): string {
+    const listed = sessions.slice(0, Math.min(shown, L1_RECENT_LIMIT));
+    const lines = listed.map((session) => {
         const time = session.updatedAt ?? session.changedAt;
         const where = session.transcriptPath ?? session.sourcePath;
         return `- ${session.harness} ${time}: ${where}`;
     });
-    const more = sessions.length - shown.length;
-    if (more > 0) lines.push(`- ${more} more. Use transcript_search to find them.`);
-    return ["## Recent sessions not yet in memory", ...lines].join("\n");
+    const more = sessions.length - listed.length;
+    if (more > 0) lines.push(moreLine(more, listed.length > 0));
+    return [RECENT_HEADING, ...lines].join("\n");
 }
 
 function guidanceSection(
     paths: MemoryPaths,
-    project: Project | null,
+    projectId: string | null,
     sessionId: string | null,
 ): string {
     const lines = [
@@ -231,8 +244,8 @@ function guidanceSection(
         "- Trust labels: user means the user said it; tool means a tool result showed it; inference means an agent concluded it.",
         "- Read further before you act when the task touches earlier decisions, the user refers to earlier work, or this summary is not enough.",
     ];
-    if (project) {
-        const view = projectViewPaths(paths, project.id);
+    if (projectId) {
+        const view = projectViewPaths(paths, projectId);
         lines.push(`- Project Memory: ${view.index} (wiki: ${view.wiki}, notes: ${view.notes}).`);
         lines.push(`- Transcripts: ${view.transcripts}.`);
     }
@@ -250,11 +263,53 @@ function guidanceSection(
     return lines.join("\n");
 }
 
+/** The whole L1 text around its sections. */
+function renderL1(sections: string[]): string {
+    return [
+        `<${MEMORY_CONTEXT_TAG}>`,
+        "# Lune Memory",
+        "",
+        sections.join("\n\n"),
+        `</${MEMORY_CONTEXT_TAG}>`,
+        "",
+    ].join("\n");
+}
+
+/**
+ * Lines and bytes that the request-time part of L1 can take in a project: the frame, the reading
+ * guidance with a session id, and a full list of recent sessions with transcript paths under this
+ * memory home. A longer memory home makes the reserve larger, so the stable part gets less space.
+ */
+export function l1Reserve(
+    paths: MemoryPaths,
+    projectId: string | null,
+): { lines: number; bytes: number } {
+    const transcript = transcriptFile(paths, projectId, RESERVE_HARNESS, RESERVE_SESSION_ID);
+    const recent = [
+        RECENT_HEADING,
+        ...Array.from(
+            { length: L1_RECENT_LIMIT },
+            () => `- ${RESERVE_HARNESS} ${RESERVE_TIME}: ${transcript}`,
+        ),
+        moreLine(RESERVE_MORE, true),
+    ].join("\n");
+    // An empty stable part stands for one line of zero bytes, so the stable size adds to this.
+    const value = renderL1(["", recent, guidanceSection(paths, projectId, RESERVE_SESSION_ID)]);
+    return { lines: lineCount(value) - 1, bytes: byteLength(value) };
+}
+
 /** Measure an L1 text against the budget. */
 export function measureL1(value: string): { lines: number; bytes: number; overBudget: boolean } {
     const lines = lineCount(value);
     const bytes = byteLength(value);
     return { lines, bytes, overBudget: lines > L1_MAX_LINES || bytes > L1_MAX_BYTES };
+}
+
+/** Size of the Dreaming-owned part of L1 for one branch. A null branch is the project default. */
+export interface StableL1Branch {
+    branch: string | null;
+    lines: number;
+    bytes: number;
 }
 
 /** Size of the Dreaming-owned part of L1. Each limit is the budget less the request reserve. */
@@ -266,33 +321,45 @@ export interface StableL1Size {
     /** The first branch over a limit, else the branch with the most lines. */
     branch: string | null;
     fits: boolean;
+    /** Limits of the stable part: the budget less the request reserve of this memory home. */
+    maxLines: number;
+    maxBytes: number;
+    /** Size of each branch, so that a branch over the limit cannot hide growth of another. */
+    branches: StableL1Branch[];
 }
-
-const STABLE_MAX_LINES = L1_MAX_LINES - L1_RESERVE_LINES;
-const STABLE_MAX_BYTES = L1_MAX_BYTES - L1_RESERVE_BYTES;
 
 /**
  * Size of the Dreaming-owned part of L1 across the open branches of a project. Lines and bytes
  * are the largest of each over all branches, so a branch with few long lines and a branch with
- * many short lines both count. Validation rejects a commit that makes either limit worse.
+ * many short lines both count. Validation rejects a commit that makes a branch worse.
  */
 export function stableL1Size(
     store: Store,
     paths: MemoryPaths,
     projectId: string | null,
 ): StableL1Size {
-    const branches: Array<string | null> = projectId
+    const names: Array<string | null> = projectId
         ? [null, ...openBranches(store, projectId)]
         : [null];
-    const size: StableL1Size = { lines: 0, bytes: 0, branch: null, fits: true };
+    const reserve = l1Reserve(paths, projectId);
+    const size: StableL1Size = {
+        lines: 0,
+        bytes: 0,
+        branch: null,
+        fits: true,
+        maxLines: Math.max(0, L1_MAX_LINES - reserve.lines),
+        maxBytes: Math.max(0, L1_MAX_BYTES - reserve.bytes),
+        branches: [],
+    };
     let longest = -1;
-    for (const branch of branches) {
+    for (const branch of names) {
         const body = stableL1Sections(store, paths, projectId, branch).join("\n\n");
         const lines = lineCount(body);
         const bytes = byteLength(body);
+        size.branches.push({ branch, lines, bytes });
         size.lines = Math.max(size.lines, lines);
         size.bytes = Math.max(size.bytes, bytes);
-        const fits = lines <= STABLE_MAX_LINES && bytes <= STABLE_MAX_BYTES;
+        const fits = lines <= size.maxLines && bytes <= size.maxBytes;
         if (size.fits && (!fits || lines > longest)) size.branch = branch;
         if (!fits) size.fits = false;
         longest = Math.max(longest, lines);
@@ -301,16 +368,37 @@ export function stableL1Size(
 }
 
 /**
- * True when a commit made the stable L1 grow on a limit that it is over. A commit that grows
- * lines while only bytes are over the limit, or the reverse, does not make the budget worse.
+ * The first branch whose stable L1 a commit made grow on a limit that it is over, or null. Each
+ * branch is compared with the same branch before the commit; a branch that is new is compared
+ * with nothing. A commit that grows lines while only bytes are over the limit, or the reverse,
+ * does not make the budget worse.
  */
-export function stableL1Grew(before: StableL1Size | undefined, after: StableL1Size): boolean {
-    const linesOver = after.lines > STABLE_MAX_LINES && after.lines > (before?.lines ?? -1);
-    const bytesOver = after.bytes > STABLE_MAX_BYTES && after.bytes > (before?.bytes ?? -1);
-    return linesOver || bytesOver;
+export function grownStableBranch(
+    before: StableL1Size | undefined,
+    after: StableL1Size,
+): StableL1Branch | null {
+    const prior = new Map<string | null, StableL1Branch>();
+    for (const entry of before?.branches ?? []) prior.set(entry.branch, entry);
+    for (const entry of after.branches) {
+        const old = prior.get(entry.branch);
+        const linesOver = entry.lines > after.maxLines && entry.lines > (old?.lines ?? -1);
+        const bytesOver = entry.bytes > after.maxBytes && entry.bytes > (old?.bytes ?? -1);
+        if (linesOver || bytesOver) return entry;
+    }
+    return null;
 }
 
-/** Build L1 for a resolved target. It reads only SQLite and needs no model. */
+/** True when a commit made the stable L1 of some branch grow on a limit that it is over. */
+export function stableL1Grew(before: StableL1Size | undefined, after: StableL1Size): boolean {
+    return grownStableBranch(before, after) !== null;
+}
+
+/**
+ * Build L1 for a resolved target. It reads only SQLite and needs no model. The stable part and
+ * the guidance are always complete. Recent sessions are listed only as far as they fit in the
+ * budget, and the rest are counted. `overBudget` is true only when the stable part and the
+ * guidance alone are over the budget.
+ */
 export function buildL1(
     store: Store,
     paths: MemoryPaths,
@@ -318,23 +406,25 @@ export function buildL1(
     options: L1Options = {},
 ): L1Result {
     const project = target.projectId ? getProject(store, target.projectId) : null;
-    const sections = stableL1Sections(store, paths, project?.id ?? null, target.branch);
-    const recent = recentSection(unprocessedSessions(store, target, options));
-    if (recent) sections.push(recent);
+    const projectId = project?.id ?? null;
+    const stable = stableL1Sections(store, paths, projectId, target.branch);
     const announced = options.announceSession === false ? null : (options.sessionId ?? null);
-    sections.push(guidanceSection(paths, project, announced));
-    const body = [
-        `<${MEMORY_CONTEXT_TAG}>`,
-        "# Lune Memory",
-        "",
-        sections.join("\n\n"),
-        `</${MEMORY_CONTEXT_TAG}>`,
-        "",
-    ].join("\n");
+    const guidance = guidanceSection(paths, projectId, announced);
+    const sessions = unprocessedSessions(store, target, options);
+    let body = renderL1([...stable, guidance]);
+    if (sessions.length) {
+        for (let shown = Math.min(sessions.length, L1_RECENT_LIMIT); shown >= 0; shown--) {
+            const candidate = renderL1([...stable, recentSection(sessions, shown), guidance]);
+            if (!measureL1(candidate).overBudget) {
+                body = candidate;
+                break;
+            }
+        }
+    }
     return {
         text: body,
         ...measureL1(body),
-        projectId: project?.id ?? null,
+        projectId,
         branch: target.branch,
     };
 }

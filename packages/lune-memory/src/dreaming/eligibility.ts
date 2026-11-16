@@ -61,6 +61,11 @@ export interface SessionSnapshot {
      * left the active path. The Analyzer reviews them, and commit retires the unsupported ones.
      */
     review: Set<string>;
+    /**
+     * True when more earlier items lost evidence than one pass shows. The session stays in the
+     * review queue, and the next pass reviews the rest.
+     */
+    reviewOverflow: boolean;
 }
 
 export interface EligibilityOptions {
@@ -76,7 +81,7 @@ export interface EligibilityOptions {
 export interface EligibilityResult {
     /** Sessions to analyze, at most `maxSessionsPerPass`. */
     eligible: SessionSnapshot[];
-    /** Sessions whose changes hold no evidence. They need no model call. */
+    /** Sessions whose changes hold no evidence and no item to review. They need no model call. */
     trivial: SessionRow[];
     /** Eligible sessions over the pass budget. They wait for the next pass. */
     deferred: number;
@@ -135,6 +140,7 @@ function candidates(store: Store): SessionRow[] {
         .all(
             `SELECT * FROM sessions WHERE status = 'ok' AND (
                 processed_revision IS NULL OR processed_revision < revision
+                OR review_revision IS NOT NULL
                 OR EXISTS (
                     SELECT 1 FROM events e
                     WHERE e.harness = sessions.harness AND e.session_id = sessions.id
@@ -205,13 +211,14 @@ function selectEvents(
  * event of the session that can no longer support it goes to review and comes first: the event
  * is gone, came from lune-memory itself, or left the active path while the item kind needs the
  * current state (§4). Its conclusion may rest on text that no longer exists in that form (§5).
- * The remaining source events of reviewed items in the session come back as context.
+ * The remaining source events of reviewed items in the session come back as context. `overflow`
+ * is true when more items need review than the Analyzer sees at once.
  */
 function earlierItems(
     store: Store,
     session: SessionRow,
     projectId: string | null,
-): { items: Item[]; review: Set<string>; context: EventRow[] } {
+): { items: Item[]; review: Set<string>; overflow: boolean; context: EventRow[] } {
     const ids = store
         .all(
             `SELECT DISTINCT item_id FROM item_sources
@@ -241,7 +248,12 @@ function earlierItems(
     const shown = items.slice(0, EARLIER_ITEMS);
     const review = new Set(shown.filter((item) => live.has(item.id)).map((item) => item.id));
     const context = uniqueEvents([...review].flatMap((id) => live.get(id) ?? []));
-    return { items: shown, review, context: context.slice(0, REVIEW_EVENTS) };
+    return {
+        items: shown,
+        review,
+        overflow: live.size > review.size,
+        context: context.slice(0, REVIEW_EVENTS),
+    };
 }
 
 /**
@@ -294,13 +306,15 @@ export function snapshotSession(
         notes: reviewNotes(store, session, projectId, selected.events),
         earlier: earlier.items,
         review: earlier.review,
+        reviewOverflow: earlier.overflow,
     };
 }
 
 /**
  * Find the session revisions that Dreaming processes now. A session is eligible when it has
- * been idle for `idleHours`, its revision has unprocessed evidence, and it is imported. A
- * revision that failed `maxAttempts` times waits for a new revision. It needs no model.
+ * been idle for `idleHours`, it is imported, and its revision has unprocessed evidence or
+ * earlier items to review: an import removed events that they cite (§5). A revision that failed
+ * `maxAttempts` times waits for a new revision. It needs no model.
  */
 export function findEligible(
     store: Store,
@@ -324,9 +338,19 @@ export function findEligible(
             if (projectId !== options.projectId) continue;
         }
         const events = listEvents(store, session.harness, session.id);
+        let snapshot: SessionSnapshot | null = null;
         if (!events.some(isPending)) {
-            result.trivial.push(session);
-            continue;
+            if (session.reviewRevision == null) {
+                result.trivial.push(session);
+                continue;
+            }
+            // No new evidence, but earlier items can rest on removed events. The session needs
+            // a pass only when one of them is still to review.
+            snapshot = snapshotSession(store, session, config);
+            if (snapshot.review.size === 0 && !snapshot.reviewOverflow) {
+                result.trivial.push(session);
+                continue;
+            }
         }
         const changed = Date.parse(session.changedAt);
         if (!options.force && Number.isFinite(changed) && changed > now - idleMs) {
@@ -345,14 +369,14 @@ export function findEligible(
             result.deferred++;
             continue;
         }
-        result.eligible.push(snapshotSession(store, session, config));
+        result.eligible.push(snapshot ?? snapshotSession(store, session, config));
     }
     return result;
 }
 
 /**
- * Mark sessions whose changes hold no evidence as processed. The revision must be unchanged.
- * It returns the number of sessions marked.
+ * Mark sessions whose changes hold no evidence as processed, and take them out of the review
+ * queue. The revision must be unchanged. It returns the number of sessions marked.
  */
 export function markTrivial(store: Store, sessions: SessionRow[]): number {
     if (!sessions.length) return 0;
@@ -367,7 +391,7 @@ export function markTrivial(store: Store, sessions: SessionRow[]): number {
             );
             if (pending) continue;
             marked += store.run(
-                `UPDATE sessions SET processed_revision = revision
+                `UPDATE sessions SET processed_revision = revision, review_revision = NULL
                 WHERE harness = ? AND id = ? AND revision = ?`,
                 session.harness,
                 session.id,

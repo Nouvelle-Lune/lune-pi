@@ -28,7 +28,14 @@ interface Fake {
     locationCalls: Array<string | null | undefined>;
     closed: () => number;
     /** Next l1 answers. A function result is awaited. */
-    answers: Array<() => Promise<{ text: string }>>;
+    answers: Array<() => Promise<L1Answer>>;
+}
+
+interface L1Answer {
+    text: string;
+    lines?: number;
+    bytes?: number;
+    overBudget?: boolean;
 }
 
 function fakeClient(configPath: string): Fake {
@@ -275,6 +282,49 @@ describe("L1 injection", () => {
         assert.equal(earlyFinish, false);
         assert.equal(finished, true);
         assert.deepEqual(event.systemPromptOptions.sections, {});
+    });
+});
+
+describe("L1 budget warning", () => {
+    it("warns once that the context is over its budget and still adds it in full", async (t) => {
+        const { fake, handler } = setup(t);
+        fake.answers.push(async () => ({
+            text: WRAPPED,
+            lines: 231,
+            bytes: 26_000,
+            overBudget: true,
+        }));
+        const { ctx, notices } = fakeCtx();
+
+        await handler("session_start")({}, ctx);
+        const first = beforeStartEvent();
+        await handler("before_agent_start")(first, ctx);
+        await handler("before_agent_start")(beforeStartEvent(), ctx);
+
+        const warnings = notices.filter((notice) => notice.level === "warning");
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0]?.message ?? "", /over its budget/u);
+        assert.match(warnings[0]?.message ?? "", /231 lines and 26000 bytes/u);
+        assert.equal(first.systemPromptOptions.sections[MEMORY_CONTEXT_TAG], "Project facts");
+    });
+
+    it("does not warn when the context is within its budget", async (t) => {
+        const { fake, handler } = setup(t);
+        fake.answers.push(async () => ({
+            text: WRAPPED,
+            lines: 20,
+            bytes: 900,
+            overBudget: false,
+        }));
+        const { ctx, notices } = fakeCtx();
+
+        await handler("session_start")({}, ctx);
+        await handler("before_agent_start")(beforeStartEvent(), ctx);
+
+        assert.deepEqual(
+            notices.filter((notice) => notice.level === "warning"),
+            [],
+        );
     });
 });
 

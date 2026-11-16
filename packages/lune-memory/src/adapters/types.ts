@@ -8,7 +8,7 @@ export interface EvidenceEvent {
      */
     key: string;
     role: EventRole;
-    /** Plain text of the event. Import redacts secrets after the adapter returns. */
+    /** Plain text of the event. Import stores it unchanged (`storedContent`). */
     text: string;
     /** ISO time of the event, when the harness recorded one. */
     time?: string;
@@ -52,8 +52,11 @@ export interface SessionFileRef {
     mtimeMs: number;
 }
 
-/** True when a text names a lune-memory file. The importer builds it from the memory home. */
-export type MemoryPathTest = (text: string) => boolean;
+/**
+ * True when a text names a lune-memory file. The importer builds it from the memory home. `cwd`
+ * is the working folder of the tool call; with it, relative paths in the text also count.
+ */
+export type MemoryPathTest = (text: string, cwd?: string) => boolean;
 
 /** Facts of this install that an adapter needs to classify events. */
 export interface ParseContext {

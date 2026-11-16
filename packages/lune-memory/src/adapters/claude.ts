@@ -3,6 +3,7 @@ import { basename, relative, sep } from "node:path";
 import type { EventRole } from "../core/types.ts";
 import {
     argumentsToText,
+    blockText,
     blocksToText,
     bump,
     containsMemoryContext,
@@ -172,6 +173,19 @@ function userTextPiece(
     return { role: "tool_result", text, toolName: source, untrusted: true };
 }
 
+/** The first cwd of a record of this session, else the first cwd of any record. */
+function firstCwd(entries: readonly Entry[], sessionId: string): string | undefined {
+    let fallback: string | undefined;
+    for (const { record } of entries) {
+        const cwd = str(record.cwd);
+        if (!cwd) continue;
+        const recordSession = str(record.sessionId);
+        if (recordSession === undefined || recordSession === sessionId) return cwd;
+        fallback ??= cwd;
+    }
+    return fallback;
+}
+
 function contentBlocks(content: unknown): unknown[] {
     if (typeof content === "string") return [{ type: "text", text: content }];
     return Array.isArray(content) ? content : [];
@@ -202,6 +216,11 @@ function parseClaudeSession(
         return uuid ? { index, line, record, uuid } : { index, line, record };
     });
 
+    // Working folder for tool calls whose record has no cwd: the first own cwd, else any cwd.
+    const sessionCwd = firstCwd(entries, sessionId);
+    const callCwd = (record: Record<string, unknown>): string | undefined =>
+        str(record.cwd) ?? sessionCwd;
+
     // First pass: index records and tool calls. The file order is not always the chain order,
     // for example a tool result can come before the record of its call. The events are sorted
     // into the chain order at the end.
@@ -217,7 +236,12 @@ function parseClaudeSession(
             const id = str(call?.id);
             if (!call || call.type !== "tool_use" || !id) continue;
             const name = str(call.name);
-            const memory = isMemoryToolCall(name, argumentsToText(call.input), memoryPath);
+            const memory = isMemoryToolCall(
+                name,
+                argumentsToText(call.input),
+                memoryPath,
+                callCwd(record),
+            );
             toolCalls.set(id, uuid ? { name, memory, recordUuid: uuid } : { name, memory });
         }
     }
@@ -227,7 +251,7 @@ function parseClaudeSession(
     const emitted = new Set<string>();
     let conversationRecords = 0;
     let sidechainRecords = 0;
-    let leaf: Entry | undefined;
+    const leafCandidates: Entry[] = [];
     let cwd: string | undefined;
     let fallbackCwd: string | undefined;
     let branch: string | undefined;
@@ -291,7 +315,11 @@ function parseClaudeSession(
         if (type === "user") {
             if (record.isCompactSummary === true) {
                 const content = knownContent(message?.content, `line ${line}: Claude summary`);
-                add(0, { role: "summary", text: blocksToText(content), untrusted: false });
+                add(0, {
+                    role: "summary",
+                    text: blocksToText(content, `line ${line}: Claude summary`),
+                    untrusted: false,
+                });
             } else if (record.isMeta === true) {
                 // Harness-generated context, for example an expanded skill prompt.
                 bump(filtered, "meta");
@@ -305,7 +333,8 @@ function parseClaudeSession(
                     const block = obj(value);
                     const blockType = str(block?.type);
                     if (blockType === "text") {
-                        add(part, userTextPiece(str(block?.text) ?? "", source, filtered));
+                        const where = `line ${line}: Claude user`;
+                        add(part, userTextPiece(blockText(block, where), source, filtered));
                     } else if (blockType === "image" || blockType === "document") {
                         const placeholder = `[${blockType}]`;
                         add(
@@ -323,7 +352,10 @@ function parseClaudeSession(
                         const callId = str(block?.tool_use_id);
                         const call = callId ? toolCalls.get(callId) : undefined;
                         // The harness also appends reminders to tool output.
-                        const output = stripReminders(blocksToText(block?.content), filtered);
+                        const output = stripReminders(
+                            blocksToText(block?.content, `line ${line}: Claude tool result`),
+                            filtered,
+                        );
                         const result = block?.is_error === true ? `[error] ${output}` : output;
                         const piece: Piece = { role: "tool_result", text: result, untrusted: true };
                         if (call?.name) piece.toolName = call.name;
@@ -336,7 +368,9 @@ function parseClaudeSession(
             }
         } else if (type === "assistant") {
             if (record.isApiErrorMessage === true) {
-                const error = blocksToText(message?.content) || str(record.error) || "API error";
+                const where = `line ${line}: Claude API error`;
+                const error =
+                    blocksToText(message?.content, where) || str(record.error) || "API error";
                 add(0, { role: "notice", text: error, untrusted: false });
             } else {
                 const content = knownContent(message?.content, `line ${line}: Claude assistant`);
@@ -346,7 +380,7 @@ function parseClaudeSession(
                     if (blockType === "text") {
                         add(part, {
                             role: "assistant",
-                            text: str(block?.text) ?? "",
+                            text: blockText(block, `line ${line}: Claude assistant`),
                             untrusted: false,
                         });
                     } else if (blockType === "thinking" || blockType === "redacted_thinking") {
@@ -384,7 +418,11 @@ function parseClaudeSession(
             // never as a user record. Other attachments are harness context.
             if (attachment?.type === "queued_command" && attachment.isMeta !== true) {
                 const source = nonHumanSource(attachment.origin, undefined);
-                add(0, userTextPiece(blocksToText(attachment.prompt), source, filtered));
+                const prompt = blocksToText(
+                    attachment.prompt,
+                    `line ${line}: Claude queued prompt`,
+                );
+                add(0, userTextPiece(prompt, source, filtered));
             } else {
                 bump(filtered, attachment?.type === "queued_command" ? "meta" : "attachment");
             }
@@ -400,7 +438,9 @@ function parseClaudeSession(
             continue;
         }
 
-        if (uuid && (type === "user" || type === "assistant" || pieces.length > 0)) leaf = entry;
+        if (uuid && (type === "user" || type === "assistant" || pieces.length > 0)) {
+            leafCandidates.push(entry);
+        }
         if (pieces.length === 0) continue;
         if (uuid && emitted.has(uuid)) {
             bump(filtered, "duplicate");
@@ -430,7 +470,12 @@ function parseClaudeSession(
                 sourceLine: line,
                 memoryDerived:
                     (piece.role === "tool_call" &&
-                        isMemoryToolCall(piece.toolName, piece.text, memoryPath)) ||
+                        isMemoryToolCall(
+                            piece.toolName,
+                            piece.text,
+                            memoryPath,
+                            callCwd(record),
+                        )) ||
                     call?.memory === true ||
                     containsMemoryContext(piece.text),
                 untrusted: piece.untrusted,
@@ -453,6 +498,17 @@ function parseClaudeSession(
         warnings.push(`skipped ${copied} records copied from earlier session ${sources}`);
     }
 
+    const places = chainPlaces(entries, byUuid);
+    const placeAt = (index: number): ChainPlace => places.get(index) ?? { pos: index, depth: 0 };
+    const chainOrder = (a: ChainPlace, b: ChainPlace): number => a.pos - b.pos || a.depth - b.depth;
+
+    // The leaf is the last candidate in chain order, not the last record in the file. A record
+    // can come after its child in the file, and then the last record is not the newest message.
+    // On a tie the later record in the file wins, as in the event sort below.
+    let leaf: Entry | undefined;
+    for (const entry of leafCandidates) {
+        if (!leaf || chainOrder(placeAt(entry.index), placeAt(leaf.index)) >= 0) leaf = entry;
+    }
     const active = leaf ? activePath(leaf, entries, byUuid, warnings) : new Set<string>();
     for (const { event, recordUuid, callRecord } of pending) {
         event.active =
@@ -460,13 +516,10 @@ function parseClaudeSession(
             (callRecord !== undefined && active.has(callRecord));
     }
 
-    const places = chainPlaces(entries, byUuid);
-    const place = (item: Pending): ChainPlace =>
-        places.get(item.entryIndex) ?? { pos: item.entryIndex, depth: 0 };
     // The sort is stable, so records with the same place, and the parts of a record, keep the
     // file order.
     const events = pending
-        .toSorted((a, b) => place(a).pos - place(b).pos || place(a).depth - place(b).depth)
+        .toSorted((a, b) => chainOrder(placeAt(a.entryIndex), placeAt(b.entryIndex)))
         .map((item) => item.event);
     const evidence: SessionEvidence = {
         harness: "claude",

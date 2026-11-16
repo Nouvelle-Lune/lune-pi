@@ -197,3 +197,65 @@ test("the snapshot covers new events, adds context, and is partial over the char
     );
     assert.equal(snapshot.events[1]?.truncated, true);
 });
+
+test("a session whose events were all removed stays eligible while an item that cites it needs review, and is not marked trivial", (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project");
+    env.addSession({ id: "dead", projectId: "p1", revision: 2, processedRevision: 2 });
+    env.store.run("UPDATE sessions SET review_revision = 2 WHERE id = 'dead'");
+    env.addItem({
+        id: "i1",
+        kind: "decision",
+        title: "Rests on removed text",
+        body: "Body.",
+        projectId: "p1",
+        sources: [{ kind: "event", harness: "claude", sessionId: "dead", eventKey: "gone" }],
+    });
+
+    const actual = find(env);
+    const marked = markTrivial(env.store, actual.trivial);
+
+    assert.deepEqual(labels(actual), ["dead"]);
+    assert.deepEqual(actual.eligible[0] && [...actual.eligible[0].review], ["i1"]);
+    assert.equal(actual.trivial.length, 0);
+    assert.equal(marked, 0);
+    assert.equal(getSession(env.store, "claude", "dead")?.reviewRevision, 2);
+});
+
+test("a queued session with no item to review is trivial, and marking it leaves the review queue", (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project");
+    env.addSession({ id: "dead", projectId: "p1", revision: 2, processedRevision: 2 });
+    env.store.run("UPDATE sessions SET review_revision = 2 WHERE id = 'dead'");
+
+    const actual = find(env);
+    const marked = markTrivial(env.store, actual.trivial);
+
+    assert.deepEqual(labels(actual), []);
+    assert.equal(marked, 1);
+    assert.equal(getSession(env.store, "claude", "dead")?.reviewRevision ?? null, null);
+});
+
+test("more than 40 items to review set the overflow flag, and the snapshot shows 40", (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project");
+    env.addSession({ id: "dead", projectId: "p1", revision: 2, processedRevision: 2 });
+    env.store.run("UPDATE sessions SET review_revision = 2 WHERE id = 'dead'");
+    for (let i = 0; i < 45; i++) {
+        env.addItem({
+            id: `i${i}`,
+            kind: "decision",
+            title: `Decision ${i}`,
+            body: "Body.",
+            projectId: "p1",
+            sources: [
+                { kind: "event", harness: "claude", sessionId: "dead", eventKey: `gone${i}` },
+            ],
+        });
+    }
+
+    const snapshot = find(env).eligible[0];
+
+    assert.equal(snapshot?.review.size, 40);
+    assert.equal(snapshot?.reviewOverflow, true);
+});

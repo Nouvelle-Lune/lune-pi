@@ -91,6 +91,67 @@ export function liveEvents(
     return result;
 }
 
+/**
+ * Pin each event source of `items` to the hash that it has now. The model saw these items, so
+ * their evidence must not change before the commit. A vanished event gets no pin.
+ */
+export function pinItemSources(store: Store, items: readonly Item[]): Map<string, string> {
+    const pins = new Map<string, string>();
+    for (const item of items) {
+        for (const source of item.sources) {
+            if (source.kind !== "event") continue;
+            const event = getEvent(store, source.harness, source.sessionId, source.eventKey);
+            if (event) pins.set(eventId(event), event.hash);
+        }
+    }
+    return pins;
+}
+
+/** Add the pins of `extra` to `pins`. A pin that `pins` has already stays as it is. */
+export function addPins(pins: Map<string, string>, extra: EventPins | undefined): void {
+    for (const [id, hash] of extra ?? []) {
+        if (!pins.has(id)) pins.set(id, hash);
+    }
+}
+
+/** Evidence of a change, and the pinned sources that changed after the model saw them. */
+export interface CheckedEvidence {
+    /** Events that can be evidence now, as `liveEvents` gives them. */
+    events: EventRow[];
+    /** Pinned sources whose event changed or vanished after the pin. */
+    changed: string[];
+}
+
+/**
+ * Check the evidence of a change. It gives the same events as `liveEvents`, and it also names
+ * each pinned source that changed or vanished. A change that cites such a source is not what the
+ * model judged, so the caller rejects it: dropping only that source can leave an unrelated event
+ * as the whole support of the conclusion.
+ */
+export function checkEvidence(
+    store: Store,
+    sources: readonly SourceRef[],
+    pins: EventPins,
+    kind?: ItemKind,
+): CheckedEvidence {
+    const abandoned = kind !== undefined && ABANDONED_KINDS.includes(kind);
+    const events: EventRow[] = [];
+    const changed: string[] = [];
+    for (const source of uniqueSources(sources)) {
+        if (source.kind !== "event") continue;
+        const id = sourceKey(source);
+        const pinned = pins.get(id);
+        const event = getEvent(store, source.harness, source.sessionId, source.eventKey);
+        if (pinned !== undefined && event?.hash !== pinned) {
+            changed.push(id);
+            continue;
+        }
+        if (!event || event.memoryDerived || (!event.active && !abandoned)) continue;
+        events.push(event);
+    }
+    return { events, changed };
+}
+
 /** Event sources of one session, without duplicates. */
 export function sessionSources(
     sources: readonly SourceRef[],
@@ -145,17 +206,53 @@ function isUserStatement(event: EventRow): boolean {
 // statement is about the same preference.
 const GENERAL_WORDS = [
     /\b(?:always|never|by default|from now on|in general|everywhere|globally)\b/iu,
-    /\b(?:every|all|any|each)\s+(?:projects?|repos?|repositor(?:y|ies)|codebases?|sessions?)\b/iu,
-    /(?:总是|始终|永远|一律|默认|以后都|今后|全局|所有项目|每个项目|任何项目|所有仓库|每个仓库)/u,
+    /\b(?:every|all|any|each)\s+(?:single\s+)?(?:(?:one\s+)?of\s+)?(?:(?:my|our|the|your)\s+)?(?:projects?|repos?|repositor(?:y|ies)|codebases?|sessions?|workspaces?)\b/iu,
+    /\bacross\s+(?:(?:all\s+(?:of\s+)?)?(?:my|our|the)\s+)?(?:projects|repos|repositories|codebases|workspaces)\b/iu,
+    /\b(?:regardless of|no matter)\s+(?:(?:the|which|what)\s+)?(?:project|repo|repository|codebase)\b/iu,
+    /(?:总是|始终|永远|一律|默认|以后都|今后|全局|跨项目|(?:所有|每个|每一个|任何|全部|各个)的?(?:项目|仓库|代码库|工程)|(?:不管|无论)是?(?:哪个|什么)(?:项目|仓库))/u,
 ];
+// A statement that names one unit of code, such as "this project" or "this service", sets a
+// rule for that place only.
 const PROJECT_WORDS = [
-    /\b(?:this|the current|current|our)\s+(?:project|repo|repository|codebase|package|workspace|app)\b/iu,
-    /(?:这个项目|本项目|此项目|该项目|当前项目|这个仓库|本仓库|当前仓库|这个代码库)/u,
+    /\b(?:this|the current|current|our)\s+(?:project|repo|repository|codebase|monorepo|package|workspace|app|application|service|module|crate|library|lib|component|plugin|extension|site|website|frontend|backend)\b/iu,
+    /(?:这个|本|此|该|当前)(?:项目|仓库|代码库|工程|服务|模块|包|库|应用|插件)/u,
 ];
-const RETRACTION_WORDS = [
-    /\b(?:no longer|not any ?more|stop|don['’]t|do not|never mind|forget|instead|retract|cancel)\b/iu,
-    /(?:不要|不再|别再|取消|忘掉|忘记|算了|不用再|改为|改成)/u,
+// "Don't forget" and "别忘了" repeat a rule. They do not withdraw one.
+const REMINDER_WORDS =
+    /\b(?:don['’]t|do not|never)\s+forget\b|(?:别忘了|别忘记|别忘|不要忘记|不要忘了|不要忘)/giu;
+// These words withdraw a rule in any clause that does not also set one.
+const STRONG_RETRACTION = [
+    /\b(?:no longer|no more|not any ?more|anymore|stop|never mind|forget|retract|cancel)\b/iu,
+    /(?:不再|别再|不要再|不用再|取消|忘掉|忘记|算了)/u,
 ];
+// These words also state rules, for example "always use spaces instead of tabs". They withdraw
+// a rule only in a statement that sets no rule.
+const WEAK_RETRACTION = [/\b(?:don['’]t|do not|instead)\b/iu, /(?:不要|改为|改成|换成)/u];
+const RULE_WORDS = [/\b(?:always|make sure|be sure|ensure)\b/iu, /(?:总是|始终|务必|一定要|一律)/u];
+const CLAUSE_BREAK =
+    /[.;:!?,\n。；：！？，、]+|\b(?:and|but|also|then|so|while)\b|(?:而且|并且|但是|然后|还有|另外|同时)/iu;
+// Words that name no topic. Two statements that share only these are not about the same rule.
+const STOP_WORDS = new Set(
+    (
+        "the and but for with without you your yours our ours they them their this that these " +
+        "those then than there here what when where which who why how all any each every some " +
+        "more most other into onto from about also just only very really please use using used " +
+        "make made get got let can could should would will shall must may might not now are was " +
+        "were been being have has had does did doing done its it's i'm one like want need thing " +
+        "way instead longer stop forget never always default general from project repo session"
+    ).split(" "),
+);
+const HAN = /\p{Script=Han}/u;
+const HAN_BREAK = /[的了吧呢吗啊呀嘛请就都也还和与或]/u;
+const TOKEN = /\p{Script=Han}+|(?:(?!\p{Script=Han})[\p{L}\p{N}_'’-])+/gu;
+// Longer phrases go first, so that "never mind" goes as a whole before "never".
+const MARKERS = [
+    ...STRONG_RETRACTION,
+    ...WEAK_RETRACTION,
+    ...RULE_WORDS,
+    ...GENERAL_WORDS,
+    ...PROJECT_WORDS,
+].map((pattern) => new RegExp(pattern.source, `${pattern.flags}g`));
 
 function hasWords(patterns: readonly RegExp[], text: string): boolean {
     return patterns.some((pattern) => pattern.test(text));
@@ -176,13 +273,76 @@ export function statesGeneral(event: EventRow): boolean {
 /**
  * A user statement that withdraws or reverses a rule, for example "stop" or "no longer". A
  * statement that names one project makes an exception there, not a retraction.
+ *
+ * The check works per clause, so "always answer in English, and don't use tabs" does not
+ * withdraw a rule about English. With `about`, the text of the preference and its sources, the
+ * clause that withdraws must also share a word with it. This only shows that the statement can
+ * be about the preference; the model reads the meaning.
  */
-export function statesRetraction(event: EventRow): boolean {
-    return (
-        isUserStatement(event) &&
-        hasWords(RETRACTION_WORDS, event.text) &&
-        !hasWords(PROJECT_WORDS, event.text)
-    );
+export function statesRetraction(event: EventRow, about?: readonly string[]): boolean {
+    if (!isUserStatement(event) || hasWords(PROJECT_WORDS, event.text)) return false;
+    const found = retractionClauses(event.text);
+    if (!found.length) return false;
+    if (!about) return true;
+    const topic = topicTerms(about.join("\n"));
+    return found.some((clause) => {
+        const own = topicTerms(clause);
+        // A bare "never mind" refers to the rest of the statement.
+        return sharesTerm(own.size ? own : topicTerms(event.text), topic);
+    });
+}
+
+/** Clauses of a statement that withdraw a rule and do not set one. */
+function retractionClauses(text: string): string[] {
+    const plain = text.replace(REMINDER_WORDS, " ");
+    const setsRule = hasWords(RULE_WORDS, plain);
+    return plain.split(CLAUSE_BREAK).filter((clause) => {
+        if (hasWords(RULE_WORDS, clause)) return false;
+        if (hasWords(STRONG_RETRACTION, clause)) return true;
+        return !setsRule && hasWords(WEAK_RETRACTION, clause);
+    });
+}
+
+/**
+ * Topic words of a text: word stems outside Chinese, and pairs of adjacent Han characters in
+ * Chinese, which has no spaces. Scope, rule and retraction words are not topics.
+ */
+function topicTerms(text: string): Set<string> {
+    let plain = text.replace(REMINDER_WORDS, " ");
+    for (const marker of MARKERS) plain = plain.replace(marker, " ");
+    const terms = new Set<string>();
+    for (const token of plain.toLowerCase().match(TOKEN) ?? []) {
+        if (HAN.test(token)) {
+            for (const run of token.split(HAN_BREAK)) {
+                const chars = [...run];
+                for (let i = 0; i + 1 < chars.length; i++) terms.add(`${chars[i]}${chars[i + 1]}`);
+            }
+            continue;
+        }
+        const word = token.replace(/['’]s$/u, "").replace(/['’-]/gu, "");
+        if (STOP_WORDS.has(word)) continue;
+        const term = stem(word);
+        if (term.length >= 3 && !STOP_WORDS.has(term)) terms.add(term);
+    }
+    return terms;
+}
+
+function stem(word: string): string {
+    if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+    if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+    return word;
+}
+
+/** Two words match when they are equal, or one is a stem of four or more letters of the other. */
+function sharesTerm(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+    for (const a of left) {
+        for (const b of right) {
+            if (a === b) return true;
+            const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+            if (short.length >= 4 && long.startsWith(short)) return true;
+        }
+    }
+    return false;
 }
 
 /**

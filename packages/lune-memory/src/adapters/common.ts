@@ -1,6 +1,6 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { MEMORY_CONTEXT_TAG, type Harness } from "../core/types.ts";
 import { AdapterFormatError, type MemoryPathTest, type SessionFileRef } from "./types.ts";
@@ -32,11 +32,16 @@ const MEMORY_PATH_PATTERN =
 
 /**
  * True when text references a lune-memory file, for example a file read of L2 or L3. The default
- * home always counts. `test` adds the paths of the home in use.
+ * home always counts. `test` adds the paths of the home in use, and with `cwd` also the relative
+ * paths from that folder.
  */
-export function mentionsMemoryPath(text: string | undefined, test?: MemoryPathTest): boolean {
+export function mentionsMemoryPath(
+    text: string | undefined,
+    test?: MemoryPathTest,
+    cwd?: string,
+): boolean {
     if (text === undefined) return false;
-    return MEMORY_PATH_PATTERN.test(text) || (test?.(text) ?? false);
+    return MEMORY_PATH_PATTERN.test(text) || (test?.(text, cwd) ?? false);
 }
 
 function trimSeparators(path: string): string {
@@ -59,18 +64,86 @@ function pathSource(path: string): string {
         .join("[\\\\/]");
 }
 
+/** Breaks between path tokens in a command or in serialized JSON arguments. */
+const TOKEN_BREAK = /[\s"'`,;|&()<>=]+/u;
+/** An escaped newline or tab in serialized JSON. A doubled backslash is a path separator. */
+const JSON_ESCAPE = /(?<!\\)\\[nrt]/gu;
+/** Words whose next token is a folder that later relative paths can start from. */
+const FOLDER_WORDS = new Set(["cd", "pushd", "-C", "workdir", "cwd", "dir_path"]);
+const MAX_TOKEN = 4096;
+const MAX_BASES = 16;
+
+function insideAny(path: string, roots: ReadonlySet<string>): boolean {
+    for (const root of roots) {
+        if (path === root || path.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * True when a relative path in `text` names a memory file from the folder `cwd`, for example
+ * `cat ../memory/views/a.md` from a sibling folder. A folder after `cd`, `workdir` or a similar
+ * word is a further start folder for all tokens, because JSON arguments do not keep the order of
+ * the shell. Absolute paths resolve to themselves, so a read outside memory home does not count
+ * when the cwd is memory home.
+ */
+function namesRelativePath(
+    text: string,
+    cwd: string,
+    roots: ReadonlySet<string>,
+    home: string,
+    realCwd: (path: string) => string,
+): boolean {
+    const tokens = text
+        .replace(JSON_ESCAPE, " ")
+        .split(TOKEN_BREAK)
+        .map((token) => token.replace(/^@/u, ""))
+        .filter(
+            (token) =>
+                token !== "" &&
+                token !== ":" &&
+                token.length <= MAX_TOKEN &&
+                !token.startsWith("$") &&
+                !token.includes("://"),
+        );
+    const expand = (token: string): string =>
+        token === "~" ? home : token.startsWith("~/") ? join(home, token.slice(2)) : token;
+    const bases = new Set([cwd, realCwd(cwd)]);
+    tokens.forEach((token, index) => {
+        const next = tokens[index + 1];
+        if (!next || !FOLDER_WORDS.has(token)) return;
+        for (const base of [...bases]) {
+            if (bases.size >= MAX_BASES) return;
+            bases.add(resolve(base, expand(next)));
+        }
+    });
+    for (const token of tokens) {
+        if (FOLDER_WORDS.has(token)) continue;
+        const path = expand(token);
+        for (const base of bases) {
+            if (insideAny(resolve(base, path), roots)) return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Test for the memory files below the given paths: each path as given, its real path, and the
  * `~/` and `$HOME/` forms of a path in the user home. A form matches only as a whole path, so
- * `views` does not match `views2`.
+ * `views` does not match `views2`. With a cwd, a relative path that resolves from that folder to
+ * one of the paths also counts.
  */
 export function memoryPathTest(paths: readonly string[], home = homedir()): MemoryPathTest {
     const homeRoot = trimSeparators(home);
     const forms = new Set<string>();
+    const roots = new Set<string>();
     for (const path of paths) {
         for (const variant of [trimSeparators(path), trimSeparators(realpathOr(path))]) {
             if (!variant) continue;
             forms.add(variant);
+            if (isAbsolute(variant)) roots.add(resolve(variant));
             if (!homeRoot || !variant.startsWith(homeRoot)) continue;
             const rest = variant.slice(homeRoot.length);
             if (!/^[\\/]/u.test(rest)) continue;
@@ -85,7 +158,21 @@ export function memoryPathTest(paths: readonly string[], home = homedir()): Memo
         .map(pathSource)
         .join("|");
     const pattern = new RegExp(`(?:${source})(?![\\w.-])`, "u");
-    return (text) => pattern.test(text);
+    const realCwds = new Map<string, string>();
+    const realCwd = (cwd: string): string => {
+        let real = realCwds.get(cwd);
+        if (real === undefined) {
+            real = realpathOr(cwd);
+            realCwds.set(cwd, real);
+        }
+        return real;
+    };
+    return (text, cwd) =>
+        pattern.test(text) ||
+        (cwd !== undefined &&
+            isAbsolute(cwd) &&
+            roots.size > 0 &&
+            namesRelativePath(text, cwd, roots, homeRoot || home, realCwd));
 }
 
 /** True when text contains injected L1 context. */
@@ -93,13 +180,17 @@ export function containsMemoryContext(text: string | undefined): boolean {
     return text !== undefined && text.includes(`<${MEMORY_CONTEXT_TAG}`);
 }
 
-/** True when a tool call is memory-derived: a memory tool, or a call that reads memory files. */
+/**
+ * True when a tool call is memory-derived: a memory tool, or a call that reads memory files.
+ * `cwd` is the working folder of the call, for relative paths.
+ */
 export function isMemoryToolCall(
     name: string | undefined,
     argumentsText: string,
     test?: MemoryPathTest,
+    cwd?: string,
 ): boolean {
-    return isMemoryToolName(name) || mentionsMemoryPath(argumentsText, test);
+    return isMemoryToolName(name) || mentionsMemoryPath(argumentsText, test, cwd);
 }
 
 /** Serialize tool arguments for an event text. Strings stay as they are. */
@@ -123,11 +214,25 @@ export function knownContent(content: unknown, where: string): string | unknown[
 }
 
 /**
- * Join the text of content blocks. `content` can be a string or an array of blocks. Only `text`
- * blocks (or blocks with a string `text` field of the given types) are kept. Images become a
- * placeholder.
+ * Text of a text block. A text block whose `text` is not a string throws, for the same reason as
+ * `knownContent`. `where` names the record in the error.
  */
-export function blocksToText(content: unknown, textTypes: readonly string[] = ["text"]): string {
+export function blockText(block: Record<string, unknown> | undefined, where: string): string {
+    const text = block?.text;
+    if (typeof text === "string") return text;
+    throw new AdapterFormatError(`${where} text block has an unknown format`);
+}
+
+/**
+ * Join the text of content blocks. `content` can be a string or an array of blocks. Only blocks of
+ * the given text types are kept, and each must have a string `text` (see `blockText`). Images
+ * become a placeholder. `where` names the record in an error.
+ */
+export function blocksToText(
+    content: unknown,
+    where: string,
+    textTypes: readonly string[] = ["text"],
+): string {
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return "";
     const parts: string[] = [];
@@ -139,7 +244,7 @@ export function blocksToText(content: unknown, textTypes: readonly string[] = ["
         if (!block || typeof block !== "object") continue;
         const record = block as Record<string, unknown>;
         const type = typeof record.type === "string" ? record.type : "";
-        if (textTypes.includes(type) && typeof record.text === "string") parts.push(record.text);
+        if (textTypes.includes(type)) parts.push(blockText(record, where));
         else if (type === "image" || type === "input_image") parts.push("[image]");
     }
     return parts.join("\n");

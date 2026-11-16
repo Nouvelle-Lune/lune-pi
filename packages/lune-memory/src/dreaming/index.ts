@@ -23,6 +23,7 @@ import {
     type CommitCounts,
 } from "./commit.ts";
 import { findEligible, markTrivial, type SessionSnapshot } from "./eligibility.ts";
+import { pinItemSources, type EventPins } from "./evidence.ts";
 import { globalWork, runGlobalPass, type GlobalPassResult } from "./global.ts";
 import {
     addUsage,
@@ -451,6 +452,7 @@ async function runProject(
         let feedback: string | undefined;
         for (let attempt = 0; ; attempt++) {
             let ops: OrganizerOp[] = [];
+            let itemPins: EventPins | undefined;
             const warnings = work.results.flatMap((entry) => entry.warnings);
             if (needsOrganizer(work)) {
                 if (!model) throw new Error("The Organizer needs a model, and none is configured");
@@ -476,6 +478,12 @@ async function runProject(
                     l1: stableL1Size(store, paths, project.id),
                     ...(feedback ? { feedback } : {}),
                 };
+                // The model judges these items with their evidence as it is now.
+                itemPins = pinItemSources(store, [
+                    ...input.items,
+                    ...input.globals,
+                    ...input.closedBranches.flatMap((branch) => branch.items),
+                ]);
                 called = true;
                 const plan = await organizeProject(model, input, context.signal);
                 addUsage(usage, plan.usage);
@@ -496,6 +504,7 @@ async function runProject(
                     closedBranches: work.closed,
                     usage,
                     warnings,
+                    ...(itemPins ? { itemPins } : {}),
                     now: context.now,
                 });
                 result.status = "ok";

@@ -102,21 +102,20 @@ describe("writeNote", () => {
         assert.throws(() => write({ body: "b".repeat(20_001) }), /at most 20000/u);
     });
 
-    it("redacts secrets from the title and body before storing", () => {
+    it("stores the title and body as written, without redacting secrets", () => {
         const item = write({
             title: `Key ${fakeSecret} rotated`,
             body: `Use ${fakeSecret} for the build.`,
         });
 
         const stored = getItem(store, item.id);
-        assert.equal(stored?.title, "Key [redacted] rotated");
-        assert.equal(stored?.body, "Use [redacted] for the build.");
-        assert.ok(!`${stored?.title}${stored?.body}`.includes(fakeSecret));
+        assert.equal(stored?.title, `Key ${fakeSecret} rotated`);
+        assert.equal(stored?.body, `Use ${fakeSecret} for the build.`);
     });
 });
 
 describe("updateNote and retractNote", () => {
-    it("redacts secrets from the new title and body", () => {
+    it("stores the new title and body as written, without redacting secrets", () => {
         const item = write();
 
         updateNote(store, item.id, {
@@ -126,9 +125,8 @@ describe("updateNote and retractNote", () => {
         });
 
         const stored = getItem(store, item.id);
-        assert.equal(stored?.title, "Key [redacted] rotated");
-        assert.equal(stored?.body, "Use [redacted] for the build.");
-        assert.ok(!`${stored?.title}${stored?.body}`.includes(fakeSecret));
+        assert.equal(stored?.title, `Key ${fakeSecret} rotated`);
+        assert.equal(stored?.body, `Use ${fakeSecret} for the build.`);
     });
 
     it("lets the writer replace the text of a provisional note", () => {

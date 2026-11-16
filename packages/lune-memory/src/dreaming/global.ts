@@ -9,7 +9,7 @@ import {
     type SourceRef,
 } from "../core/types.ts";
 import { errorMessage, newId, nowIso } from "../core/util.ts";
-import { stableL1Grew, stableL1Size } from "../memory/l1.ts";
+import { grownStableBranch, stableL1Size } from "../memory/l1.ts";
 import { contentHash } from "../memory/notes.ts";
 import { num, type Store } from "../store/db.ts";
 import {
@@ -24,7 +24,10 @@ import {
 } from "../store/rows.ts";
 import { asRecords, eventHeader, type AnalyzerResult, type NoteReview } from "./analyzer.ts";
 import { BudgetError, markProcessed, recordFailure, sessionLabel } from "./commit.ts";
+import type { SnapshotEvent } from "./eligibility.ts";
 import {
+    addPins,
+    checkEvidence,
     clampTrust,
     cleanBody,
     cleanTitle,
@@ -34,8 +37,8 @@ import {
     hasUserEvent,
     idemKey,
     itemEvents,
-    liveEvents,
     pinEvents,
+    pinItemSources,
     statesGeneral,
     statesRetraction,
     stringList,
@@ -50,14 +53,14 @@ const MAX_PREFERENCES = 400;
 const ITEM_CHARS = 300;
 const EVENT_CHARS = 400;
 
-export const GLOBAL_SYSTEM = `You are the global pass of lune-memory. lune-memory keeps the memory of coding agents across projects and harnesses. You maintain Global Memory: the user preferences that apply in every project. You get the preferences of all projects, the current global preferences, and general preferences from sessions outside any project. You reply with the changes to make. The backend validates and commits each change.
+export const GLOBAL_SYSTEM = `You are the global pass of lune-memory. lune-memory keeps the memory of coding agents across projects and harnesses. You maintain Global Memory: the user preferences that apply in every project. You get the preferences of all projects, the current global preferences, general preferences from sessions outside any project, and user statements from those sessions that can withdraw a rule. You reply with the changes to make. The backend validates and commits each change.
 
 Rules:
 1. A preference reaches Global Memory only in two ways: the user states in their own words that it is general, for example "always" or "in every project"; or user statements in two or more different projects record the same preference. An inference about what the user seems to prefer counts toward neither. A statement that names one project, for example "in this project", is not general. The backend checks the user's words and rejects a change that does not meet this rule.
 2. promote: make one new global preference. Put the project preferences that it replaces in "from". The backend retires them, because the global preference now covers them. Cite general candidates of sessions outside a project in "evidence", for example ["s1.c2"].
-3. update: change the text of a global preference. It needs the same support as a promotion, in "from" or "evidence".
+3. update: change the text of a global preference. It needs the same support as a promotion, in "from" or "evidence". When the user replaces a global preference with a new general rule, for example "use Chinese instead of English from now on", update it. Do not retire it.
 4. merge: join two or more global preferences that say the same thing into the first one.
-5. retire: remove a global preference only in one of these cases. (a) A session outside a project has a user statement that retracts it, for example "stop" or "no longer". Cite it in "evidence". (b) A project preference records a user statement that retracts it in every project, for example "no longer, in any project". Put it in "from". (c) Project preferences in two or more projects contradict it and are marked as exceptions to it. Put them in "from". A statement that supports the global preference never retires it. The backend checks the user's words and rejects any other retirement.
+5. retire: remove a global preference only in one of these cases. (a) A session outside a project has a user statement that retracts it, for example "stop" or "no longer". Cite the statement in "evidence" by its label, for example ["s1.e3"]. The statement must be about this preference: a retraction of another rule never retires it. (b) A project preference records a user statement that retracts it in every project, for example "no longer, in any project". Put it in "from". (c) Project preferences in two or more projects contradict it and are marked as exceptions to it. Put them in "from". A statement that supports the global preference never retires it. The backend checks the user's words and rejects any other retirement.
 6. exception: a project preference that contradicts a global preference stays in its project and takes precedence there. Mark it with "exception" so that the startup context shows it as an exception.
 7. Do not promote a preference that a global preference already states. Use update or merge.
 8. Keep global preferences short. They are in the startup context of every session.
@@ -183,9 +186,20 @@ function generalCandidates(results: readonly AnalyzerResult[]) {
 }
 
 /**
+ * New user statements of a session outside a project that can withdraw a rule. The analyzer
+ * makes no candidate for "stop doing X", so the global pass gets these events as they are.
+ */
+function retractionEvents(result: AnalyzerResult): [string, SnapshotEvent][] {
+    return [...result.labels].filter(
+        ([, entry]) => entry.role === "new" && statesRetraction(entry.event),
+    );
+}
+
+/**
  * Decide what a global pass must do, with no model call. It calls the model only when a project
- * preference changed since the last successful global pass, or when a session outside a project
- * stated a general preference.
+ * preference changed since the last successful global pass, when a session outside a project
+ * stated a general preference, or when such a session has a user retraction and a global
+ * preference exists that it can retire.
  */
 export function globalWork(store: Store, results: readonly AnalyzerResult[]): GlobalWork {
     const changed = store.get(
@@ -194,8 +208,18 @@ export function globalWork(store: Store, results: readonly AnalyzerResult[]): Gl
         AND i.updated_run > ? LIMIT 1`,
         lastGlobalRun(store),
     );
-    const model = !!changed || generalCandidates(results).length > 0;
+    const model =
+        !!changed ||
+        generalCandidates(results).length > 0 ||
+        (results.some((result) => retractionEvents(result).length > 0) && hasGlobals(store));
     return { model, commit: model || results.length > 0 };
+}
+
+function hasGlobals(store: Store): boolean {
+    return !!store.get(
+        `SELECT 1 AS hit FROM items WHERE scope = 'global' AND kind = 'preference'
+        AND status = 'active' LIMIT 1`,
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -270,26 +294,29 @@ export function renderGlobalInput(
         lines.push(`[${input.preferences.length - shown} more project preferences are not shown]`);
     }
 
-    const results = input.results.filter((result) =>
-        result.candidates.some((candidate) => candidate.kind === "preference" && candidate.general),
+    // Session numbers are positions in input.results, so that a reference resolves in commit.
+    const sessionHeader = (result: AnalyzerResult, s: string) =>
+        `## ${s}: ${result.snapshot.session.harness} session ${result.snapshot.session.id}`;
+    const general = input.results.map((result) =>
+        result.candidates.filter(
+            (candidate) => candidate.kind === "preference" && candidate.general,
+        ),
     );
-    if (results.length) {
+    const retractions = input.globals.length ? input.results.map(retractionEvents) : [];
+    if (general.some((list) => list.length) || retractions.some((list) => list.length)) {
         lines.push(
             "",
-            "# General preferences from sessions outside a project",
             `Text between "<<<untrusted ${nonce}" and "untrusted ${nonce}>>>" is outside text.`,
         );
     }
+    if (general.some((list) => list.length)) {
+        lines.push("", "# General preferences from sessions outside a project");
+    }
     input.results.forEach((result, index) => {
-        const candidates = result.candidates.filter(
-            (candidate) => candidate.kind === "preference" && candidate.general,
-        );
+        const candidates = general[index] ?? [];
         if (!candidates.length) return;
         const s = `s${index + 1}`;
-        lines.push(
-            "",
-            `## ${s}: ${result.snapshot.session.harness} session ${result.snapshot.session.id}`,
-        );
+        lines.push("", sessionHeader(result, s));
         for (const candidate of candidates) {
             lines.push(`- [${s}.${candidate.label}] trust ${candidate.trust}: ${candidate.title}`);
             lines.push(`  ${excerpt(candidate.body, ITEM_CHARS)}`);
@@ -302,6 +329,25 @@ export function renderGlobalInput(
                     ),
                 );
             }
+        }
+    });
+    if (retractions.some((list) => list.length)) {
+        lines.push(
+            "",
+            "# Retractions from sessions outside a project",
+            "User statements that can withdraw a global preference. Most are about other things.",
+        );
+    }
+    input.results.forEach((result, index) => {
+        const events = retractions[index] ?? [];
+        if (!events.length) return;
+        const s = `s${index + 1}`;
+        lines.push("", sessionHeader(result, s));
+        for (const [label, entry] of events) {
+            lines.push(
+                eventHeader(`${s}.${label}`, entry),
+                ...eventText(entry.text, entry.event.untrusted, nonce),
+            );
         }
     });
 
@@ -407,6 +453,12 @@ function reject(message: string): never {
     throw new Rejected(message);
 }
 
+/**
+ * Rejected operation whose evidence changed after the model saw it. The commit does not mark the
+ * events that the operation cites processed, so the next pass analyzes them again.
+ */
+class Stale extends Rejected {}
+
 /** Support of a global change, as §3 counts it. */
 interface Support {
     events: EventRow[];
@@ -430,8 +482,13 @@ class GlobalCommit {
     private readonly runId: number;
     private readonly at: string;
     private readonly live: Set<string>;
-    /** Hash of each event that the Analyzer saw. Evidence must still have this text. */
-    private readonly pins: EventPins;
+    /**
+     * Hash of each event that the model saw: the analyzed events, and the sources of the
+     * preferences in its input. Evidence must still have this text.
+     */
+    private readonly pins: Map<string, string>;
+    /** Events of rejected stale operations. They stay unprocessed for the next pass. */
+    readonly hold = new Set<string>();
 
     constructor(
         store: Store,
@@ -439,6 +496,7 @@ class GlobalCommit {
         runId: number,
         projects: Project[],
         now: number,
+        itemPins?: EventPins,
     ) {
         this.store = store;
         this.results = results;
@@ -448,11 +506,20 @@ class GlobalCommit {
         this.pins = pinEvents(
             results.flatMap((result) => result.snapshot.events.map((entry) => entry.event)),
         );
+        addPins(this.pins, itemPins);
     }
 
-    /** Events of `sources` that can be evidence now, in the revision that the Analyzer saw. */
+    /**
+     * Events of `sources` that can be evidence now, in the revision that the model saw. A pinned
+     * source that changed or vanished rejects the operation: the model judged other text, and
+     * the rest of the sources may not support its conclusion.
+     */
     private current(sources: readonly SourceRef[]): EventRow[] {
-        return liveEvents(this.store, sources, this.pins);
+        const checked = checkEvidence(this.store, sources, this.pins);
+        if (checked.changed.length) {
+            throw new Stale(`evidence changed during the pass: ${checked.changed.join(", ")}`);
+        }
+        return checked.events;
     }
 
     private save(before: Item | null, after: Item): void {
@@ -469,8 +536,11 @@ class GlobalCommit {
     // Note reviews
 
     /**
-     * Apply the reviews of global notes. A reviewed note becomes active, except a preference:
-     * it becomes active only when a general user statement of the session supports it (§3).
+     * Apply the reviews of global notes, as the project pass does. A note becomes active only
+     * through a "keep" or a "correct" review whose evidence still holds, and a preference only
+     * when a general user statement of the session supports it (§3). A note with no review, or
+     * with a review that cites no live evidence, stays provisional. A "retract" review retires
+     * the note.
      */
     reviewNotes(result: AnalyzerResult, handled: Set<string>): void {
         const reviews = new Map<string, NoteReview>();
@@ -493,18 +563,33 @@ class GlobalCommit {
                 this.warnings.push(`Note ${note.id} changed during the pass. It waits for review.`);
                 continue;
             }
-            this.counts.notes++;
-            if (review?.action === "retract") {
+            if (!review) {
+                this.warnings.push(`Note ${note.id} has no review. It stays provisional.`);
+                continue;
+            }
+            if (review.action === "retract") {
+                this.counts.notes++;
                 this.retireItem(note);
                 continue;
             }
-            const sources = uniqueSources([
-                ...note.sources,
-                ...(review?.events ?? []).map(eventSource),
-            ]);
-            const events = this.current(sources);
-            const title = review?.action === "correct" && review.title ? review.title : note.title;
-            const body = review?.action === "correct" && review.body ? review.body : note.body;
+            const sources = uniqueSources([...note.sources, ...review.events.map(eventSource)]);
+            const { events, changed } = checkEvidence(this.store, sources, this.pins);
+            if (changed.length) {
+                this.warnings.push(
+                    `Note ${note.id}: its evidence changed during the pass. It stays provisional.`,
+                );
+                // The next pass reviews the note again with the new text.
+                for (const event of review.events) this.hold.add(eventId(event));
+                continue;
+            }
+            if (events.length === 0) {
+                this.warnings.push(
+                    `Note ${note.id}: the review cites no live evidence. It stays provisional.`,
+                );
+                continue;
+            }
+            const title = review.action === "correct" && review.title ? review.title : note.title;
+            const body = review.action === "correct" && review.body ? review.body : note.body;
             const isGeneral =
                 note.kind === "preference" &&
                 events.some((event) => general.has(eventId(event)) && statesGeneral(event));
@@ -514,6 +599,7 @@ class GlobalCommit {
                 );
                 continue;
             }
+            this.counts.notes++;
             this.save(note, {
                 ...note,
                 title,
@@ -550,7 +636,29 @@ class GlobalCommit {
             if (!(error instanceof Rejected)) throw error;
             this.counts.rejected++;
             this.warnings.push(`Rejected ${op.op}: ${error.message}`);
+            if (error instanceof Stale && "refs" in op) {
+                for (const event of this.citedEvents(op.refs)) this.hold.add(eventId(event));
+            }
         }
+    }
+
+    /** Session events that `refs` cite, without the checks of `support`. */
+    private citedEvents(refs: readonly string[]): EventRow[] {
+        const events: EventRow[] = [];
+        for (const ref of refs) {
+            const match = REF.exec(ref);
+            const result = match ? this.results[Number(match[1]) - 1] : undefined;
+            if (!match || !result) continue;
+            if (match[2] === "e") {
+                const entry = result.labels.get(`e${match[3]}`);
+                if (entry) events.push(entry.event);
+            } else {
+                const label = `c${match[3]}`;
+                const candidate = result.candidates.find((entry) => entry.label === label);
+                if (candidate) events.push(...candidate.events);
+            }
+        }
+        return events;
     }
 
     private projectPreference(id: string): Item {
@@ -583,8 +691,9 @@ class GlobalCommit {
 
     /**
      * Collect the support of a change from project preferences and session references. Only
-     * events that are still evidence count, in the revision that the Analyzer saw. A general
-     * flag of the model counts only when the user's own words state the generality.
+     * events that are still evidence count, in the revision that the model saw: a cited source
+     * that changed after the model saw it rejects the change. A general flag of the model counts
+     * only when the user's own words state the generality.
      */
     private support(from: readonly string[], refs: readonly string[]): Support {
         const support: Support = {
@@ -630,9 +739,7 @@ class GlobalCommit {
             }
             const events = this.current(cited);
             if (!events.length) {
-                this.warnings.push(
-                    `Evidence ${ref} changed after the analysis or is no longer evidence`,
-                );
+                this.warnings.push(`Evidence ${ref} is no longer evidence`);
                 continue;
             }
             support.events.push(...events);
@@ -746,6 +853,8 @@ class GlobalCommit {
             reject(`"${op.title}" duplicates ${duplicate.id}`);
         }
         const sources = uniqueSources(items.flatMap((item) => item.sources));
+        const events = this.current(sources);
+        if (!events.length) reject(`"${op.title}" would have no live evidence`);
         const trust = items.reduce(
             (best, item) => (TRUST_RANK[item.trust] > TRUST_RANK[best] ? item.trust : best),
             first.trust,
@@ -756,7 +865,7 @@ class GlobalCommit {
             body: op.body,
             contentHash: hash,
             sources,
-            trust: clampTrust(trust, this.current(sources), "preference"),
+            trust: clampTrust(trust, events, "preference"),
             updatedRun: this.runId,
             updatedAt: this.at,
         });
@@ -767,17 +876,26 @@ class GlobalCommit {
     /**
      * Retire a global preference (§3). The support must withdraw it: a user retraction outside a
      * project, a user retraction for every project, or exceptions in two or more projects. A
-     * statement that the preference itself cites never counts, because it supports it.
+     * statement that the preference itself cites never counts, because it supports it. A
+     * retraction must be about the preference: it must share a topic term with its title, body
+     * or source statements, so that "stop using tabs" does not retire "answer in English".
      */
     private retire(op: GlobalRetireOp): void {
         const item = this.globalPreference(op.id);
         const support = this.support(op.from, op.refs);
         const own = new Set(item.sources.map(sourceKey));
+        const about = [
+            item.title,
+            item.body,
+            ...itemEvents(this.store, item).map((event) => event.text),
+        ];
         const fresh = (event: EventRow) => !own.has(eventId(event));
-        const outside = support.outside.some((event) => fresh(event) && statesRetraction(event));
+        const outside = support.outside.some(
+            (event) => fresh(event) && statesRetraction(event, about),
+        );
         const everywhere = support.items.some((from) =>
             this.current(from.sources).some(
-                (event) => fresh(event) && statesRetraction(event) && statesGeneral(event),
+                (event) => fresh(event) && statesRetraction(event, about) && statesGeneral(event),
             ),
         );
         const exceptions = new Set(
@@ -825,6 +943,11 @@ interface GlobalCommitInput {
     ops: GlobalOp[];
     usage: Usage;
     warnings: string[];
+    /**
+     * Hash of each event source of the preferences that the model saw, from `pinItemSources`.
+     * An operation that cites such a source after it changed is rejected.
+     */
+    itemPins?: EventPins;
     now: number;
 }
 
@@ -849,7 +972,14 @@ function commitGlobal(
             model: input.model,
             sessions,
         });
-        const commit = new GlobalCommit(store, input.results, runId, input.projects, input.now);
+        const commit = new GlobalCommit(
+            store,
+            input.results,
+            runId,
+            input.projects,
+            input.now,
+            input.itemPins,
+        );
         commit.warnings.push(...input.warnings);
         const handled = new Set<string>();
         for (const result of input.results) {
@@ -862,10 +992,17 @@ function commitGlobal(
             commit.reviewNotes(result, handled);
         }
         for (const op of input.ops) commit.apply(op);
-        for (const result of input.results) markProcessed(store, result.snapshot);
+        for (const result of input.results) markProcessed(store, result.snapshot, commit.hold);
         for (const scope of scopes) {
             const after = stableL1Size(store, paths, scope);
-            if (stableL1Grew(before.get(scope), after)) throw new BudgetError(after);
+            const grown = grownStableBranch(before.get(scope), after);
+            if (grown) {
+                throw new BudgetError({
+                    ...grown,
+                    maxLines: after.maxLines,
+                    maxBytes: after.maxBytes,
+                });
+            }
         }
         finishRun(store, runId, {
             status: "ok",
@@ -905,6 +1042,7 @@ export async function runGlobalPass(
     const snapshots = input.results.map((entry) => entry.snapshot);
     try {
         let ops: GlobalOp[] = [];
+        let itemPins: EventPins | undefined;
         const warnings: string[] = [];
         let feedback: string | undefined;
         for (let attempt = 0; ; attempt++) {
@@ -927,6 +1065,11 @@ export async function runGlobalPass(
                     changedSince: lastGlobalRun(store),
                     ...(feedback ? { feedback } : {}),
                 };
+                // The model judges these preferences with their evidence as it is now.
+                itemPins = pinItemSources(store, [
+                    ...globalInput.preferences,
+                    ...globalInput.globals,
+                ]);
                 result.called = true;
                 const completion = await model.complete(
                     GLOBAL_SYSTEM,
@@ -948,6 +1091,7 @@ export async function runGlobalPass(
                     ops,
                     usage: result.usage,
                     warnings,
+                    ...(itemPins ? { itemPins } : {}),
                     now,
                 });
                 result.runId = committed.runId;

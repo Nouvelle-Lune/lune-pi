@@ -162,9 +162,10 @@ export class ProjectResolver {
             projectId = projectIdFor("git_common_dir", repo.commonDir);
             this.createProject(projectId, basename(repo.root) || "project", repo.root);
         } else {
-            // A repo that moved keeps its project, and the root follows it.
+            // A repo that moved keeps its project, and the root follows it. A project with no
+            // root, for example after a split, gets the root of the repo.
             const root = getProject(this.store, projectId)?.root;
-            if (root && root !== repo.root && !existsSync(root)) {
+            if (!root || (root !== repo.root && !existsSync(root))) {
                 this.store.run("UPDATE projects SET root = ? WHERE id = ?", repo.root, projectId);
             }
         }
@@ -271,7 +272,7 @@ export class ProjectResolver {
         if (sessions.length === 0) return 0;
         const movedSession = new Set(sessions.map((s) => `${s.harness}\0${s.sessionId}`));
         const items = this.store.all(
-            "SELECT id, branch, writer_harness, writer_session FROM items WHERE project_id = ? AND scope = 'project'",
+            "SELECT id, branch, status, origin, writer_harness, writer_session FROM items WHERE project_id = ? AND scope = 'project'",
             from,
         );
         let moved = 0;
@@ -285,10 +286,16 @@ export class ProjectResolver {
                     )
                     .map((row) => `${text(row, "harness")}\0${text(row, "session_id")}`);
                 const writer = `${textOrNull(item, "writer_harness")}\0${textOrNull(item, "writer_session")}`;
+                // A provisional note of an agent goes with the session that wrote it: only that
+                // session reviews it (`reviewNotes`), and its sources are not reviewed yet.
+                const provisionalNote =
+                    text(item, "status") === "provisional" &&
+                    text(item, "origin") === "agent_note" &&
+                    textOrNull(item, "writer_session") !== null;
                 const belongs =
-                    sources.length > 0
-                        ? sources.every((source) => movedSession.has(source))
-                        : movedSession.has(writer);
+                    provisionalNote || sources.length === 0
+                        ? movedSession.has(writer)
+                        : sources.every((source) => movedSession.has(source));
                 if (!belongs) continue;
                 this.store.run("UPDATE items SET project_id = ? WHERE id = ?", projectId, itemId);
                 const branch = textOrNull(item, "branch");
@@ -400,6 +407,7 @@ export class ProjectResolver {
                 kind,
                 value,
             );
+            this.rerootAfterSplit(from, root);
         });
         this.clearCache();
         const sessions = this.adoptSessions(id, from);
@@ -407,6 +415,45 @@ export class ProjectResolver {
         const project = getProject(this.store, id);
         if (!project) throw new Error(`Project ${id} is missing after split`);
         return { project, moved: sessions.length, items };
+    }
+
+    /**
+     * Give `projectId` a new root when its root went away with a split. The root of a project is
+     * one of the clones that the branch lifecycle checks (`refreshBranches`), so a clone of
+     * another project must not stay there. A root that exists keeps its place when it still
+     * resolves to the project. A root that does not exist goes when it is the root of the moved
+     * locator (`movedRoot`). The new root is the work tree of a remaining git common dir, then a
+     * remaining path, and one that exists comes first. With none, the project has no root until
+     * a repo of it is seen again.
+     */
+    private rerootAfterSplit(projectId: string, movedRoot: string | null): void {
+        const root = getProject(this.store, projectId)?.root;
+        if (!root) return;
+        const stale = existsSync(root) ? this.rootOwner(root) !== projectId : root === movedRoot;
+        if (!stale) return;
+        const candidates: string[] = [];
+        for (const row of this.store.all(
+            "SELECT kind, value FROM project_locators WHERE project_id = ? AND kind IN ('git_common_dir', 'path') ORDER BY kind, value",
+            projectId,
+        )) {
+            const value = text(row, "value");
+            if (text(row, "kind") === "path") candidates.push(value);
+            else if (basename(value) === ".git") candidates.push(dirname(value));
+        }
+        const next = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0] ?? null;
+        this.store.run("UPDATE projects SET root = ? WHERE id = ?", next, projectId);
+    }
+
+    /** Project that the locators of the folder at `root` point to, with no new project. */
+    private rootOwner(root: string): string | null {
+        const repo = repoInfo(root);
+        if (repo) {
+            const owner =
+                this.locatorOwner("git_common_dir", repo.commonDir) ??
+                repo.remotes.map((remote) => this.locatorOwner("remote", remote)).find(Boolean);
+            if (owner) return owner;
+        }
+        return this.projectForPath(root);
     }
 
     /**

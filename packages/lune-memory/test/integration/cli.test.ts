@@ -7,7 +7,9 @@ import { describe, it } from "node:test";
 
 import { pidAlive } from "../../src/core/util.ts";
 import { runCli, sandbox, type CliRun, type TempSandbox } from "../harness/cli.ts";
-import { createMemoryEnv, createRepo } from "../harness/memory.ts";
+import { Store } from "../../src/store/db.ts";
+import { putItem } from "../../src/store/rows.ts";
+import { createMemoryEnv, createRepo, makeItem } from "../harness/memory.ts";
 
 function run(box: TempSandbox, argv: string[], stdin?: string): Promise<CliRun> {
     return runCli(argv, {
@@ -219,6 +221,51 @@ describe("hook", () => {
         const output = parse(actual.stdout).hookSpecificOutput;
         assert.equal(output.hookEventName, "SessionStart");
         assert.match(output.additionalContext, /This session id is hook-session\./u);
+    });
+
+    it("writes the full context and a warning on stderr when the context is over its budget", async (t) => {
+        const box = sandbox(t);
+        const store = Store.open(box.paths.db);
+        putItem(
+            store,
+            makeItem({
+                scope: "global",
+                projectId: null,
+                kind: "preference",
+                title: "Huge",
+                body: Array.from({ length: 300 }, (_, i) => `rule ${i}`).join("\n"),
+            }),
+        );
+        store.close();
+
+        const actual = await run(
+            box,
+            ["hook", "--harness", "claude"],
+            JSON.stringify({ cwd: box.root, session_id: "hook-session" }),
+        );
+
+        assert.equal(actual.code, 0);
+        const context: string = parse(actual.stdout).hookSpecificOutput.additionalContext;
+        assert.ok(context.includes("rule 0\n"));
+        assert.ok(context.includes("rule 299"));
+        assert.ok(context.includes("## How to use this memory"));
+        assert.match(
+            actual.stderr,
+            /^lune-memory hook: the memory context is \d+ lines and \d+ bytes, which is over its budget/u,
+        );
+    });
+
+    it("writes no budget warning when the context fits", async (t) => {
+        const box = sandbox(t);
+
+        const actual = await run(
+            box,
+            ["hook", "--harness", "claude"],
+            JSON.stringify({ cwd: box.root, session_id: "hook-session" }),
+        );
+
+        assert.equal(actual.code, 0);
+        assert.equal(actual.stderr, "");
     });
 
     it("exits 0 and reports on stderr for input that is not JSON", async (t) => {

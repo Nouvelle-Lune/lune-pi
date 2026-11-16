@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import type { EventRow, Item, ItemKind, Trust } from "../core/types.ts";
 import { errorMessage } from "../core/util.ts";
-import { L1_MAX_BYTES, L1_MAX_LINES, L1_RESERVE_BYTES, L1_RESERVE_LINES } from "../memory/l1.ts";
+import type { StableL1Size } from "../memory/l1.ts";
 import { asRecords, eventHeader, itemLine, type AnalyzerResult } from "./analyzer.ts";
 import type { ClosedBranch } from "./branches.ts";
 import type { SnapshotEvent } from "./eligibility.ts";
@@ -98,8 +98,8 @@ export interface OrganizerInput {
     globals: Item[];
     openBranches: string[];
     closedBranches: Array<ClosedBranch & { items: Item[] }>;
-    /** Size of the Dreaming-owned part of L1 now. */
-    l1: { lines: number; bytes: number };
+    /** Size of the Dreaming-owned part of L1 now, and its limits. */
+    l1: Pick<StableL1Size, "lines" | "bytes" | "maxLines" | "maxBytes">;
     /** Why the backend rejected the previous reply, for one retry. */
     feedback?: string;
 }
@@ -216,7 +216,7 @@ export function renderOrganizerInput(
 ): string {
     const lines: string[] = ["# Project", `Name: ${input.projectName}`];
     lines.push(
-        `Startup context now: ${input.l1.lines} lines and ${input.l1.bytes} bytes. Budget: ${L1_MAX_LINES - L1_RESERVE_LINES} lines and ${L1_MAX_BYTES - L1_RESERVE_BYTES} bytes.`,
+        `Startup context now: ${input.l1.lines} lines and ${input.l1.bytes} bytes on the largest branch. Budget: ${input.l1.maxLines} lines and ${input.l1.maxBytes} bytes on each branch.`,
     );
     lines.push(
         `Open Git branches: ${input.openBranches.length ? input.openBranches.join(", ") : "none known"}`,

@@ -109,4 +109,34 @@ describe("a project split moves the items of the moved sessions", () => {
         assert.equal(result.moved, 1);
         assert.equal(result.items, 2);
     });
+
+    it("moves a provisional agent note with its writer session when it cites a session that stays", () => {
+        const item = add({
+            title: "Provisional",
+            origin: "agent_note",
+            status: "provisional",
+            writerHarness: "pi",
+            writerSession: "s-a",
+            sources: [evidence("s-b")],
+        });
+
+        const result = env.service.split("git_common_dir", moved, "Clone A");
+
+        assert.equal(getItem(env.store, item.id)?.projectId, result.project.id);
+    });
+
+    it("keeps a provisional agent note when a session that stays wrote it", () => {
+        const item = add({
+            title: "Provisional stays",
+            origin: "agent_note",
+            status: "provisional",
+            writerHarness: "pi",
+            writerSession: "s-b",
+            sources: [evidence("s-a")],
+        });
+
+        env.service.split("git_common_dir", moved, "Clone A");
+
+        assert.equal(getItem(env.store, item.id)?.projectId, shared);
+    });
 });

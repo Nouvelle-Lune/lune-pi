@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
 
 /** Schema version of `memory.db`. Increment it and add a step to `MIGRATIONS` for a change. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -200,7 +200,87 @@ CREATE TABLE source_files (
  */
 const SCHEMA_V2 = "ALTER TABLE events ADD COLUMN processed_chars INTEGER;";
 
-const MIGRATIONS: Record<number, string> = { 1: SCHEMA_V1, 2: SCHEMA_V2 };
+/**
+ * Version 3: the review queue of evidence that changed under processed items.
+ *
+ * - `sessions.review_revision`: the latest revision whose import removed events of the
+ *   session. The session stays eligible until a pass reviews the items that cite it, also when
+ *   no event of the session is left to process.
+ * - `events.reset_revision`: the revision whose import marked the event unprocessed again. A pass
+ *   that analyzed an older revision does not mark it processed.
+ *
+ * It also repairs the processing state of version 1. Version 1 cut a long event to at most
+ * 1000 characters in the worst case and still marked all of it processed. Long events of
+ * analyzed sessions go back to unprocessed, so the next pass reads them in full.
+ *
+ * `rekeyCodexSessions` then runs in the same transaction.
+ */
+const SCHEMA_V3 = `
+ALTER TABLE sessions ADD COLUMN review_revision INTEGER;
+ALTER TABLE events ADD COLUMN reset_revision INTEGER;
+UPDATE sessions SET processed_revision = NULL
+WHERE EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.harness = sessions.harness AND e.session_id = sessions.id
+        AND e.memory_derived = 0 AND e.processed_hash IS NOT NULL AND length(e.text) > 1000
+) AND EXISTS (
+    SELECT 1 FROM runs r, json_each(r.sessions) j
+    WHERE r.status = 'ok' AND j.value = sessions.harness || ':' || sessions.id
+);
+UPDATE events SET processed_hash = NULL, processed_chars = NULL
+WHERE memory_derived = 0 AND processed_hash IS NOT NULL AND length(text) > 1000
+    AND EXISTS (
+        SELECT 1 FROM runs r, json_each(r.sessions) j
+        WHERE r.status = 'ok' AND j.value = events.harness || ':' || events.session_id
+    );
+`;
+
+const MIGRATIONS: Record<number, string> = { 1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3 };
+
+/** Steps of a migration that need more than SQL. Each runs after the SQL of its version. */
+const MIGRATION_STEPS: Record<number, (db: DatabaseSync) => void> = { 3: rekeyCodexSessions };
+
+/**
+ * Version 3 also changes the Codex record key from the first 8 hex characters of a SHA-256 to
+ * the full digest. An old key does not match a new import, so each Codex session whose rollout
+ * still exists is deleted with its events, and its rollout is imported again as a new session.
+ * The first-run history limit then applies again. A forgotten rollout stays forgotten. A session
+ * whose rollout is gone keeps its old keys, because no import changes it again. Last, an item
+ * that cites a deleted session and has no live event source left becomes source-missing, as the
+ * importer does for vanished events. It keeps its sources as provenance. An item whose sources
+ * retention deleted earlier does not change.
+ */
+function rekeyCodexSessions(db: DatabaseSync): void {
+    const sessions = db.prepare("SELECT id, source_path FROM sessions WHERE harness = 'codex'");
+    const deleteFiles = db.prepare(
+        "DELETE FROM source_files WHERE harness = 'codex' AND session_id = ? AND status != 'forgotten'",
+    );
+    const deleteSession = db.prepare("DELETE FROM sessions WHERE harness = 'codex' AND id = ?");
+    const deleted: string[] = [];
+    for (const row of sessions.all()) {
+        const { id, source_path: path } = row;
+        if (typeof id !== "string" || typeof path !== "string" || !existsSync(path)) continue;
+        deleteFiles.run(id);
+        deleteSession.run(id);
+        deleted.push(id);
+    }
+    if (deleted.length === 0) return;
+    db.prepare(
+        `UPDATE items SET status = 'source-missing', updated_at = ?
+        WHERE status IN ('active', 'provisional')
+            AND id IN (
+                SELECT item_id FROM item_sources
+                WHERE ref_kind = 'event' AND harness = 'codex'
+                    AND session_id IN (SELECT value FROM json_each(?))
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM item_sources s
+                JOIN events e
+                    ON e.harness = s.harness AND e.session_id = s.session_id AND e.key = s.event_key
+                WHERE s.item_id = items.id AND s.ref_kind = 'event'
+            )`,
+    ).run(new Date().toISOString(), JSON.stringify(deleted));
+}
 
 export type Row = Record<string, unknown>;
 export type Param = SQLInputValue;
@@ -252,6 +332,7 @@ export class Store {
             if (!sql) throw new Error(`Missing migration to schema version ${version}`);
             this.tx(() => {
                 this.db.exec(sql);
+                MIGRATION_STEPS[version]?.(this.db);
                 this.setMeta("schema_version", String(version));
             });
         }

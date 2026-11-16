@@ -8,7 +8,7 @@ import {
     type Trust,
 } from "../core/types.ts";
 import { newId, nowIso } from "../core/util.ts";
-import { stableL1Grew, stableL1Size } from "../memory/l1.ts";
+import { grownStableBranch, stableL1Size } from "../memory/l1.ts";
 import { contentHash } from "../memory/notes.ts";
 import type { Store } from "../store/db.ts";
 import {
@@ -25,7 +25,9 @@ import type { AnalyzerResult, NoteReview } from "./analyzer.ts";
 import type { ClosedBranch } from "./branches.ts";
 import type { SessionSnapshot } from "./eligibility.ts";
 import {
+    addPins,
     BRANCH_KINDS,
+    checkEvidence,
     clampTrust,
     eventId,
     eventSource,
@@ -34,6 +36,7 @@ import {
     sessionSources,
     statesGeneral,
     uniqueSources,
+    type EventPins,
 } from "./evidence.ts";
 import type { Usage } from "./model.ts";
 import type { CreateOp, MergeOp, OrganizerOp, RetireOp, UpdateOp } from "./organizer.ts";
@@ -44,12 +47,19 @@ export class BudgetError extends Error {
     readonly bytes: number;
     readonly branch: string | null;
 
-    constructor(size: { lines: number; bytes: number; branch: string | null }) {
+    constructor(size: {
+        lines: number;
+        bytes: number;
+        branch: string | null;
+        maxLines: number;
+        maxBytes: number;
+    }) {
         const where = size.branch ? ` for branch ${size.branch}` : "";
         super(
             `The startup context${where} would be ${size.lines} lines and ${size.bytes} bytes, ` +
-                "which is over the budget. Make it shorter: merge or retire items, and keep the " +
-                "Project Index and the Working State short.",
+                `which is over the budget of ${size.maxLines} lines and ${size.maxBytes} bytes. ` +
+                "Make it shorter: merge or retire items, and keep the Project Index and the " +
+                "Working State short.",
         );
         this.name = "BudgetError";
         this.lines = size.lines;
@@ -87,6 +97,11 @@ export interface ProjectCommitInput {
     closedBranches: ClosedBranch[];
     usage: Usage;
     warnings: string[];
+    /**
+     * Hash of each event source of the existing items that the Organizer saw, from
+     * `pinItemSources`. An operation that cites such a source after it changed is rejected.
+     */
+    itemPins?: EventPins;
     now?: number;
 }
 
@@ -103,6 +118,16 @@ class Rejected extends Error {}
 
 function reject(message: string): never {
     throw new Rejected(message);
+}
+
+/**
+ * Rejected operation whose evidence changed after the model saw it. The commit does not mark
+ * the events of the operation processed, so the next pass analyzes them again with the new text.
+ */
+class Stale extends Rejected {}
+
+function staleMessage(changed: readonly string[]): string {
+    return `evidence changed during the pass: ${changed.join(", ")}`;
 }
 
 function sameSources(a: readonly SourceRef[], b: readonly SourceRef[]): boolean {
@@ -139,6 +164,8 @@ class ProjectCommit {
     private readonly pins = new Map<string, string>();
     /** Items that an update or merge of this commit changed or kept. */
     private readonly touched = new Set<string>();
+    /** Events of rejected stale operations. They stay unprocessed for the next pass. */
+    readonly hold = new Set<string>();
 
     constructor(store: Store, projectId: string, runId: number, now: number) {
         this.store = store;
@@ -152,12 +179,20 @@ class ProjectCommit {
         for (const { event } of snapshot.events) this.pins.set(eventId(event), event.hash);
     }
 
+    /** Pin the sources of the items that the Organizer saw. A pin of an analyzed event stays. */
+    pinItems(pins: EventPins | undefined): void {
+        addPins(this.pins, pins);
+    }
+
     /**
      * Events of `sources` that can be evidence for an item of `kind` now, in the revision that
-     * the Analyzer saw.
+     * the model saw. A pinned source that changed or vanished rejects the operation: the model
+     * judged other text, and the rest of the sources may not support its conclusion.
      */
     private evidence(sources: readonly SourceRef[], kind: ItemKind): EventRow[] {
-        return liveEvents(this.store, sources, this.pins, kind);
+        const checked = checkEvidence(this.store, sources, this.pins, kind);
+        if (checked.changed.length) throw new Stale(staleMessage(checked.changed));
+        return checked.events;
     }
 
     private save(before: Item | null, after: Item): void {
@@ -232,7 +267,16 @@ class ProjectCommit {
             return;
         }
         const sources = uniqueSources([...note.sources, ...review.events.map(eventSource)]);
-        const events = this.evidence(sources, note.kind);
+        const { events, changed } = checkEvidence(this.store, sources, this.pins, note.kind);
+        if (changed.length) {
+            this.warnings.push(
+                `Note ${note.id}: the review cites evidence that changed during the pass. ` +
+                    "It stays provisional.",
+            );
+            // The next pass reviews the note again with the new text.
+            for (const event of review.events) this.hold.add(eventId(event));
+            return;
+        }
         if (events.length === 0) {
             this.warnings.push(
                 `Note ${note.id}: the review cites no live evidence. It stays provisional.`,
@@ -274,6 +318,9 @@ class ProjectCommit {
             if (!(error instanceof Rejected)) throw error;
             this.counts.rejected++;
             this.warnings.push(`Rejected ${op.op}: ${error.message}`);
+            if (error instanceof Stale && op.op !== "retire") {
+                for (const event of op.events) this.hold.add(eventId(event));
+            }
         }
     }
 
@@ -664,30 +711,49 @@ class ProjectCommit {
 /**
  * Mark the events that a snapshot covered as processed. An event that the snapshot showed in
  * part keeps its cursor at the end of that part, so the next pass shows the rest. An event that
- * changed after the snapshot keeps its old state, so the next pass sees it again. The revision
- * counts as processed only when the snapshot covered all its text and it did not change.
+ * changed after the snapshot keeps its old state, so the next pass sees it again. So does an
+ * event that a later import reset (`reset_revision`), and an event in `hold`: an operation built
+ * on it was stale. The revision counts as processed only when the snapshot covered all its text,
+ * it did not change and no event of it is held.
+ *
+ * The pass also reviewed the earlier items of the snapshot, so it takes the session out of the
+ * review queue (§5). A later import that removed events keeps it there, and so does a review that
+ * did not fit in one pass.
  */
-export function markProcessed(store: Store, snapshot: SessionSnapshot): void {
+export function markProcessed(
+    store: Store,
+    snapshot: SessionSnapshot,
+    hold?: ReadonlySet<string>,
+): void {
     const { harness, id } = snapshot.session;
+    let held = false;
     for (const [key, { hash, end }] of snapshot.covered) {
+        if (hold?.has(`${harness}:${id}:${key}`)) {
+            held = true;
+            continue;
+        }
         if (end === null) {
             store.run(
                 `UPDATE events SET processed_hash = hash, processed_chars = NULL
-                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?`,
+                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?
+                AND (reset_revision IS NULL OR reset_revision <= ?)`,
                 harness,
                 id,
                 key,
                 hash,
+                snapshot.revision,
             );
         } else {
             store.run(
                 `UPDATE events SET processed_chars = ?
-                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?`,
+                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?
+                AND (reset_revision IS NULL OR reset_revision <= ?)`,
                 end,
                 harness,
                 id,
                 key,
                 hash,
+                snapshot.revision,
             );
         }
     }
@@ -697,10 +763,27 @@ export function markProcessed(store: Store, snapshot: SessionSnapshot): void {
         harness,
         id,
     );
-    if (snapshot.complete) {
+    if (snapshot.complete && !held) {
         store.run(
             `UPDATE sessions SET processed_revision = revision
             WHERE harness = ? AND id = ? AND revision = ?`,
+            harness,
+            id,
+            snapshot.revision,
+        );
+    }
+    if (snapshot.reviewOverflow) {
+        store.run(
+            `UPDATE sessions SET review_revision = COALESCE(review_revision, ?)
+            WHERE harness = ? AND id = ?`,
+            snapshot.revision,
+            harness,
+            id,
+        );
+    } else {
+        store.run(
+            `UPDATE sessions SET review_revision = NULL
+            WHERE harness = ? AND id = ? AND review_revision <= ?`,
             harness,
             id,
             snapshot.revision,
@@ -732,16 +815,17 @@ export function commitProject(
         const commit = new ProjectCommit(store, input.projectId, runId, input.now ?? Date.now());
         commit.warnings.push(...input.warnings);
         const handled = new Set<string>();
-        for (const result of input.results) {
-            commit.rememberSession(result.snapshot);
-            commit.reviewNotes(result, handled);
-        }
+        for (const result of input.results) commit.rememberSession(result.snapshot);
+        commit.pinItems(input.itemPins);
+        for (const result of input.results) commit.reviewNotes(result, handled);
         for (const op of input.ops) commit.apply(op);
         for (const result of input.results) commit.reviewEarlier(result);
         for (const branch of input.closedBranches) commit.closeBranch(branch);
-        for (const result of input.results) markProcessed(store, result.snapshot);
+        for (const result of input.results) markProcessed(store, result.snapshot, commit.hold);
         const after = stableL1Size(store, paths, input.projectId);
-        if (stableL1Grew(before, after)) throw new BudgetError(after);
+        const grown = grownStableBranch(before, after);
+        if (grown)
+            throw new BudgetError({ ...grown, maxLines: after.maxLines, maxBytes: after.maxBytes });
         finishRun(store, runId, {
             status: "ok",
             warnings: commit.warnings,
