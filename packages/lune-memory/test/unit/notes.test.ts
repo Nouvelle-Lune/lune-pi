@@ -230,6 +230,7 @@ describe("evidence clamps trust", () => {
             active: true,
             hash: "h",
             processedHash: null,
+            processedChars: null,
         };
     }
 

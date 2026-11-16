@@ -10,6 +10,7 @@ import {
     findJsonlFiles,
     isMemoryToolCall,
     isMemoryToolName,
+    knownContent,
     obj,
     parseJsonl,
     str,
@@ -18,6 +19,8 @@ import {
     AdapterFormatError,
     type EvidenceEvent,
     type HarnessAdapter,
+    type MemoryPathTest,
+    type ParseContext,
     type SessionEvidence,
 } from "./types.ts";
 
@@ -120,7 +123,11 @@ interface State {
     turnStarts: number[];
     /** cwd from the first `<environment_context>` block. Legacy rollouts have no other source. */
     contextCwd?: string;
+    /** Extra test for memory file paths of the home in use. */
+    memoryPath?: MemoryPathTest;
     line: number;
+    /** Stable identity of the current record. See `recordKeys`. */
+    record: string;
     part: number;
     time?: string;
 }
@@ -133,7 +140,7 @@ function warnOnce(state: State, key: string, message: string): void {
 
 function emit(state: State, role: EventRole, text: string, options: EmitOptions = {}): void {
     const event: EvidenceEvent = {
-        key: `L${state.line}#${state.part}`,
+        key: `${state.record}#${state.part}`,
         role,
         text,
         sourceLine: state.line,
@@ -145,6 +152,22 @@ function emit(state: State, role: EventRole, text: string, options: EmitOptions 
     if (options.toolName !== undefined) event.toolName = options.toolName;
     state.events.push(event);
     state.part++;
+}
+
+/**
+ * Stable identity of each record: a hash of its raw line, and a count for earlier records with
+ * the same hash. Codex can rewrite a rollout, for example to insert a record. A key from the line
+ * number would then change for all later events, and Dreaming would lose their evidence (§4).
+ * A rewritten record gets a new key, so it becomes a removed event and a new event.
+ */
+export function recordKeys(records: ReadonlyArray<{ raw: string }>): string[] {
+    const seen = new Map<string, number>();
+    return records.map(({ raw }) => {
+        const digest = hash8(raw);
+        const count = seen.get(digest) ?? 0;
+        seen.set(digest, count + 1);
+        return count === 0 ? digest : `${digest}.${count}`;
+    });
 }
 
 function readHeader(record: Rec, line: number): Header | undefined {
@@ -269,11 +292,12 @@ function handleItem(state: State, item: Rec): void {
 function handleMessage(state: State, item: Rec): void {
     const role = str(item.role);
     if (role === "user") {
-        handleUserMessage(state, item.content);
+        handleUserMessage(state, knownContent(item.content, `line ${state.line}: Codex user`));
         return;
     }
     if (role === "assistant") {
-        const text = blocksToText(item.content, TEXT_BLOCKS).trim();
+        const content = knownContent(item.content, `line ${state.line}: Codex assistant`);
+        const text = blocksToText(content, TEXT_BLOCKS).trim();
         if (text) emit(state, "assistant", text);
         else bump(state.filtered, "empty");
         return;
@@ -286,9 +310,8 @@ function handleMessage(state: State, item: Rec): void {
     warnOnce(state, `role:${role}`, `message role "${role ?? ""}" skipped`);
 }
 
-function handleUserMessage(state: State, content: unknown): void {
-    const blocks: unknown[] =
-        typeof content === "string" ? [content] : Array.isArray(content) ? content : [];
+function handleUserMessage(state: State, content: string | unknown[]): void {
+    const blocks: unknown[] = typeof content === "string" ? [content] : content;
     const parts: string[] = [];
     let reason: string | undefined;
     for (const block of blocks) {
@@ -364,7 +387,7 @@ function compactArguments(value: unknown): string {
 }
 
 function emitCall(state: State, callId: string | undefined, name: string, args: string): void {
-    const memory = isMemoryToolCall(name, args) || containsMemoryContext(args);
+    const memory = isMemoryToolCall(name, args, state.memoryPath) || containsMemoryContext(args);
     if (callId !== undefined) state.calls.set(callId, { toolName: name, memory });
     emit(state, "tool_call", args ? `${name} ${args}` : name, {
         toolName: name,
@@ -416,7 +439,8 @@ function handleOutput(state: State, item: Rec): void {
 
 /** A message from another agent, such as a subagent report. It is model output, so untrusted. */
 function handleAgentMessage(state: State, item: Rec): void {
-    const text = blocksToText(item.content, TEXT_BLOCKS).trim();
+    const content = knownContent(item.content, `line ${state.line}: Codex agent`);
+    const text = blocksToText(content, TEXT_BLOCKS).trim();
     if (!text) {
         bump(state.filtered, "agent_message_encrypted");
         return;
@@ -505,7 +529,11 @@ export function pageSessionId(path: string, threadId: string): string {
     return `${threadId}~${time ?? hash8(stem)}`;
 }
 
-function parseCodexSession(path: string, text: string): SessionEvidence | null {
+function parseCodexSession(
+    path: string,
+    text: string,
+    context: ParseContext = {},
+): SessionEvidence | null {
     const warnings: string[] = [];
     const records = parseJsonl(text, warnings);
     const first = records[0];
@@ -525,10 +553,15 @@ function parseCodexSession(path: string, text: string): SessionEvidence | null {
         calls: new Map(),
         turnStarts: [],
         line: first.line,
+        record: "",
         part: 0,
     };
-    for (const { line, record } of records.slice(1)) {
+    if (context.memoryPath) state.memoryPath = context.memoryPath;
+    const keys = recordKeys(records);
+    for (const [index, { line, record }] of records.entries()) {
+        if (index === 0) continue;
         state.line = line;
+        state.record = keys[index] ?? `L${line}`;
         state.part = 0;
         state.time = str(record.timestamp);
         if (header.legacy) handleLegacyRecord(state, record);

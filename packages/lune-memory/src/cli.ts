@@ -9,7 +9,7 @@ import { searchArguments, type L1Request, type SearchRequest } from "./api/reque
 import { ensureDaemon, spawnDaemon, waitForDaemon } from "./client/connection.ts";
 import { MemoryClient } from "./client/memory-client.ts";
 import { memoryHome, type MemoryConfig } from "./core/config.ts";
-import { memoryPaths, type MemoryPaths } from "./core/paths.ts";
+import { memoryPaths, UNASSIGNED, type MemoryPaths } from "./core/paths.ts";
 import { HARNESSES, isHarness, isLocatorKind, LOCATOR_KINDS, type Harness } from "./core/types.ts";
 import { errorMessage, packageVersion, pidAlive } from "./core/util.ts";
 import type { PassSummary } from "./dreaming/index.ts";
@@ -86,7 +86,7 @@ Memory
          [--since time] [--until time] [--limit n] [--context n] [--cwd dir]
   location [--cwd dir]
   import [harness...]
-  dream [--force] [--project id] [harness:id...]
+  dream [--force] [--project id|_unassigned] [harness:id...]
   status
   runs [--limit n]
   sessions [--limit n] [--project id|_unassigned]
@@ -521,15 +521,20 @@ async function dreamCommand(ctx: Context): Promise<number> {
     for (const label of sessions) {
         if (!parseSessionLabel(label)) throw new UsageError(`Not a harness:id label: ${label}`);
     }
-    const projectId = ctx.args.value("project") ?? null;
+    // No --project means every project, and no label means every session. `_unassigned` means
+    // the sessions outside any project.
+    const project = ctx.args.value("project");
+    const filters = {
+        ...(project === undefined ? {} : { projectId: project === UNASSIGNED ? null : project }),
+        ...(sessions.length ? { sessions } : {}),
+    };
     const force = ctx.args.has("force");
-    const body = { force, projectId, sessions, wait: true };
     const result = await admin<PassSummary>(
         ctx,
         "POST",
         "/api/dream",
-        body,
-        (s) => s.dream({ trigger: "manual", force, projectId, sessions }),
+        { force, ...filters, wait: true },
+        (s) => s.dream({ trigger: "manual", force, ...filters }),
         DREAM_TIMEOUT_MS,
     );
     if (ctx.args.has("json")) json(ctx, result);
@@ -564,6 +569,7 @@ async function statusCommand(ctx: Context): Promise<number> {
     }
     ctx.out(`Home: ${status.home}`);
     ctx.out(`Views: ${status.views} (generation ${status.generation ?? "none"})`);
+    if (status.viewsError) ctx.out(`Views out of date: ${status.viewsError}`);
     ctx.out(`Daemon: ${status.daemon ? "running" : "not running"}`);
     for (const harness of HARNESSES) {
         const entry = status.harnesses[harness];
@@ -610,8 +616,7 @@ async function sessionsCommand(ctx: Context): Promise<number> {
     const limit = ctx.args.int("limit", 1, 1000) ?? 50;
     const project = ctx.args.value("project");
     const query = `limit=${limit}${project ? `&project=${encodeURIComponent(project)}` : ""}`;
-    const projectId =
-        project === undefined ? undefined : project === "_unassigned" ? null : project;
+    const projectId = project === undefined ? undefined : project === UNASSIGNED ? null : project;
     const sessions = await admin(ctx, "GET", `/api/sessions?${query}`, undefined, (s) =>
         s.sessions({ limit, ...(projectId === undefined ? {} : { projectId }) }),
     );
@@ -647,6 +652,7 @@ async function revertCommand(ctx: Context): Promise<number> {
             `Reverted run ${result.runId} in run ${result.revertRun}: ${result.items} item(s), ` +
                 `${result.reprocessed} session(s) to process again`,
         );
+        viewsWarning(ctx, result.projectionError);
     }
     return 0;
 }
@@ -675,8 +681,18 @@ async function forgetCommand(ctx: Context): Promise<number> {
             `Forgot ${result.harness}:${result.sessionId} in run ${result.runId}: ` +
                 `${result.updated} item(s) updated, ${result.retired} retired`,
         );
+        viewsWarning(ctx, result.projectionError);
     }
     return 0;
+}
+
+/** Warn that a committed change is not in the Markdown views yet. */
+function viewsWarning(ctx: Context, error: string | undefined): void {
+    if (!error) return;
+    ctx.err(
+        `Warning: the Markdown views do not show this change yet (${error}). ` +
+            "The daemon writes them again, or run `lune-memory regenerate`.",
+    );
 }
 
 async function regenerateCommand(ctx: Context): Promise<number> {
@@ -759,7 +775,11 @@ async function splitCommand(ctx: Context): Promise<number> {
         s.split(kind, value, name),
     );
     if (ctx.args.has("json")) json(ctx, result);
-    else ctx.out(`Split to ${result.project.id} ${result.project.name}, ${result.moved} moved`);
+    else {
+        ctx.out(
+            `Split to ${result.project.id} ${result.project.name}: ${result.moved} sessions and ${result.items} items moved`,
+        );
+    }
     return 0;
 }
 
@@ -969,6 +989,31 @@ const COMMANDS: Record<string, Handler> = {
     mcp: mcpCommand,
 };
 
+/**
+ * Options that can come before the command name, for example `--home <dir> hook --harness pi`.
+ * Only `--home` is global. It returns the global options and the command with its arguments.
+ */
+function splitGlobalOptions(argv: readonly string[]): { options: string[]; command: string[] } {
+    const options: string[] = [];
+    let i = 0;
+    while (i < argv.length) {
+        const arg = argv[i] ?? "";
+        if (arg.startsWith("--home=")) {
+            if (arg === "--home=") throw new UsageError("--home needs a value");
+            options.push(arg);
+            i++;
+        } else if (arg === "--home") {
+            const value = argv[i + 1];
+            if (value === undefined || value.startsWith("--")) {
+                throw new UsageError("--home needs a value");
+            }
+            options.push(arg, value);
+            i += 2;
+        } else break;
+    }
+    return { options, command: argv.slice(i) };
+}
+
 /** Run the CLI. It returns the exit code: 0 OK, 1 runtime error, 2 usage error. */
 export async function main(argv: string[], partial: Partial<CliIo> = {}): Promise<number> {
     const io: CliIo = {
@@ -979,12 +1024,14 @@ export async function main(argv: string[], partial: Partial<CliIo> = {}): Promis
         cwd: partial.cwd ?? process.cwd(),
     };
     const err = (line = "") => io.stderr.write(`${line}\n`);
-    if (argv.length === 0) {
-        io.stderr.write(USAGE);
-        return 2;
-    }
     try {
-        const [name, ...rest] = argv;
+        // Generated hook and MCP commands put `--home <dir>` before the command name.
+        const { options, command } = splitGlobalOptions(argv);
+        if (command.length === 0) {
+            io.stderr.write(USAGE);
+            return 2;
+        }
+        const [name, ...tail] = command;
         if (name === "help" || name === "--help" || name === "-h") {
             io.stdout.write(USAGE);
             return 0;
@@ -995,7 +1042,8 @@ export async function main(argv: string[], partial: Partial<CliIo> = {}): Promis
         }
         const handler = COMMANDS[name ?? ""];
         if (!handler) throw new UsageError(`Unknown command: ${name}`);
-        const args = new Args(rest);
+        // Global options go first so that `--` still ends the options of the command.
+        const args = new Args([...options, ...tail]);
         if (args.has("help")) {
             io.stdout.write(USAGE);
             return 0;

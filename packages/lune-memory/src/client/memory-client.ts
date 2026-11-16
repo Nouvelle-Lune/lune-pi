@@ -8,9 +8,8 @@ import {
 } from "../api/requests.ts";
 import { memoryHome } from "../core/config.ts";
 import { memoryPaths, type MemoryPaths } from "../core/paths.ts";
-import type { Item } from "../core/types.ts";
 import type { L1Result } from "../memory/l1.ts";
-import type { NoteInput } from "../memory/notes.ts";
+import type { NoteInput, NoteResult } from "../memory/notes.ts";
 import type { SearchResult } from "../memory/search.ts";
 import type { MemoryLocation, MemoryService } from "../service.ts";
 import {
@@ -26,9 +25,9 @@ const START_RETRY_MS = 60_000;
 /** Operations that agents use. The daemon serves them, or a local service when it does not run. */
 export interface MemoryBackend {
     l1(request: L1Request): Promise<L1Result>;
-    noteWrite(input: NoteInput): Promise<Item>;
-    noteUpdate(id: string, request: NoteUpdateRequest): Promise<Item>;
-    noteRetract(id: string, writer: WriterRequest): Promise<Item>;
+    noteWrite(input: NoteInput): Promise<NoteResult>;
+    noteUpdate(id: string, request: NoteUpdateRequest): Promise<NoteResult>;
+    noteRetract(id: string, writer: WriterRequest): Promise<NoteResult>;
     search(request: SearchRequest): Promise<SearchResult>;
     location(cwd?: string | null): Promise<MemoryLocation>;
     close(): Promise<void>;
@@ -103,17 +102,17 @@ export class MemoryClient implements MemoryBackend {
         return this.call("POST", "/api/l1", request, (service) => service.l1(request));
     }
 
-    noteWrite(input: NoteInput): Promise<Item> {
+    noteWrite(input: NoteInput): Promise<NoteResult> {
         return this.call("POST", "/api/notes", input, (service) => service.noteWrite(input));
     }
 
-    noteUpdate(id: string, request: NoteUpdateRequest): Promise<Item> {
+    noteUpdate(id: string, request: NoteUpdateRequest): Promise<NoteResult> {
         return this.call("PUT", `/api/notes/${encodeURIComponent(id)}`, request, (service) =>
             service.noteUpdate(id, request),
         );
     }
 
-    noteRetract(id: string, writer: WriterRequest): Promise<Item> {
+    noteRetract(id: string, writer: WriterRequest): Promise<NoteResult> {
         return this.call(
             "POST",
             `/api/notes/${encodeURIComponent(id)}/retract`,

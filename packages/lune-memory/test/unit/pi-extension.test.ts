@@ -339,3 +339,160 @@ describe("session hints and shutdown", () => {
         assert.deepEqual(event.systemPromptOptions.sections, {});
     });
 });
+
+/** A promise that the test settles by hand, to control the order of L1 answers. */
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<T>((done, fail) => {
+        resolve = done;
+        reject = fail;
+    });
+    return { promise, resolve, reject };
+}
+
+/** Let the callbacks of settled promises run. */
+const flush = () => new Promise<void>((done) => setImmediate(done));
+
+describe("L1 refresh order", () => {
+    it("drops an older answer that arrives after a newer one", async (t) => {
+        const { fake, handler } = setup(t);
+        const older = deferred<{ text: string }>();
+        const newer = deferred<{ text: string }>();
+        fake.answers.push(
+            () => older.promise,
+            () => newer.promise,
+        );
+        const { ctx } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        await handler("session_compact")({}, ctx);
+
+        newer.resolve({ text: "newer" });
+        await flush();
+        older.resolve({ text: "older" });
+        await flush();
+        const event = beforeStartEvent();
+        await handler("before_agent_start")(event, ctx);
+
+        assert.equal(fake.l1Calls.length, 2);
+        assert.equal(event.systemPromptOptions.sections[MEMORY_CONTEXT_TAG], "newer");
+    });
+
+    it("keeps the newer answer when the older one arrives first", async (t) => {
+        const { fake, handler } = setup(t);
+        const older = deferred<{ text: string }>();
+        const newer = deferred<{ text: string }>();
+        fake.answers.push(
+            () => older.promise,
+            () => newer.promise,
+        );
+        const { ctx } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        await handler("session_compact")({}, ctx);
+
+        older.resolve({ text: "older" });
+        await flush();
+        const before = beforeStartEvent();
+        const waiting = Promise.resolve(handler("before_agent_start")(before, ctx));
+        newer.resolve({ text: "newer" });
+        await waiting;
+
+        assert.equal(before.systemPromptOptions.sections[MEMORY_CONTEXT_TAG], "newer");
+    });
+
+    it("does not warn about a failure of an older request", async (t) => {
+        const { fake, handler } = setup(t);
+        const older = deferred<{ text: string }>();
+        const newer = deferred<{ text: string }>();
+        fake.answers.push(
+            () => older.promise,
+            () => newer.promise,
+        );
+        const { ctx, notices } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        await handler("session_compact")({}, ctx);
+
+        older.reject(new Error("old failure"));
+        await flush();
+        newer.resolve({ text: "newer" });
+        await flush();
+
+        assert.deepEqual(
+            notices.filter((notice) => notice.level === "warning"),
+            [],
+        );
+    });
+
+    it("warns about a failure of the latest request", async (t) => {
+        const { fake, handler } = setup(t);
+        const latest = deferred<{ text: string }>();
+        fake.answers.push(() => latest.promise);
+        const { ctx, notices } = fakeCtx();
+        await handler("session_start")({}, ctx);
+
+        latest.reject(new Error("latest failure"));
+        await flush();
+
+        const warnings = notices.filter((notice) => notice.level === "warning");
+        assert.equal(warnings.length, 1);
+        assert.match(warnings[0]?.message ?? "", /latest failure/u);
+    });
+
+    it("drops an answer that arrives after shutdown", async (t) => {
+        const { fake, handler } = setup(t);
+        const late = deferred<{ text: string }>();
+        fake.answers.push(() => late.promise);
+        const { ctx } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        await handler("session_shutdown")({}, ctx);
+
+        late.resolve({ text: "late" });
+        await flush();
+        const event = beforeStartEvent();
+        await handler("before_agent_start")(event, ctx);
+
+        assert.deepEqual(event.systemPromptOptions.sections, {});
+    });
+
+    it("does not warn about a failure that arrives after shutdown", async (t) => {
+        const { fake, handler } = setup(t);
+        const late = deferred<{ text: string }>();
+        fake.answers.push(() => late.promise);
+        const { ctx, notices } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        await handler("session_shutdown")({}, ctx);
+
+        late.reject(new Error("late failure"));
+        await flush();
+
+        assert.deepEqual(
+            notices.filter((notice) => notice.level === "warning"),
+            [],
+        );
+    });
+
+    it("waits for a refresh that starts while an earlier turn is waiting", async (t) => {
+        const { fake, handler } = setup(t);
+        const first = deferred<{ text: string }>();
+        const second = deferred<{ text: string }>();
+        fake.answers.push(
+            () => first.promise,
+            () => second.promise,
+        );
+        const { ctx } = fakeCtx();
+        await handler("session_start")({}, ctx);
+        const early = beforeStartEvent();
+        const earlyTurn = Promise.resolve(handler("before_agent_start")(early, ctx));
+        await handler("session_compact")({}, ctx);
+        first.resolve({ text: "first" });
+        await earlyTurn;
+
+        const later = beforeStartEvent();
+        const laterTurn = Promise.resolve(handler("before_agent_start")(later, ctx));
+        second.resolve({ text: "second" });
+        await laterTurn;
+
+        assert.deepEqual(early.systemPromptOptions.sections, {});
+        assert.equal(later.systemPromptOptions.sections[MEMORY_CONTEXT_TAG], "second");
+    });
+});

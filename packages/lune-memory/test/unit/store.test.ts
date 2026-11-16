@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { statSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
@@ -122,5 +123,83 @@ describe("Store", () => {
         );
         store.run("DELETE FROM sessions WHERE id = 's'");
         assert.equal(Number(store.get("SELECT COUNT(*) AS n FROM events")?.n), 0);
+    });
+});
+
+describe("schema v2 migration", () => {
+    let dir: string;
+    beforeEach(() => {
+        dir = makeTempDir();
+    });
+    afterEach(() => removeDir(dir));
+
+    /** Make a database in the shape of version 1: no processed_chars column. */
+    function makeV1(path: string): void {
+        const first = Store.open(path);
+        first.run(
+            `INSERT INTO sessions(harness, id, source_path, source_size, source_mtime, fingerprint,
+                revision, changed_at, imported_at, status) VALUES ('pi','s','/x',1,1,'f',1,'t','t','ok')`,
+        );
+        first.run(
+            `INSERT INTO events(harness, session_id, key, seq, role, text, memory_derived,
+                untrusted, active, hash, processed_hash)
+            VALUES ('pi','s','k',0,'user','kept text',0,0,1,'h','h')`,
+        );
+        first.close();
+        const raw = new DatabaseSync(path);
+        raw.exec("ALTER TABLE events DROP COLUMN processed_chars");
+        raw.exec("UPDATE meta SET value = '1' WHERE key = 'schema_version'");
+        raw.close();
+    }
+
+    function columns(store: Store): string[] {
+        return store.all("PRAGMA table_info(events)").map((row) => String(row.name));
+    }
+
+    it("opens a version 1 database, adds processed_chars and keeps its rows", () => {
+        const path = join(dir, "memory.db");
+        makeV1(path);
+
+        const store = Store.open(path);
+
+        try {
+            assert.equal(store.getMeta("schema_version"), String(SCHEMA_VERSION));
+            assert.ok(columns(store).includes("processed_chars"));
+            const row = store.get("SELECT text, processed_hash, processed_chars FROM events");
+            assert.equal(row?.text, "kept text");
+            assert.equal(row?.processed_hash, "h");
+            assert.equal(row?.processed_chars, null);
+            assert.equal(Number(store.get("SELECT COUNT(*) AS n FROM sessions")?.n), 1);
+        } finally {
+            store.close();
+        }
+    });
+
+    it("lets the migrated column hold a cursor", () => {
+        const path = join(dir, "memory.db");
+        makeV1(path);
+        const store = Store.open(path);
+
+        try {
+            store.run("UPDATE events SET processed_chars = 120");
+            assert.equal(store.get("SELECT processed_chars AS n FROM events")?.n, 120);
+        } finally {
+            store.close();
+        }
+    });
+
+    it("does not migrate again when the migrated database is reopened", () => {
+        const path = join(dir, "memory.db");
+        makeV1(path);
+        Store.open(path).close();
+
+        const store = Store.open(path);
+
+        try {
+            assert.equal(columns(store).filter((name) => name === "processed_chars").length, 1);
+            assert.equal(store.getMeta("schema_version"), String(SCHEMA_VERSION));
+        } finally {
+            store.close();
+        }
     });
 });

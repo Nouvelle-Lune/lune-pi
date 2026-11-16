@@ -13,7 +13,9 @@ import {
     L1_RESERVE_BYTES,
     L1_RESERVE_LINES,
     assembleL1,
+    stableL1Grew,
     stableL1Size,
+    type StableL1Size,
 } from "../../src/memory/l1.ts";
 import { ProjectResolver } from "../../src/projects/resolver.ts";
 import { Store } from "../../src/store/db.ts";
@@ -214,5 +216,101 @@ describe("stableL1Size", () => {
         const size = stableL1Size(store, paths, projectId);
 
         assert.equal(size.branch, "feat-big");
+    });
+});
+
+describe("stableL1Size across branches", () => {
+    function addBranchState(branch: string, body: string): void {
+        add({ kind: "working_state", title: `State ${branch}`, body, branch });
+        store.run(
+            "INSERT INTO branches(project_id, name, status, first_seen) VALUES (?, ?, 'open', 'x')",
+            projectId,
+            branch,
+        );
+    }
+    const manyShort = Array.from({ length: 60 }, (_, i) => `l${i}`).join("\n");
+    const fewLong = Array.from({ length: 3 }, () => "y".repeat(3000)).join("\n");
+
+    it("reports the most lines and the most bytes even when they come from different branches", () => {
+        addBranchState("feat-lines", manyShort);
+        const onlyLines = stableL1Size(store, paths, projectId);
+        store.run("DELETE FROM items WHERE branch = 'feat-lines'");
+        store.run("DELETE FROM branches");
+        addBranchState("feat-bytes", fewLong);
+        const onlyBytes = stableL1Size(store, paths, projectId);
+        store.run("DELETE FROM items WHERE branch = 'feat-bytes'");
+        store.run("DELETE FROM branches");
+        assert.ok(onlyLines.lines > onlyBytes.lines);
+        assert.ok(onlyBytes.bytes > onlyLines.bytes);
+
+        addBranchState("feat-lines", manyShort);
+        addBranchState("feat-bytes", fewLong);
+        const both = stableL1Size(store, paths, projectId);
+
+        // Each branch view also lists the other branch, so the sums can be a little larger.
+        assert.ok(both.lines >= onlyLines.lines);
+        assert.ok(both.bytes >= onlyBytes.bytes);
+        assert.equal(both.fits, true);
+    });
+
+    it("names the first branch that is over a limit, and does not fit", () => {
+        addBranchState("feat-ok", "short");
+        addBranchState(
+            "feat-over",
+            Array.from({ length: L1_MAX_LINES }, (_, i) => `l${i}`).join("\n"),
+        );
+
+        const size = stableL1Size(store, paths, projectId);
+
+        assert.equal(size.fits, false);
+        assert.equal(size.branch, "feat-over");
+    });
+});
+
+describe("stableL1Grew", () => {
+    const LINES = L1_MAX_LINES - L1_RESERVE_LINES;
+    const BYTES = L1_MAX_BYTES - L1_RESERVE_BYTES;
+    const size = (lines: number, bytes: number): StableL1Size => ({
+        lines,
+        bytes,
+        branch: null,
+        fits: lines <= LINES && bytes <= BYTES,
+    });
+
+    it("is false when the stable part fits", () => {
+        assert.equal(stableL1Grew(size(10, 100), size(LINES, BYTES)), false);
+        assert.equal(stableL1Grew(undefined, size(LINES, BYTES)), false);
+    });
+
+    it("is true when the lines are over the limit and grew", () => {
+        assert.equal(stableL1Grew(size(LINES + 1, 100), size(LINES + 2, 100)), true);
+        assert.equal(stableL1Grew(size(10, 100), size(LINES + 1, 100)), true);
+    });
+
+    it("is true when the bytes are over the limit and grew", () => {
+        assert.equal(stableL1Grew(size(10, BYTES + 1), size(10, BYTES + 2)), true);
+    });
+
+    it("is false when a commit leaves an over-limit part the same or smaller", () => {
+        assert.equal(stableL1Grew(size(LINES + 5, 100), size(LINES + 5, 100)), false);
+        assert.equal(stableL1Grew(size(LINES + 5, 100), size(LINES + 3, 100)), false);
+        assert.equal(stableL1Grew(size(10, BYTES + 5), size(10, BYTES + 5)), false);
+    });
+
+    it("is false when lines grow but only the bytes are over the limit", () => {
+        assert.equal(stableL1Grew(size(10, BYTES + 5), size(20, BYTES + 5)), false);
+    });
+
+    it("is false when bytes grow but only the lines are over the limit", () => {
+        assert.equal(stableL1Grew(size(LINES + 5, 100), size(LINES + 5, 900)), false);
+    });
+
+    it("is true when a limit that was fine goes over while the other stays over", () => {
+        assert.equal(stableL1Grew(size(LINES + 5, 100), size(LINES + 5, BYTES + 1)), true);
+    });
+
+    it("is true for a first measurement that is already over a limit", () => {
+        assert.equal(stableL1Grew(undefined, size(LINES + 1, 100)), true);
+        assert.equal(stableL1Grew(undefined, size(10, BYTES + 1)), true);
     });
 });

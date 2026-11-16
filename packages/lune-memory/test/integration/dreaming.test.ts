@@ -279,7 +279,13 @@ test("a commit over the startup-context budget rolls back every operation, after
         summary: "too big",
         ops: [
             createOp(TITLE, ["s1.c1"]),
-            { op: "create", kind: "index", title: "Index", body: oversizedBody(), evidence: [] },
+            {
+                op: "create",
+                kind: "index",
+                title: "Index",
+                body: oversizedBody(),
+                evidence: ["s1.c1"],
+            },
         ],
     };
     env.route({ analyzer: analyzerReply([decisionCandidate(TITLE)]), organizer: oversized });
@@ -313,7 +319,7 @@ test("an Organizer retry after a budget error can succeed", async (t) => {
                         kind: "index",
                         title: "I",
                         body: oversizedBody(),
-                        evidence: [],
+                        evidence: ["s1.c1"],
                     },
                 ],
             },

@@ -109,7 +109,7 @@ test("a new revision without unprocessed evidence is trivial and needs no model"
         events: [
             { role: "user", text: "old", processed: true },
             { role: "assistant", text: "from memory", memoryDerived: true },
-            { role: "user", text: "inactive", active: false },
+            { role: "user", text: "inactive but processed", active: false, processed: true },
         ],
     });
 
@@ -123,6 +123,24 @@ test("a new revision without unprocessed evidence is trivial and needs no model"
     );
     assert.equal(marked, 1);
     assert.equal(getSession(env.store, "claude", "quiet")?.processedRevision, 2);
+});
+
+test("an inactive event with unprocessed text makes the session eligible (abandoned branch)", (t) => {
+    const env = createDreamEnv(t);
+    env.addSession({
+        id: "branch",
+        revision: 2,
+        processedRevision: 1,
+        events: [
+            { role: "user", text: "old", processed: true },
+            { role: "user", text: "abandoned path", active: false },
+        ],
+    });
+
+    const actual = find(env);
+
+    assert.deepEqual(labels(actual), ["branch"]);
+    assert.equal(actual.trivial.length, 0);
 });
 
 test("sessions with an import error are never eligible", (t) => {

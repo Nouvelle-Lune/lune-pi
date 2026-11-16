@@ -285,9 +285,9 @@ export function createDreamEnv(
             store.tx(() => {
                 store.run(
                     `INSERT INTO items (id, scope, project_id, kind, title, body, branch, trust,
-                        status, origin, general, idem_key, content_hash, created_run, updated_run,
-                        created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        status, origin, general, writer_harness, writer_session, idem_key,
+                        content_hash, created_run, updated_run, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     full.id,
                     full.scope,
                     full.projectId,
@@ -299,6 +299,8 @@ export function createDreamEnv(
                     full.status,
                     full.origin,
                     full.general ? 1 : 0,
+                    full.writerHarness,
+                    full.writerSession,
                     full.idemKey,
                     full.contentHash,
                     full.createdRun,

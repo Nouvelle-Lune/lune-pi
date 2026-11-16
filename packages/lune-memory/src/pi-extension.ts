@@ -124,6 +124,8 @@ export function createPiExtension(options: PiExtensionOptions = {}): (pi: Extens
         const client = given ?? new MemoryClient(clientOptions);
         let section: string | undefined;
         let pending: Promise<void> | undefined;
+        // Number of the latest L1 request. An older answer that arrives later is dropped.
+        let request = 0;
         let warned = false;
         let hinted = false;
 
@@ -135,12 +137,14 @@ export function createPiExtension(options: PiExtensionOptions = {}): (pi: Extens
 
         const refresh = (ctx: ExtensionContext): void => {
             const sessionId = ctx.sessionManager.getSessionId() ?? null;
+            const id = ++request;
             pending = client
                 .l1({ cwd: ctx.cwd, harness: "pi", sessionId, announceSession: false })
                 .then((result) => {
-                    section = l1SectionText(result.text);
+                    if (id === request) section = l1SectionText(result.text);
                 })
                 .catch((error: unknown) => {
+                    if (id !== request) return;
                     warn(ctx, `memory context is not available (${errorMessage(error)}).`);
                 });
         };
@@ -170,15 +174,18 @@ export function createPiExtension(options: PiExtensionOptions = {}): (pi: Extens
         });
 
         pi.on("before_agent_start", async (event) => {
-            if (pending) {
-                await withTimeout(pending, L1_WAIT_MS);
-                pending = undefined;
+            const waiting = pending;
+            if (waiting) {
+                await withTimeout(waiting, L1_WAIT_MS);
+                // A refresh that started during the wait keeps its own promise.
+                if (pending === waiting) pending = undefined;
             }
             // The same text on every turn, so Pi's section diff sends no patch and the cache holds.
             if (section) event.systemPromptOptions.sections[MEMORY_CONTEXT_TAG] = section;
         });
 
         pi.on("session_shutdown", async () => {
+            request++;
             section = undefined;
             pending = undefined;
             await client.close();

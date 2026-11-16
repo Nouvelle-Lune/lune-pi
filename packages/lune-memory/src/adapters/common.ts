@@ -1,8 +1,9 @@
-import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, sep } from "node:path";
 
 import { MEMORY_CONTEXT_TAG, type Harness } from "../core/types.ts";
-import type { SessionFileRef } from "./types.ts";
+import { AdapterFormatError, type MemoryPathTest, type SessionFileRef } from "./types.ts";
 
 /** Pi custom message type that carries injected L1 context. */
 export const PI_L1_CUSTOM_TYPE = "lune-memory-l1";
@@ -26,11 +27,65 @@ export function isMemoryToolName(name: string | undefined): boolean {
     return MEMORY_TOOL_NAMES.has(last) || MEMORY_TOOL_NAMES.has(name);
 }
 
-const MEMORY_PATH_PATTERN = /\.lune-memory[\\/](?:views|transcripts|\.generations)\b/u;
+const MEMORY_PATH_PATTERN =
+    /\.lune-memory[\\/](?:views|transcripts|\.generations|memory\.db)(?![\w.-])/u;
 
-/** True when text references the lune-memory projection, for example a file read of L2 or L3. */
-export function mentionsMemoryPath(text: string | undefined): boolean {
-    return text !== undefined && MEMORY_PATH_PATTERN.test(text);
+/**
+ * True when text references a lune-memory file, for example a file read of L2 or L3. The default
+ * home always counts. `test` adds the paths of the home in use.
+ */
+export function mentionsMemoryPath(text: string | undefined, test?: MemoryPathTest): boolean {
+    if (text === undefined) return false;
+    return MEMORY_PATH_PATTERN.test(text) || (test?.(text) ?? false);
+}
+
+function trimSeparators(path: string): string {
+    return path.replace(/[\\/]+$/u, "");
+}
+
+function realpathOr(path: string): string {
+    try {
+        return realpathSync(path);
+    } catch {
+        return path;
+    }
+}
+
+/** Pattern source for a literal path. A separator matches `/` and `\\`. */
+function pathSource(path: string): string {
+    return path
+        .split(/[\\/]/u)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+        .join("[\\\\/]");
+}
+
+/**
+ * Test for the memory files below the given paths: each path as given, its real path, and the
+ * `~/` and `$HOME/` forms of a path in the user home. A form matches only as a whole path, so
+ * `views` does not match `views2`.
+ */
+export function memoryPathTest(paths: readonly string[], home = homedir()): MemoryPathTest {
+    const homeRoot = trimSeparators(home);
+    const forms = new Set<string>();
+    for (const path of paths) {
+        for (const variant of [trimSeparators(path), trimSeparators(realpathOr(path))]) {
+            if (!variant) continue;
+            forms.add(variant);
+            if (!homeRoot || !variant.startsWith(homeRoot)) continue;
+            const rest = variant.slice(homeRoot.length);
+            if (!/^[\\/]/u.test(rest)) continue;
+            forms.add(`~${rest}`);
+            forms.add(`$HOME${rest}`);
+            forms.add(`\${HOME}${rest}`);
+        }
+    }
+    if (forms.size === 0) return () => false;
+    const source = [...forms]
+        .sort((a, b) => b.length - a.length)
+        .map(pathSource)
+        .join("|");
+    const pattern = new RegExp(`(?:${source})(?![\\w.-])`, "u");
+    return (text) => pattern.test(text);
 }
 
 /** True when text contains injected L1 context. */
@@ -39,8 +94,12 @@ export function containsMemoryContext(text: string | undefined): boolean {
 }
 
 /** True when a tool call is memory-derived: a memory tool, or a call that reads memory files. */
-export function isMemoryToolCall(name: string | undefined, argumentsText: string): boolean {
-    return isMemoryToolName(name) || mentionsMemoryPath(argumentsText);
+export function isMemoryToolCall(
+    name: string | undefined,
+    argumentsText: string,
+    test?: MemoryPathTest,
+): boolean {
+    return isMemoryToolName(name) || mentionsMemoryPath(argumentsText, test);
 }
 
 /** Serialize tool arguments for an event text. Strings stay as they are. */
@@ -52,6 +111,15 @@ export function argumentsToText(value: unknown): string {
     } catch {
         return String(value);
     }
+}
+
+/**
+ * Content of a message with a known role: a string or an array of blocks. Any other shape throws.
+ * An import that read it as empty would drop the event and so remove its earlier revision (§4).
+ */
+export function knownContent(content: unknown, where: string): string | unknown[] {
+    if (typeof content === "string" || Array.isArray(content)) return content;
+    throw new AdapterFormatError(`${where} content has an unknown format`);
 }
 
 /**
@@ -100,16 +168,20 @@ export function jsonlLines(text: string): Array<{ line: number; raw: string }> {
 export function parseJsonl(
     text: string,
     warnings: string[],
-): Array<{ line: number; record: Record<string, unknown> }> {
+): Array<{ line: number; raw: string; record: Record<string, unknown> }> {
     const lines = jsonlLines(text);
-    const out: Array<{ line: number; record: Record<string, unknown> }> = [];
+    const out: Array<{ line: number; raw: string; record: Record<string, unknown> }> = [];
     for (let i = 0; i < lines.length; i++) {
         const entry = lines[i];
         if (!entry) continue;
         try {
             const value: unknown = JSON.parse(entry.raw);
             if (value && typeof value === "object" && !Array.isArray(value)) {
-                out.push({ line: entry.line, record: value as Record<string, unknown> });
+                out.push({
+                    line: entry.line,
+                    raw: entry.raw,
+                    record: value as Record<string, unknown>,
+                });
             } else {
                 warnings.push(`line ${entry.line}: record is not an object`);
             }
@@ -124,7 +196,9 @@ export function parseJsonl(
 
 /**
  * List session files below `root`: `*.jsonl`, and `*.jsonl.zst` when `compressed` is true.
- * `maxDepth` limits recursion. Missing roots give no files.
+ * `maxDepth` limits recursion. Missing roots give no files. A symlink counts only when its real
+ * path is inside the real path of `root`, so a link cannot import sessions from a directory that
+ * is not enabled.
  */
 export function findJsonlFiles(
     harness: Harness,
@@ -133,17 +207,23 @@ export function findJsonlFiles(
     compressed = false,
 ): SessionFileRef[] {
     const out: SessionFileRef[] = [];
+    const base = realpathOr(root);
+    const inside = (path: string): boolean => {
+        const rest = relative(base, path);
+        return rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest);
+    };
     const walk = (dir: string, depth: number): void => {
-        let names: string[];
+        let entries;
         try {
-            names = readdirSync(dir);
+            entries = readdirSync(dir, { withFileTypes: true });
         } catch {
             return;
         }
-        for (const name of names) {
-            const path = join(dir, name);
+        for (const entry of entries) {
+            const path = join(dir, entry.name);
             let stat;
             try {
+                if (entry.isSymbolicLink() && !inside(realpathSync(path))) continue;
                 stat = statSync(path);
             } catch {
                 continue;
@@ -152,7 +232,7 @@ export function findJsonlFiles(
                 if (depth < maxDepth) walk(path, depth + 1);
             } else if (
                 stat.isFile() &&
-                (name.endsWith(".jsonl") || (compressed && name.endsWith(".jsonl.zst")))
+                (entry.name.endsWith(".jsonl") || (compressed && entry.name.endsWith(".jsonl.zst")))
             ) {
                 out.push({ harness, path, size: stat.size, mtimeMs: stat.mtimeMs });
             }

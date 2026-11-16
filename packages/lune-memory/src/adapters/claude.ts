@@ -8,6 +8,7 @@ import {
     containsMemoryContext,
     findJsonlFiles,
     isMemoryToolCall,
+    knownContent,
     obj,
     parseJsonl,
     str,
@@ -16,6 +17,7 @@ import {
     AdapterFormatError,
     type EvidenceEvent,
     type HarnessAdapter,
+    type ParseContext,
     type SessionEvidence,
 } from "./types.ts";
 
@@ -76,6 +78,8 @@ interface Piece {
 
 interface Pending {
     event: EvidenceEvent;
+    /** Index of the record in the file. */
+    entryIndex: number;
     recordUuid?: string;
     /** Record that holds the matching tool call, for a tool result. */
     callRecord?: string;
@@ -177,8 +181,13 @@ function isOwnFileDepth(root: string, path: string): boolean {
     return relative(root, path).split(sep).length === 2;
 }
 
-function parseClaudeSession(path: string, text: string): SessionEvidence | null {
+function parseClaudeSession(
+    path: string,
+    text: string,
+    context: ParseContext = {},
+): SessionEvidence | null {
     const sessionId = basename(path, ".jsonl");
+    const memoryPath = context.memoryPath;
     const filtered: Record<string, number> = {};
     const warnings: string[] = [];
     const warned = new Set<string>();
@@ -194,7 +203,8 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
     });
 
     // First pass: index records and tool calls. The file order is not always the chain order,
-    // for example a tool result can come before the record of its call.
+    // for example a tool result can come before the record of its call. The events are sorted
+    // into the chain order at the end.
     const byUuid = new Map<string, Entry>();
     const toolCalls = new Map<string, ToolCall>();
     for (const entry of entries) {
@@ -207,7 +217,7 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
             const id = str(call?.id);
             if (!call || call.type !== "tool_use" || !id) continue;
             const name = str(call.name);
-            const memory = isMemoryToolCall(name, argumentsToText(call.input));
+            const memory = isMemoryToolCall(name, argumentsToText(call.input), memoryPath);
             toolCalls.set(id, uuid ? { name, memory, recordUuid: uuid } : { name, memory });
         }
     }
@@ -280,7 +290,8 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
 
         if (type === "user") {
             if (record.isCompactSummary === true) {
-                add(0, { role: "summary", text: blocksToText(message?.content), untrusted: false });
+                const content = knownContent(message?.content, `line ${line}: Claude summary`);
+                add(0, { role: "summary", text: blocksToText(content), untrusted: false });
             } else if (record.isMeta === true) {
                 // Harness-generated context, for example an expanded skill prompt.
                 bump(filtered, "meta");
@@ -289,7 +300,8 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
                 bump(filtered, "transcript-only");
             } else {
                 const source = nonHumanSource(record.origin, record.turnOrigin);
-                contentBlocks(message?.content).forEach((value, part) => {
+                const content = knownContent(message?.content, `line ${line}: Claude user`);
+                contentBlocks(content).forEach((value, part) => {
                     const block = obj(value);
                     const blockType = str(block?.type);
                     if (blockType === "text") {
@@ -327,7 +339,8 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
                 const error = blocksToText(message?.content) || str(record.error) || "API error";
                 add(0, { role: "notice", text: error, untrusted: false });
             } else {
-                contentBlocks(message?.content).forEach((value, part) => {
+                const content = knownContent(message?.content, `line ${line}: Claude assistant`);
+                contentBlocks(content).forEach((value, part) => {
                     const block = obj(value);
                     const blockType = str(block?.type);
                     if (blockType === "text") {
@@ -416,7 +429,8 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
                 text: piece.text,
                 sourceLine: line,
                 memoryDerived:
-                    (piece.role === "tool_call" && isMemoryToolCall(piece.toolName, piece.text)) ||
+                    (piece.role === "tool_call" &&
+                        isMemoryToolCall(piece.toolName, piece.text, memoryPath)) ||
                     call?.memory === true ||
                     containsMemoryContext(piece.text),
                 untrusted: piece.untrusted,
@@ -424,7 +438,7 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
             };
             if (time) event.time = time;
             if (piece.toolName) event.toolName = piece.toolName;
-            const item: Pending = { event };
+            const item: Pending = { event, entryIndex: entry.index };
             if (uuid) item.recordUuid = uuid;
             if (call?.recordUuid) item.callRecord = call.recordUuid;
             pending.push(item);
@@ -446,7 +460,14 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
             (callRecord !== undefined && active.has(callRecord));
     }
 
-    const events = pending.map((item) => item.event);
+    const places = chainPlaces(entries, byUuid);
+    const place = (item: Pending): ChainPlace =>
+        places.get(item.entryIndex) ?? { pos: item.entryIndex, depth: 0 };
+    // The sort is stable, so records with the same place, and the parts of a record, keep the
+    // file order.
+    const events = pending
+        .toSorted((a, b) => place(a).pos - place(b).pos || place(a).depth - place(b).depth)
+        .map((item) => item.event);
     const evidence: SessionEvidence = {
         harness: "claude",
         sessionId,
@@ -465,6 +486,50 @@ function parseClaudeSession(path: string, text: string): SessionEvidence | null 
     const updatedAt = events.findLast((event) => event.time)?.time;
     if (updatedAt) evidence.updatedAt = updatedAt;
     return evidence;
+}
+
+/** Place of a record on its parent chain. */
+interface ChainPlace {
+    /** Highest file index on the chain from the root to the record. */
+    pos: number;
+    /** Number of parents above the record. */
+    depth: number;
+}
+
+/**
+ * Place each record on its `parentUuid` chain, so that L4 keeps the chain order (§2). The file
+ * order is not always the chain order: a record can come before its parent, for example a tool
+ * result before its call. A record never sorts before its parent when the events sort by `pos`,
+ * then by `depth`. A file in chain order keeps its order. A record in a parent cycle is placed as
+ * a root, and `activePath` reports the cycle when it is on the active path.
+ */
+function chainPlaces(
+    entries: readonly Entry[],
+    byUuid: ReadonlyMap<string, Entry>,
+): Map<number, ChainPlace> {
+    const places = new Map<number, ChainPlace>();
+    for (const start of entries) {
+        if (places.has(start.index)) continue;
+        // Walk up to a placed record, a root or a cycle. Then place the walk from the top down.
+        const walk: Entry[] = [];
+        const onWalk = new Set<number>();
+        let current: Entry | undefined = start;
+        while (current && !places.has(current.index) && !onWalk.has(current.index)) {
+            walk.push(current);
+            onWalk.add(current.index);
+            const parent = str(current.record.parentUuid);
+            current = parent ? byUuid.get(parent) : undefined;
+        }
+        let above = current ? places.get(current.index) : undefined;
+        for (const entry of walk.reverse()) {
+            const placed: ChainPlace = above
+                ? { pos: Math.max(entry.index, above.pos), depth: above.depth + 1 }
+                : { pos: entry.index, depth: 0 };
+            places.set(entry.index, placed);
+            above = placed;
+        }
+    }
+    return places;
 }
 
 /**

@@ -6,13 +6,19 @@ import type { LocatorKind, Project } from "../core/types.ts";
 import { hash8, nowIso } from "../core/util.ts";
 import { text, textOrNull, type Store } from "../store/db.ts";
 import { getProject, liveProjectId } from "../store/rows.ts";
-import { repoInfo, type RepoInfo } from "./git.ts";
+import { currentBranch, repoInfo, type RepoInfo } from "./git.ts";
 
 export interface Resolution {
     projectId: string;
     /** Branch of the work tree now. Null outside a repo or on a detached HEAD. */
     branch: string | null;
     repo: RepoInfo | null;
+}
+
+/** A session that moved to another project. */
+interface SessionRef {
+    harness: string;
+    sessionId: string;
 }
 
 export interface ResolverOptions {
@@ -74,13 +80,26 @@ export class ProjectResolver {
         this.cache.clear();
     }
 
-    /** Project of `cwd`. Creates the project of a repo on first sight. */
+    /**
+     * Project of `cwd`. Creates the project of a repo on first sight. The cache keeps the
+     * project, but the branch comes from the work tree on each call: a checkout changes it at
+     * any time.
+     */
     resolve(cwd: string): Resolution | null {
         const cached = this.cache.get(cwd);
-        if (cached && this.now() - cached.at < this.ttlMs) return cached.value;
+        if (cached && this.now() - cached.at < this.ttlMs) return this.refresh(cached.value);
         const value = this.resolveNow(cwd);
         this.cache.set(cwd, { at: this.now(), value });
         return value;
+    }
+
+    /** A cached result with the branch of now and the live project, after a merge elsewhere. */
+    private refresh(value: Resolution | null): Resolution | null {
+        if (!value) return null;
+        const projectId = liveProjectId(this.store, value.projectId);
+        if (!value.repo) return { ...value, projectId };
+        const branch = currentBranch(value.repo.root);
+        return { projectId, branch, repo: { ...value.repo, branch } };
     }
 
     private resolveNow(cwd: string): Resolution | null {
@@ -142,6 +161,12 @@ export class ProjectResolver {
         if (!projectId) {
             projectId = projectIdFor("git_common_dir", repo.commonDir);
             this.createProject(projectId, basename(repo.root) || "project", repo.root);
+        } else {
+            // A repo that moved keeps its project, and the root follows it.
+            const root = getProject(this.store, projectId)?.root;
+            if (root && root !== repo.root && !existsSync(root)) {
+                this.store.run("UPDATE projects SET root = ? WHERE id = ?", repo.root, projectId);
+            }
         }
         this.addLocator("git_common_dir", repo.commonDir, projectId);
         for (const remote of repo.remotes) this.addLocator("remote", remote, projectId);
@@ -193,16 +218,16 @@ export class ProjectResolver {
     /**
      * Move the sessions of `from` (null: unassigned sessions) whose cwd now resolves to
      * `projectId`. They become unprocessed, so Dreaming builds the memory of the project from
-     * them. Items stay where they are. Returns the number of moved sessions.
+     * them. Items stay where they are. Returns the moved sessions.
      */
-    private adoptSessions(projectId: string, from: string | null): number {
+    private adoptSessions(projectId: string, from: string | null): SessionRef[] {
         const sessions = this.store.all(
             from === null
                 ? "SELECT harness, id, cwd, branch FROM sessions WHERE project_id IS NULL AND cwd IS NOT NULL"
                 : "SELECT harness, id, cwd, branch FROM sessions WHERE project_id = ? AND cwd IS NOT NULL",
             ...(from === null ? [] : [from]),
         );
-        let moved = 0;
+        const moved: SessionRef[] = [];
         for (const session of sessions) {
             const cwd = textOrNull(session, "cwd");
             if (!cwd || this.resolve(cwd)?.projectId !== projectId) continue;
@@ -216,7 +241,7 @@ export class ProjectResolver {
                     sessionId,
                 );
                 this.store.run(
-                    "UPDATE events SET processed_hash = NULL WHERE harness = ? AND session_id = ?",
+                    "UPDATE events SET processed_hash = NULL, processed_chars = NULL WHERE harness = ? AND session_id = ?",
                     harness,
                     sessionId,
                 );
@@ -230,8 +255,54 @@ export class ProjectResolver {
                     );
                 }
             });
-            moved++;
+            moved.push({ harness, sessionId });
         }
+        return moved;
+    }
+
+    /**
+     * Move the project items of `from` that belong to the moved sessions: each event source is
+     * in a moved session, or the item has no event source and a moved session wrote it. Their
+     * sessions resolve to `projectId` now, so in `from` no review of these sessions would reach
+     * the items (§3). An item with evidence from a session that stays also stays. Returns the
+     * number of moved items.
+     */
+    private adoptItems(projectId: string, from: string, sessions: readonly SessionRef[]): number {
+        if (sessions.length === 0) return 0;
+        const movedSession = new Set(sessions.map((s) => `${s.harness}\0${s.sessionId}`));
+        const items = this.store.all(
+            "SELECT id, branch, writer_harness, writer_session FROM items WHERE project_id = ? AND scope = 'project'",
+            from,
+        );
+        let moved = 0;
+        this.store.tx(() => {
+            for (const item of items) {
+                const itemId = text(item, "id");
+                const sources = this.store
+                    .all(
+                        "SELECT harness, session_id FROM item_sources WHERE item_id = ? AND ref_kind = 'event'",
+                        itemId,
+                    )
+                    .map((row) => `${text(row, "harness")}\0${text(row, "session_id")}`);
+                const writer = `${textOrNull(item, "writer_harness")}\0${textOrNull(item, "writer_session")}`;
+                const belongs =
+                    sources.length > 0
+                        ? sources.every((source) => movedSession.has(source))
+                        : movedSession.has(writer);
+                if (!belongs) continue;
+                this.store.run("UPDATE items SET project_id = ? WHERE id = ?", projectId, itemId);
+                const branch = textOrNull(item, "branch");
+                if (branch) {
+                    this.store.run(
+                        "INSERT OR IGNORE INTO branches(project_id, name, status, first_seen) VALUES (?, ?, 'open', ?)",
+                        projectId,
+                        branch,
+                        nowIso(this.now()),
+                    );
+                }
+                moved++;
+            }
+        });
         return moved;
     }
 
@@ -282,10 +353,15 @@ export class ProjectResolver {
     /**
      * Move one locator to a project of its own. Sessions whose cwd now resolves to that project
      * move with it and become unprocessed, so Dreaming builds the memory of that project from
-     * them. Items stay with the old project. The target is never a live project: a project that
-     * the locator made and that was merged away comes back, else the split makes a new one.
+     * them. Items move only when all their evidence is in the moved sessions (`adoptItems`), and
+     * Dreaming reviews them with these sessions. The target is never a live project: a project
+     * that the locator made and that was merged away comes back, else the split makes a new one.
      */
-    split(kind: LocatorKind, value: string, name?: string): { project: Project; moved: number } {
+    split(
+        kind: LocatorKind,
+        value: string,
+        name?: string,
+    ): { project: Project; moved: number; items: number } {
         const row = this.store.get(
             "SELECT project_id FROM project_locators WHERE kind = ? AND value = ?",
             kind,
@@ -326,10 +402,11 @@ export class ProjectResolver {
             );
         });
         this.clearCache();
-        const moved = this.adoptSessions(id, from);
+        const sessions = this.adoptSessions(id, from);
+        const items = this.adoptItems(id, from, sessions);
         const project = getProject(this.store, id);
         if (!project) throw new Error(`Project ${id} is missing after split`);
-        return { project, moved };
+        return { project, moved: sessions.length, items };
     }
 
     /**

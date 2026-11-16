@@ -1,7 +1,9 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 
+import { memoryPathTest } from "../adapters/common.ts";
 import { ADAPTERS, AdapterFormatError, readSessionFile } from "../adapters/index.ts";
-import type { SessionEvidence, SessionFileRef } from "../adapters/types.ts";
+import type { ParseContext, SessionEvidence, SessionFileRef } from "../adapters/types.ts";
 import type { MemoryConfig } from "../core/config.ts";
 import type { MemoryPaths } from "../core/paths.ts";
 import { HARNESSES, type EventRole, type Harness, type SessionRow } from "../core/types.ts";
@@ -54,6 +56,43 @@ interface PreparedEvent {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Events that Dreaming must read again after a revision deleted or moved events (§5). Such a
+ * revision changes the context of the events around it, but no remaining event changed its text,
+ * so the pass would not see it. A seam is a remaining event whose predecessor changed, or the new
+ * last event when the earlier last event left. A new event needs no seam: it is unprocessed
+ * already. The nearest event that is not memory-derived stands in for the seam, forward first,
+ * because a pass never reads memory-derived events. `previous` holds the earlier event keys in
+ * their earlier order.
+ */
+export function revisionSeams(
+    previous: readonly string[],
+    events: readonly Pick<PreparedEvent, "key" | "memoryDerived">[],
+): string[] {
+    const known = new Set(previous);
+    const predecessor = new Map(previous.map((key, index) => [key, previous[index - 1] ?? null]));
+    const anchors = new Set<number>();
+    let prior: string | null = null;
+    events.forEach((event, index) => {
+        const moved = known.has(event.key) && predecessor.get(event.key) !== prior;
+        if (moved && (prior === null || known.has(prior))) anchors.add(index);
+        prior = event.key;
+    });
+    const last = events.at(-1);
+    if (last && known.has(last.key) && previous.at(-1) !== last.key) anchors.add(events.length - 1);
+    const seams = new Set<string>();
+    for (const anchor of anchors) {
+        const seam =
+            events.slice(anchor).find((event) => !event.memoryDerived) ??
+            events
+                .slice(0, anchor)
+                .reverse()
+                .find((event) => !event.memoryDerived);
+        if (seam) seams.add(seam.key);
+    }
+    return [...seams];
+}
+
 /** Hash of the parts of an event that matter for Dreaming. A changed hash means unprocessed. */
 export function eventHash(event: {
     role: string;
@@ -75,6 +114,20 @@ export function eventHash(event: {
     );
 }
 
+function realpathOr(path: string): string {
+    try {
+        return realpathSync(path);
+    } catch {
+        return path;
+    }
+}
+
+/** True when `path` is `dir` or below it. */
+function isInside(dir: string, path: string): boolean {
+    const rel = relative(dir, path);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 function timeMs(value: string | null | undefined): number | null {
     if (!value) return null;
     const ms = Date.parse(value);
@@ -91,6 +144,7 @@ export class Importer {
     private readonly config: MemoryConfig;
     private readonly resolver: ProjectResolver;
     private readonly now: () => number;
+    private readonly parseContext: ParseContext;
 
     constructor(
         store: Store,
@@ -104,6 +158,14 @@ export class Importer {
         this.config = config;
         this.resolver = resolver;
         this.now = options.now ?? Date.now;
+        this.parseContext = {
+            memoryPath: memoryPathTest([
+                paths.views,
+                paths.generations,
+                paths.transcripts,
+                paths.db,
+            ]),
+        };
     }
 
     /** Scan every enabled harness, import changed files and apply retention. */
@@ -172,7 +234,7 @@ export class Importer {
         }
         let evidence: SessionEvidence | null;
         try {
-            evidence = ADAPTERS[ref.harness].parse(ref.path, raw);
+            evidence = ADAPTERS[ref.harness].parse(ref.path, raw, this.parseContext);
         } catch (error) {
             const message =
                 error instanceof AdapterFormatError
@@ -187,6 +249,7 @@ export class Importer {
             this.recordFile(ref, fileHash, null, "skipped", null);
             return { outcome: "skipped" };
         }
+        this.markMemoryHomeTools(evidence);
         if (this.isForgotten(evidence.harness, evidence.sessionId)) {
             this.recordFile(ref, fileHash, evidence.sessionId, "forgotten", null);
             return { outcome: "skipped" };
@@ -216,6 +279,25 @@ export class Importer {
             const message = safeErrorText(error);
             this.recordFile(ref, fileHash, evidence.sessionId, "error", message);
             return { outcome: "error", error: message };
+        }
+    }
+
+    /**
+     * A session that runs inside the memory home reads memory files by relative paths, such as
+     * `views/projects/x/wiki/a.md`, that no path test can see. All its tool events are
+     * memory-derived, so they never become evidence.
+     */
+    private markMemoryHomeTools(evidence: SessionEvidence): void {
+        if (!evidence.cwd) return;
+        const home = realpathOr(resolve(this.paths.home));
+        const cwd = realpathOr(resolve(evidence.cwd));
+        if (!isInside(home, cwd) && !isInside(resolve(this.paths.home), resolve(evidence.cwd))) {
+            return;
+        }
+        for (const event of evidence.events) {
+            if (event.role === "tool_call" || event.role === "tool_result") {
+                event.memoryDerived = true;
+            }
         }
     }
 
@@ -319,9 +401,16 @@ export class Importer {
             ? liveProjectId(this.store, existing.projectId)
             : null;
         const projectId = resolution?.projectId ?? previousProject;
-        // The harness record is best. A branch seen at an earlier import is closer to the time
-        // of the session than the branch of the work tree now.
-        const branch = evidence.branch ?? existing?.branch ?? resolution?.branch ?? null;
+        // The harness record is best. A session that changed since the last import is active
+        // now, so the branch of the work tree now is its branch: the user can have switched
+        // branches before resuming it. For an unchanged session, a branch seen at an earlier
+        // import is closer to its time than the branch now.
+        const branch =
+            evidence.branch ??
+            (changed && existing ? resolution?.branch : null) ??
+            existing?.branch ??
+            resolution?.branch ??
+            null;
         const title = evidence.title ? redact(evidence.title).text : null;
 
         let processedRevision = existing?.processedRevision ?? null;
@@ -363,6 +452,7 @@ export class Importer {
         };
 
         this.store.tx(() => {
+            const previous = changed && existing ? this.eventKeys(session) : [];
             putSession(this.store, session);
             for (const event of events) {
                 this.store.run(
@@ -376,7 +466,9 @@ export class Importer {
                         source_line = excluded.source_line,
                         memory_derived = excluded.memory_derived,
                         untrusted = excluded.untrusted, active = excluded.active,
-                        hash = excluded.hash
+                        hash = excluded.hash,
+                        processed_chars = CASE WHEN events.hash = excluded.hash
+                            THEN events.processed_chars ELSE NULL END
                     WHERE events.hash != excluded.hash OR events.seq != excluded.seq
                         OR events.source_line IS NOT excluded.source_line
                         OR events.time IS NOT excluded.time`,
@@ -397,6 +489,7 @@ export class Importer {
                 );
             }
             this.removeVanishedEvents(session, events, nowText);
+            if (!markProcessed) this.markSeams(session, revisionSeams(previous, events));
             if (projectId && branch) {
                 this.store.run(
                     "INSERT OR IGNORE INTO branches(project_id, name, status, first_seen) VALUES (?, ?, 'open', ?)",
@@ -419,6 +512,29 @@ export class Importer {
             );
         }
         return { harness: session.harness, id: session.id, projectId, revision, changed };
+    }
+
+    /** Event keys of a session in their stored order. */
+    private eventKeys(session: SessionRow): string[] {
+        return this.store
+            .all(
+                "SELECT key FROM events WHERE harness = ? AND session_id = ? ORDER BY seq",
+                session.harness,
+                session.id,
+            )
+            .map((row) => text(row, "key"));
+    }
+
+    /** Mark the seam events of a revision unprocessed, so the next pass reads them again. */
+    private markSeams(session: SessionRow, keys: readonly string[]): void {
+        if (!keys.length) return;
+        this.store.run(
+            `UPDATE events SET processed_hash = NULL, processed_chars = NULL
+            WHERE harness = ? AND session_id = ? AND key IN (SELECT value FROM json_each(?))`,
+            session.harness,
+            session.id,
+            JSON.stringify(keys),
+        );
     }
 
     /**

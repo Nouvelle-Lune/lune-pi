@@ -28,6 +28,12 @@ export interface NoteInput {
     trigger?: string;
 }
 
+/**
+ * A Note after a write. The Note is committed in SQLite. `projectionError` is set when the
+ * Markdown views could not show it; the memory service writes them again later.
+ */
+export type NoteResult = Item & { projectionError?: string };
+
 export interface NoteOptions {
     now?: () => number;
     /** Called after the commit, for example to add the note to the projection at once. */

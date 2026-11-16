@@ -8,7 +8,7 @@ import {
     type Trust,
 } from "../core/types.ts";
 import { newId, nowIso } from "../core/util.ts";
-import { stableL1Size } from "../memory/l1.ts";
+import { stableL1Grew, stableL1Size } from "../memory/l1.ts";
 import { contentHash } from "../memory/notes.ts";
 import type { Store } from "../store/db.ts";
 import {
@@ -26,11 +26,13 @@ import type { ClosedBranch } from "./branches.ts";
 import type { SessionSnapshot } from "./eligibility.ts";
 import {
     BRANCH_KINDS,
-    EVIDENCE_FREE_KINDS,
     clampTrust,
+    eventId,
     eventSource,
     idemKey,
     liveEvents,
+    sessionSources,
+    statesGeneral,
     uniqueSources,
 } from "./evidence.ts";
 import type { Usage } from "./model.ts";
@@ -133,6 +135,10 @@ class ProjectCommit {
     private readonly runId: number;
     private readonly at: string;
     private readonly sessionBranches = new Map<string, string | null>();
+    /** Hash of each event that the Analyzer saw. Evidence must still have this text. */
+    private readonly pins = new Map<string, string>();
+    /** Items that an update or merge of this commit changed or kept. */
+    private readonly touched = new Set<string>();
 
     constructor(store: Store, projectId: string, runId: number, now: number) {
         this.store = store;
@@ -143,6 +149,15 @@ class ProjectCommit {
 
     rememberSession(snapshot: SessionSnapshot): void {
         this.sessionBranches.set(sessionLabel(snapshot), snapshot.session.branch);
+        for (const { event } of snapshot.events) this.pins.set(eventId(event), event.hash);
+    }
+
+    /**
+     * Events of `sources` that can be evidence for an item of `kind` now, in the revision that
+     * the Analyzer saw.
+     */
+    private evidence(sources: readonly SourceRef[], kind: ItemKind): EventRow[] {
+        return liveEvents(this.store, sources, this.pins, kind);
     }
 
     private save(before: Item | null, after: Item): void {
@@ -164,7 +179,12 @@ class ProjectCommit {
     // -----------------------------------------------------------------------------------------
     // Note reviews
 
-    /** Apply the note reviews of one session. Notes that a complete session left alone are kept. */
+    /**
+     * Apply the note reviews of one session. A Note becomes active only through a "keep" or a
+     * "correct" review whose evidence still holds. A Note with no review, or with a review that
+     * cites no live evidence, stays provisional, and the next revision of its session reviews it
+     * again. A "retract" review retires the Note.
+     */
     reviewNotes(result: AnalyzerResult, handled: Set<string>): void {
         const reviews = new Map<string, NoteReview>();
         for (const review of result.noteReviews) {
@@ -182,7 +202,11 @@ class ProjectCommit {
                 this.warnings.push(`Note ${note.id} changed during the pass. It waits for review.`);
                 continue;
             }
-            this.applyReview(note, review ?? null);
+            if (!review) {
+                this.warnings.push(`Note ${note.id} has no review. It stays provisional.`);
+                continue;
+            }
+            this.applyReview(note, review);
         }
         for (const review of reviews.values()) {
             if (!result.snapshot.notes.some((note) => note.id === review.noteId)) {
@@ -193,19 +217,31 @@ class ProjectCommit {
         }
     }
 
-    private applyReview(note: Item, review: NoteReview | null): void {
-        this.counts.notes++;
-        if (review?.action === "retract") {
+    private applyReview(note: Item, review: NoteReview): void {
+        if (review.action === "retract") {
+            this.counts.notes++;
             this.retireItem(note);
             return;
         }
-        const sources = uniqueSources([
-            ...note.sources,
-            ...(review?.events ?? []).map(eventSource),
-        ]);
-        const title = review?.action === "correct" && review.title ? review.title : note.title;
-        const body = review?.action === "correct" && review.body ? review.body : note.body;
-        const events = liveEvents(this.store, sources);
+        const closed = this.closedBranchOf(note);
+        if (closed) {
+            this.warnings.push(`Note ${note.id} is on the closed branch ${closed}. It is retired.`);
+            this.counts.notes++;
+            this.counts.retired++;
+            this.retireItem(note);
+            return;
+        }
+        const sources = uniqueSources([...note.sources, ...review.events.map(eventSource)]);
+        const events = this.evidence(sources, note.kind);
+        if (events.length === 0) {
+            this.warnings.push(
+                `Note ${note.id}: the review cites no live evidence. It stays provisional.`,
+            );
+            return;
+        }
+        this.counts.notes++;
+        const title = review.action === "correct" && review.title ? review.title : note.title;
+        const body = review.action === "correct" && review.body ? review.body : note.body;
         const after: Item = {
             ...note,
             title,
@@ -226,9 +262,14 @@ class ProjectCommit {
     apply(op: OrganizerOp): void {
         try {
             if (op.op === "create") this.create(op);
-            else if (op.op === "update") this.update(op);
-            else if (op.op === "retire") this.retire(op);
-            else this.merge(op);
+            else if (op.op === "update") {
+                this.update(op);
+                this.touched.add(op.id);
+            } else if (op.op === "retire") this.retire(op);
+            else {
+                this.merge(op);
+                for (const id of op.ids) this.touched.add(id);
+            }
         } catch (error) {
             if (!(error instanceof Rejected)) throw error;
             this.counts.rejected++;
@@ -284,6 +325,13 @@ class ProjectCommit {
             sources.push({ kind: "item", itemId: id });
         }
         return sources;
+    }
+
+    /** Closed branch of a Working State or open item, or null. */
+    private closedBranchOf(item: Item): string | null {
+        if (!item.branch || !BRANCH_KINDS.includes(item.kind)) return null;
+        const state = this.branchState(item.branch);
+        return state && state !== "open" ? item.branch : null;
     }
 
     private branchState(name: string): string | null {
@@ -374,10 +422,10 @@ class ProjectCommit {
             ...op.events.map(eventSource),
             ...this.fromSources(op.from),
         ]);
-        const events = liveEvents(this.store, evidence);
-        if (!events.length && !EVIDENCE_FREE_KINDS.includes(op.kind)) {
-            reject(`"${op.title}" has no evidence`);
-        }
+        // Every kind needs evidence. A wiki page or the index is a projection, and a projection
+        // cannot prove itself (§6): it cites the events it sums up, directly or through `from`.
+        const events = this.evidence(evidence, op.kind);
+        if (!events.length) reject(`"${op.title}" has no evidence`);
         const sources = uniqueSources([
             ...events.map(eventSource),
             ...this.linkSources(op.links, op.kind),
@@ -403,7 +451,8 @@ class ProjectCommit {
             trust: clampTrust(op.trust, events, op.kind),
             status: "active",
             origin: "dreaming",
-            general: op.kind === "preference" && op.general,
+            // The model's flag is a claim. It holds only when the user said so (§3).
+            general: op.kind === "preference" && op.general && events.some(statesGeneral),
             writerHarness: null,
             writerSession: null,
             idemKey: key,
@@ -433,9 +482,8 @@ class ProjectCommit {
             ...this.fromSources(op.from),
             ...this.linkSources(op.links, before.kind, before.id),
         ]);
-        const events = liveEvents(this.store, sources);
-        const free = EVIDENCE_FREE_KINDS.includes(before.kind);
-        if (!events.length && !free) reject(`item ${before.id} would have no evidence`);
+        const events = this.evidence(sources, before.kind);
+        if (!events.length) reject(`item ${before.id} would have no evidence`);
         const title = op.title ?? before.title;
         const body = op.body ?? before.body;
         const branch =
@@ -449,10 +497,7 @@ class ProjectCommit {
             branch,
             contentHash: contentHash(title, body),
             trust: clampTrust(op.trust ?? before.trust, events, before.kind),
-            status:
-                before.status === "source-missing" && (events.length || free)
-                    ? "active"
-                    : before.status,
+            status: before.status === "source-missing" ? "active" : before.status,
             sources,
             updatedRun: this.runId,
             updatedAt: this.at,
@@ -465,7 +510,11 @@ class ProjectCommit {
             this.store.run(
                 `INSERT OR IGNORE INTO item_keys (idem_key, content_hash, item_id, run_id)
                 VALUES (?, ?, ?, ?)`,
-                idemKey(after.kind, liveEvents(this.store, op.events.map(eventSource)), after.id),
+                idemKey(
+                    after.kind,
+                    this.evidence(op.events.map(eventSource), after.kind),
+                    after.id,
+                ),
                 after.contentHash,
                 after.id,
                 this.runId,
@@ -499,9 +548,8 @@ class ProjectCommit {
             ...this.fromSources(op.from),
             ...this.linkSources(op.links, keep.kind, keep.id),
         ]).filter((source) => source.kind !== "item" || !op.ids.includes(source.itemId));
-        const events = liveEvents(this.store, sources);
-        const free = EVIDENCE_FREE_KINDS.includes(keep.kind);
-        if (!events.length && !free) reject("the merged item would have no evidence");
+        const events = this.evidence(sources, keep.kind);
+        if (!events.length) reject("the merged item would have no evidence");
         const claimed = items.reduce<Trust>(
             (best, item) => (TRUST_RANK[item.trust] > TRUST_RANK[best] ? item.trust : best),
             "inference",
@@ -513,7 +561,7 @@ class ProjectCommit {
             contentHash: contentHash(op.title, op.body),
             trust: clampTrust(claimed, events, keep.kind),
             status: "active",
-            general: items.some((item) => item.general),
+            general: items.some((item) => item.general) && events.some(statesGeneral),
             sources,
             updatedRun: this.runId,
             updatedAt: this.at,
@@ -528,9 +576,63 @@ class ProjectCommit {
     }
 
     // -----------------------------------------------------------------------------------------
+    // Earlier items under review
+
+    /**
+     * Settle the earlier items that a session marked for review: some of their evidence in the
+     * session was removed or left the active path (§4, §5). An item that the Analyzer lists as
+     * unsupported is retired when no event of another session supports it and the snapshot showed
+     * all its remaining evidence in the session. Every other reviewed item drops its dead sources
+     * of the session, so the next pass does not review it again. An item without live evidence
+     * keeps its sources and becomes source-missing, as the importer does for vanished events.
+     */
+    reviewEarlier(result: AnalyzerResult): void {
+        const { snapshot } = result;
+        const unsupported = new Set(result.unsupported.map((entry) => entry.id));
+        const shown = new Set(snapshot.events.map(({ event }) => eventId(event)));
+        for (const id of snapshot.review) {
+            const item = getItem(this.store, id);
+            if (!item || item.status !== "active") continue;
+            if (item.scope !== "project" || item.projectId !== this.projectId) continue;
+            const cited = sessionSources(item.sources, snapshot.session);
+            const kept = liveEvents(this.store, cited, undefined, item.kind);
+            if (kept.length === cited.length) continue;
+            const live = liveEvents(this.store, item.sources, undefined, item.kind);
+            const elsewhere = live.length > kept.length;
+            if (unsupported.has(id) && !this.touched.has(id)) {
+                if (!elsewhere && kept.every((event) => shown.has(eventId(event)))) {
+                    this.retireItem(item);
+                    this.counts.retired++;
+                    continue;
+                }
+                const why = elsewhere
+                    ? "another session supports it"
+                    : "the pass did not show all its evidence";
+                this.warnings.push(`Kept ${id}, which the Analyzer found unsupported: ${why}`);
+            }
+            const alive = new Set(kept.map((event) => sourceKey(eventSource(event))));
+            const dead = new Set(cited.map(sourceKey).filter((key) => !alive.has(key)));
+            const missing = live.length === 0;
+            this.save(item, {
+                ...item,
+                sources: missing
+                    ? item.sources
+                    : item.sources.filter((source) => !dead.has(sourceKey(source))),
+                status: missing ? "source-missing" : item.status,
+                updatedRun: this.runId,
+                updatedAt: this.at,
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // Closed branches and sessions
 
-    /** Retire the Working State and open items that stay on a closed branch, and mark it handled. */
+    /**
+     * Retire the Working State and open items that stay on a closed branch, provisional Notes
+     * included, and mark the branch handled. A Note that comes to a handled branch later is
+     * retired at its review.
+     */
     closeBranch(branch: ClosedBranch): void {
         const pending = this.store.get(
             `SELECT 1 AS n FROM branches WHERE project_id = ? AND name = ? AND status != 'open'
@@ -543,7 +645,7 @@ class ProjectCommit {
             scope: "project",
             projectId: this.projectId,
             kind: [...BRANCH_KINDS],
-            status: ["active", "source-missing"],
+            status: ["active", "source-missing", "provisional"],
             branch: branch.name,
         });
         for (const item of leftovers) {
@@ -560,21 +662,34 @@ class ProjectCommit {
 }
 
 /**
- * Mark the events that a snapshot covered as processed. An event that changed after the
- * snapshot keeps its old processed hash, so the next pass sees it again. The revision counts as
- * processed only when the snapshot covered all its events and it did not change.
+ * Mark the events that a snapshot covered as processed. An event that the snapshot showed in
+ * part keeps its cursor at the end of that part, so the next pass shows the rest. An event that
+ * changed after the snapshot keeps its old state, so the next pass sees it again. The revision
+ * counts as processed only when the snapshot covered all its text and it did not change.
  */
 export function markProcessed(store: Store, snapshot: SessionSnapshot): void {
     const { harness, id } = snapshot.session;
-    for (const [key, hash] of snapshot.covered) {
-        store.run(
-            `UPDATE events SET processed_hash = hash
-            WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?`,
-            harness,
-            id,
-            key,
-            hash,
-        );
+    for (const [key, { hash, end }] of snapshot.covered) {
+        if (end === null) {
+            store.run(
+                `UPDATE events SET processed_hash = hash, processed_chars = NULL
+                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?`,
+                harness,
+                id,
+                key,
+                hash,
+            );
+        } else {
+            store.run(
+                `UPDATE events SET processed_chars = ?
+                WHERE harness = ? AND session_id = ? AND key = ? AND hash = ?`,
+                end,
+                harness,
+                id,
+                key,
+                hash,
+            );
+        }
     }
     store.run(
         `UPDATE sessions SET attempts = 0, attempt_revision = NULL, last_error = NULL
@@ -622,12 +737,11 @@ export function commitProject(
             commit.reviewNotes(result, handled);
         }
         for (const op of input.ops) commit.apply(op);
+        for (const result of input.results) commit.reviewEarlier(result);
         for (const branch of input.closedBranches) commit.closeBranch(branch);
         for (const result of input.results) markProcessed(store, result.snapshot);
         const after = stableL1Size(store, paths, input.projectId);
-        if (!after.fits && (after.lines > before.lines || after.bytes > before.bytes)) {
-            throw new BudgetError(after);
-        }
+        if (stableL1Grew(before, after)) throw new BudgetError(after);
         finishRun(store, runId, {
             status: "ok",
             warnings: commit.warnings,

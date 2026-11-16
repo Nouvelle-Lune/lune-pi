@@ -13,6 +13,10 @@ class FakeService {
     };
     imports = 0;
     importError: Error | null = null;
+    repairs = 0;
+    /** Result of repairViews(): an error text, or null when the views are fine. */
+    repairResult: string | null = null;
+    repairThrows: Error | null = null;
     dreams: Array<{ signal?: AbortSignal; importFirst?: boolean; trigger?: string }> = [];
     pending: Array<(summary: PassSummary) => void> = [];
     listeners = new Set<ServiceListener>();
@@ -27,6 +31,11 @@ class FakeService {
     importNow() {
         this.imports += 1;
         if (this.importError) throw this.importError;
+    }
+    repairViews(): string | null {
+        this.repairs += 1;
+        if (this.repairThrows) throw this.repairThrows;
+        return this.repairResult;
     }
     dream(request: { signal?: AbortSignal; importFirst?: boolean; trigger?: string }) {
         this.dreams.push(request);
@@ -104,27 +113,44 @@ describe("timers", () => {
 });
 
 describe("passes", () => {
-    it("skips the timed import while a pass runs", async () => {
+    it("runs the timed import while a pass waits for the model", async () => {
         const run = scheduler.dream({ trigger: "manual" });
         assert.equal(scheduler.busy, true);
         scheduler.runImport();
-        assert.equal(service.imports, 0);
+        assert.equal(service.imports, 1);
 
         service.pending[0]?.(summary("ok"));
         await run;
         assert.equal(scheduler.busy, false);
         scheduler.runImport();
+        assert.equal(service.imports, 2);
+    });
+
+    it("skips an import while another import runs", () => {
+        service.importNow = () => {
+            service.imports += 1;
+            scheduler.runImport(); // Re-entrant call while the first import is active.
+        };
+        scheduler.runImport();
         assert.equal(service.imports, 1);
     });
 
-    it("passes the abort signal and drops importFirst for a pass that overlaps", async () => {
+    it("keeps importFirst and passes the abort signal for a pass that overlaps", async () => {
         const first = scheduler.dream();
         const second = scheduler.dream();
         assert.equal(service.dreams[0]?.importFirst, true);
-        assert.equal(service.dreams[1]?.importFirst, false);
+        assert.equal(service.dreams[1]?.importFirst, true);
         assert.ok(service.dreams[0]?.signal instanceof AbortSignal);
+        assert.ok(service.dreams[1]?.signal instanceof AbortSignal);
         for (const resolve of service.pending) resolve(summary("ok"));
         await Promise.all([first, second]);
+    });
+
+    it("respects an explicit importFirst false", async () => {
+        const run = scheduler.dream({ importFirst: false });
+        assert.equal(service.dreams[0]?.importFirst, false);
+        service.pending[0]?.(summary("ok"));
+        await run;
     });
 
     it("scan needs Dreaming enabled and a model", async () => {
@@ -164,5 +190,50 @@ describe("passes", () => {
             return true;
         });
         assert.equal(await scheduler.runScan(), null);
+    });
+});
+
+describe("view repair", () => {
+    it("repairs the views after each import", () => {
+        scheduler.runImport();
+        scheduler.runImport();
+        assert.equal(service.repairs, 2);
+        assert.deepEqual(logs, []);
+    });
+
+    it("logs a repair error once, not again for the same error", () => {
+        service.repairResult = "disk full";
+        scheduler.runImport();
+        scheduler.runImport();
+        assert.deepEqual(logs, ["Views are out of date: disk full"]);
+    });
+
+    it("logs a different repair error again", () => {
+        service.repairResult = "disk full";
+        scheduler.runImport();
+        service.repairResult = "permission denied";
+        scheduler.runImport();
+        assert.deepEqual(logs, [
+            "Views are out of date: disk full",
+            "Views are out of date: permission denied",
+        ]);
+    });
+
+    it("logs the recovery once", () => {
+        service.repairResult = "disk full";
+        scheduler.runImport();
+        service.repairResult = null;
+        scheduler.runImport();
+        scheduler.runImport();
+        assert.deepEqual(logs, ["Views are out of date: disk full", "Views are up to date again"]);
+    });
+
+    it("logs a repair that throws and keeps running", () => {
+        service.repairThrows = new Error("boom");
+        scheduler.runImport();
+        assert.deepEqual(logs, ["Views are out of date: boom"]);
+        service.repairThrows = null;
+        scheduler.runImport();
+        assert.equal(service.repairs, 2);
     });
 });

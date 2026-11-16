@@ -29,7 +29,18 @@ export function refreshBranches(
 ): BranchRefresh {
     const result: BranchRefresh = { checked: 0, closed: [], reopened: [] };
     const project = getProject(store, projectId);
-    if (!project?.root) return result;
+    if (!project) return result;
+    // Every clone that the project has seen: a branch can live in one clone only.
+    const roots = [
+        ...(project.root ? [project.root] : []),
+        ...store
+            .all(
+                "SELECT value FROM project_locators WHERE project_id = ? AND kind = 'git_common_dir' ORDER BY value",
+                projectId,
+            )
+            .map((row) => text(row, "value")),
+    ];
+    if (!roots.length) return result;
     const rows = store.all(
         `SELECT b.name, b.status, b.closed_at FROM branches b
         WHERE b.project_id = ? AND (b.status = 'open' OR EXISTS (
@@ -41,7 +52,7 @@ export function refreshBranches(
     );
     if (!rows.length) return result;
     const names = rows.map((row) => text(row, "name"));
-    const states = branchStates(project.root, names);
+    const states = branchStates(roots, names);
     const at = nowIso(now);
     store.tx(() => {
         for (const row of rows) {
