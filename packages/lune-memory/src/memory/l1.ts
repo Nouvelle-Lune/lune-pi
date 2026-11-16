@@ -257,31 +257,57 @@ export function measureL1(value: string): { lines: number; bytes: number; overBu
     return { lines, bytes, overBudget: lines > L1_MAX_LINES || bytes > L1_MAX_BYTES };
 }
 
+/** Size of the Dreaming-owned part of L1. Each limit is the budget less the request reserve. */
+export interface StableL1Size {
+    /** Most lines of any branch. */
+    lines: number;
+    /** Most bytes of any branch. It can be another branch than the one with the most lines. */
+    bytes: number;
+    /** The first branch over a limit, else the branch with the most lines. */
+    branch: string | null;
+    fits: boolean;
+}
+
+const STABLE_MAX_LINES = L1_MAX_LINES - L1_RESERVE_LINES;
+const STABLE_MAX_BYTES = L1_MAX_BYTES - L1_RESERVE_BYTES;
+
 /**
- * Size of the Dreaming-owned part of L1 for the largest open branch of a project. Validation
- * rejects a commit when it is larger than the budget less the request-time reserve.
+ * Size of the Dreaming-owned part of L1 across the open branches of a project. Lines and bytes
+ * are the largest of each over all branches, so a branch with few long lines and a branch with
+ * many short lines both count. Validation rejects a commit that makes either limit worse.
  */
 export function stableL1Size(
     store: Store,
     paths: MemoryPaths,
     projectId: string | null,
-): { lines: number; bytes: number; branch: string | null; fits: boolean } {
+): StableL1Size {
     const branches: Array<string | null> = projectId
         ? [null, ...openBranches(store, projectId)]
         : [null];
-    let worst = { lines: 0, bytes: 0, branch: null as string | null };
+    const size: StableL1Size = { lines: 0, bytes: 0, branch: null, fits: true };
+    let longest = -1;
     for (const branch of branches) {
         const body = stableL1Sections(store, paths, projectId, branch).join("\n\n");
         const lines = lineCount(body);
         const bytes = byteLength(body);
-        if (lines > worst.lines || bytes > worst.bytes) worst = { lines, bytes, branch };
+        size.lines = Math.max(size.lines, lines);
+        size.bytes = Math.max(size.bytes, bytes);
+        const fits = lines <= STABLE_MAX_LINES && bytes <= STABLE_MAX_BYTES;
+        if (size.fits && (!fits || lines > longest)) size.branch = branch;
+        if (!fits) size.fits = false;
+        longest = Math.max(longest, lines);
     }
-    return {
-        ...worst,
-        fits:
-            worst.lines <= L1_MAX_LINES - L1_RESERVE_LINES &&
-            worst.bytes <= L1_MAX_BYTES - L1_RESERVE_BYTES,
-    };
+    return size;
+}
+
+/**
+ * True when a commit made the stable L1 grow on a limit that it is over. A commit that grows
+ * lines while only bytes are over the limit, or the reverse, does not make the budget worse.
+ */
+export function stableL1Grew(before: StableL1Size | undefined, after: StableL1Size): boolean {
+    const linesOver = after.lines > STABLE_MAX_LINES && after.lines > (before?.lines ?? -1);
+    const bytesOver = after.bytes > STABLE_MAX_BYTES && after.bytes > (before?.bytes ?? -1);
+    return linesOver || bytesOver;
 }
 
 /** Build L1 for a resolved target. It reads only SQLite and needs no model. */

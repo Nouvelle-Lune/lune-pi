@@ -29,8 +29,19 @@ import { runDreamingPass, type DreamEvent, type PassSummary } from "./dreaming/i
 import { Importer, type ImportSummary } from "./ingest/importer.ts";
 import { relocateTranscripts } from "./ingest/transcripts.ts";
 import { assembleL1, type L1Result } from "./memory/l1.ts";
-import { retractNote, updateNote, writeNote, type NoteInput } from "./memory/notes.ts";
-import { currentGeneration, projectItem, regenerateProjection } from "./memory/projection.ts";
+import {
+    retractNote,
+    updateNote,
+    writeNote,
+    type NoteInput,
+    type NoteResult,
+} from "./memory/notes.ts";
+import {
+    currentGeneration,
+    projectionStale,
+    projectItem,
+    regenerateProjection,
+} from "./memory/projection.ts";
 import { forgetSession, revertRun, type ForgetResult, type RevertResult } from "./memory/revert.ts";
 import { transcriptSearch, type SearchOptions, type SearchResult } from "./memory/search.ts";
 import { ProjectResolver } from "./projects/resolver.ts";
@@ -103,6 +114,8 @@ export interface MemoryStatus {
     home: string;
     views: string;
     generation: string | null;
+    /** Error of the last failed write of the views. Null when the views show the database. */
+    viewsError: string | null;
     harnesses: Record<Harness, { enabled: boolean; root: string }>;
     dreaming: { enabled: boolean; model: string | null; thinking: string };
     counts: {
@@ -233,45 +246,50 @@ export class MemoryService {
         });
     }
 
-    private noteCommitted(action: string): (item: Item) => void {
-        return (item) => {
-            let projectionError: string | null = null;
+    /**
+     * Run a Note write and bring the Note into the views after the commit. A failed view write
+     * does not undo the Note: the caller gets the error in `projectionError`, the error stays in
+     * the database, and the next view write or the daemon repairs the views.
+     */
+    private withProjection(
+        action: string,
+        write: (onCommit: (item: Item) => void) => Item,
+    ): NoteResult {
+        let projectionError: string | undefined;
+        const item = write((committed) => {
             try {
-                projectItem(this.store, this.paths, item, this.config, { now: this.now });
+                projectItem(this.store, this.paths, committed, this.config, { now: this.now });
             } catch (error) {
-                // The note is committed. The next regeneration brings the view up to date.
-                projectionError = errorMessage(error);
+                projectionError = errorMessage(error) || "unknown error";
             }
             this.emit("index", {
                 action,
-                itemId: item.id,
-                scope: item.scope,
-                projectId: item.projectId,
-                status: item.status,
+                itemId: committed.id,
+                scope: committed.scope,
+                projectId: committed.projectId,
+                status: committed.status,
                 ...(projectionError ? { projectionError } : {}),
             });
-        };
+        });
+        return projectionError ? { ...item, projectionError } : item;
     }
 
-    noteWrite(input: NoteInput): Item {
-        return writeNote(this.store, this.resolver, input, {
-            now: this.now,
-            onCommit: this.noteCommitted("note_write"),
-        });
+    noteWrite(input: NoteInput): NoteResult {
+        return this.withProjection("note_write", (onCommit) =>
+            writeNote(this.store, this.resolver, input, { now: this.now, onCommit }),
+        );
     }
 
-    noteUpdate(id: string, input: { title: string; body: string } & WriterIdentity): Item {
-        return updateNote(this.store, id, input, {
-            now: this.now,
-            onCommit: this.noteCommitted("note_update"),
-        });
+    noteUpdate(id: string, input: { title: string; body: string } & WriterIdentity): NoteResult {
+        return this.withProjection("note_update", (onCommit) =>
+            updateNote(this.store, id, input, { now: this.now, onCommit }),
+        );
     }
 
-    noteRetract(id: string, writer: WriterIdentity): Item {
-        return retractNote(this.store, id, writer, {
-            now: this.now,
-            onCommit: this.noteCommitted("note_retract"),
-        });
+    noteRetract(id: string, writer: WriterIdentity): NoteResult {
+        return this.withProjection("note_retract", (onCommit) =>
+            retractNote(this.store, id, writer, { now: this.now, onCommit }),
+        );
     }
 
     /**
@@ -370,6 +388,15 @@ export class MemoryService {
         return result.generation;
     }
 
+    /**
+     * Write the views again when an earlier view write failed. Null when the views show the
+     * database now, else the error of this try.
+     */
+    repairViews(): string | null {
+        if (!projectionStale(this.store)) return null;
+        return this.regenerateQuietly();
+    }
+
     // -----------------------------------------------------------------------------------------
     // Projects
 
@@ -393,7 +420,11 @@ export class MemoryService {
         return result;
     }
 
-    split(kind: LocatorKind, value: string, name?: string): { project: Project; moved: number } {
+    split(
+        kind: LocatorKind,
+        value: string,
+        name?: string,
+    ): { project: Project; moved: number; items: number } {
         const result = this.resolver.split(kind, value, name);
         this.afterProjectChange();
         return result;
@@ -405,11 +436,19 @@ export class MemoryService {
         this.regenerateQuietly();
     }
 
-    private regenerateQuietly(): void {
+    /**
+     * Write the views after a database change that is already done, so a failure does not fail
+     * the change. The error goes out as an index event and stays in the database until a later
+     * write succeeds. Null on success, else the error.
+     */
+    private regenerateQuietly(): string | null {
         try {
             this.regenerate();
-        } catch {
-            // The database change is done. The next pass writes the views again.
+            return null;
+        } catch (error) {
+            const projectionError = errorMessage(error) || "unknown error";
+            this.emit("index", { action: "regenerate", projectionError });
+            return projectionError;
         }
     }
 
@@ -430,6 +469,7 @@ export class MemoryService {
             home: this.paths.home,
             views: this.paths.views,
             generation: currentGeneration(this.paths),
+            viewsError: projectionStale(this.store),
             harnesses,
             dreaming: {
                 enabled: this.config.dreaming.enabled,

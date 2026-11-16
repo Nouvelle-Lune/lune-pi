@@ -1,7 +1,7 @@
 import { MemoryOperationError } from "../core/errors.ts";
 import type { MemoryPaths } from "../core/paths.ts";
 import { isHarness, type Harness, type Item, type SourceRef } from "../core/types.ts";
-import { nowIso } from "../core/util.ts";
+import { errorMessage, nowIso } from "../core/util.ts";
 import { removeTranscript } from "../ingest/transcripts.ts";
 import { num, text, textOrNull, type Store } from "../store/db.ts";
 import {
@@ -40,6 +40,8 @@ export interface RevertResult {
     items: number;
     /** Sessions that were marked unprocessed. */
     reprocessed: number;
+    /** Set when the Markdown views could not show the revert. The revert itself is done. */
+    projectionError?: string;
 }
 
 /**
@@ -111,8 +113,26 @@ export function revertRun(
         });
         return { runId, revertRun: revertId, items: touched.size, reprocessed };
     });
-    regenerateProjection(store, paths, { generations: options.generations }, { now });
-    return result;
+    return withViews(result, store, paths, options.generations, now);
+}
+
+/**
+ * Write the views after a committed change. A failure does not undo the change, so the caller
+ * does not try it again: the result gets the error, and the memory service repairs the views.
+ */
+function withViews<T extends object>(
+    result: T,
+    store: Store,
+    paths: MemoryPaths,
+    generations: number,
+    now: () => number,
+): T & { projectionError?: string } {
+    try {
+        regenerateProjection(store, paths, { generations }, { now });
+        return result;
+    } catch (error) {
+        return { ...result, projectionError: errorMessage(error) || "unknown error" };
+    }
 }
 
 /** Clear the processed marks of the sessions of a run. Returns the number of sessions. */
@@ -129,7 +149,7 @@ function markUnprocessed(store: Store, run: RunRow): number {
             parsed.id,
         ).changes;
         store.run(
-            "UPDATE events SET processed_hash = NULL WHERE harness = ? AND session_id = ?",
+            "UPDATE events SET processed_hash = NULL, processed_chars = NULL WHERE harness = ? AND session_id = ?",
             parsed.harness,
             parsed.id,
         );
@@ -161,6 +181,11 @@ export interface ForgetResult {
     updated: number;
     /** Items that had no source left and were retired. */
     retired: number;
+    /**
+     * Set when the Markdown views could not drop the session. The session is gone from SQLite,
+     * and the memory service writes the views again later.
+     */
+    projectionError?: string;
 }
 
 /**
@@ -248,8 +273,7 @@ export function forgetSession(
         };
     });
     if (transcript) removeTranscript(transcript);
-    regenerateProjection(store, paths, { generations: options.generations }, { now });
-    return result;
+    return withViews(result, store, paths, options.generations, now);
 }
 
 function citesSession(source: SourceRef, label: string): boolean {

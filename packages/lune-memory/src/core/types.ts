@@ -137,6 +137,8 @@ export interface EventRow {
     active: boolean;
     hash: string;
     processedHash: string | null;
+    /** Characters of a pending event that a pass analyzed. Null when none or all. */
+    processedChars: number | null;
 }
 
 export type Thinking = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";

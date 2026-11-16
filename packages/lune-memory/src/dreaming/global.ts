@@ -1,9 +1,15 @@
 import { randomBytes } from "node:crypto";
 
 import type { MemoryPaths } from "../core/paths.ts";
-import { TRUST_RANK, type EventRow, type Item, type Project } from "../core/types.ts";
+import {
+    TRUST_RANK,
+    type EventRow,
+    type Item,
+    type Project,
+    type SourceRef,
+} from "../core/types.ts";
 import { errorMessage, newId, nowIso } from "../core/util.ts";
-import { stableL1Size } from "../memory/l1.ts";
+import { stableL1Grew, stableL1Size } from "../memory/l1.ts";
 import { contentHash } from "../memory/notes.ts";
 import { num, type Store } from "../store/db.ts";
 import {
@@ -13,6 +19,7 @@ import {
     listProjects,
     putItem,
     recordHistory,
+    sourceKey,
     startRun,
 } from "../store/rows.ts";
 import { asRecords, eventHeader, type AnalyzerResult, type NoteReview } from "./analyzer.ts";
@@ -28,9 +35,13 @@ import {
     idemKey,
     itemEvents,
     liveEvents,
+    pinEvents,
+    statesGeneral,
+    statesRetraction,
     stringList,
     uniqueEvents,
     uniqueSources,
+    type EventPins,
 } from "./evidence.ts";
 import { addUsage, emptyUsage, parseJsonReply, type DreamingModel, type Usage } from "./model.ts";
 
@@ -42,11 +53,11 @@ const EVENT_CHARS = 400;
 export const GLOBAL_SYSTEM = `You are the global pass of lune-memory. lune-memory keeps the memory of coding agents across projects and harnesses. You maintain Global Memory: the user preferences that apply in every project. You get the preferences of all projects, the current global preferences, and general preferences from sessions outside any project. You reply with the changes to make. The backend validates and commits each change.
 
 Rules:
-1. A preference reaches Global Memory only in two ways: the user states in their own words that it is general, for example "always" or "in every project"; or user statements in two or more different projects record the same preference. An inference about what the user seems to prefer counts toward neither. The backend rejects a change that does not meet this rule.
+1. A preference reaches Global Memory only in two ways: the user states in their own words that it is general, for example "always" or "in every project"; or user statements in two or more different projects record the same preference. An inference about what the user seems to prefer counts toward neither. A statement that names one project, for example "in this project", is not general. The backend checks the user's words and rejects a change that does not meet this rule.
 2. promote: make one new global preference. Put the project preferences that it replaces in "from". The backend retires them, because the global preference now covers them. Cite general candidates of sessions outside a project in "evidence", for example ["s1.c2"].
 3. update: change the text of a global preference. It needs the same support as a promotion, in "from" or "evidence".
 4. merge: join two or more global preferences that say the same thing into the first one.
-5. retire: remove a global preference only when the user retracts it in general, or when project preferences in two or more projects contradict it. Put that support in "from" or "evidence".
+5. retire: remove a global preference only in one of these cases. (a) A session outside a project has a user statement that retracts it, for example "stop" or "no longer". Cite it in "evidence". (b) A project preference records a user statement that retracts it in every project, for example "no longer, in any project". Put it in "from". (c) Project preferences in two or more projects contradict it and are marked as exceptions to it. Put them in "from". A statement that supports the global preference never retires it. The backend checks the user's words and rejects any other retirement.
 6. exception: a project preference that contradicts a global preference stays in its project and takes precedence there. Mark it with "exception" so that the startup context shows it as an exception.
 7. Do not promote a preference that a global preference already states. Use update or merge.
 8. Keep global preferences short. They are in the startup context of every session.
@@ -150,9 +161,15 @@ function emptyCounts(): GlobalCounts {
     return { promoted: 0, updated: 0, merged: 0, retired: 0, exceptions: 0, rejected: 0, notes: 0 };
 }
 
-/** Id of the last successful global run, or 0. */
+/**
+ * Id of the last global run that completed, or 0. A reverted run counts: the revert restores the
+ * project preferences with their earlier `updated_run`, so they do not look changed, and the next
+ * pass does not repeat the reverted result without new input (§10).
+ */
 function lastGlobalRun(store: Store): number {
-    const row = store.get("SELECT MAX(id) AS id FROM runs WHERE kind = 'global' AND status = 'ok'");
+    const row = store.get(
+        "SELECT MAX(id) AS id FROM runs WHERE kind = 'global' AND status IN ('ok', 'reverted')",
+    );
     return row && row.id !== null ? num(row, "id") : 0;
 }
 
@@ -393,7 +410,9 @@ function reject(message: string): never {
 /** Support of a global change, as §3 counts it. */
 interface Support {
     events: EventRow[];
-    /** A general statement of the user supports the change. */
+    /** Cited events of sessions outside a project. */
+    outside: EventRow[];
+    /** A general statement of the user, in the user's own words, supports the change. */
     general: boolean;
     /** Live projects with a trusted user statement in the support. */
     projects: Set<string>;
@@ -411,6 +430,8 @@ class GlobalCommit {
     private readonly runId: number;
     private readonly at: string;
     private readonly live: Set<string>;
+    /** Hash of each event that the Analyzer saw. Evidence must still have this text. */
+    private readonly pins: EventPins;
 
     constructor(
         store: Store,
@@ -424,6 +445,14 @@ class GlobalCommit {
         this.runId = runId;
         this.at = nowIso(now);
         this.live = new Set(projects.map((project) => project.id));
+        this.pins = pinEvents(
+            results.flatMap((result) => result.snapshot.events.map((entry) => entry.event)),
+        );
+    }
+
+    /** Events of `sources` that can be evidence now, in the revision that the Analyzer saw. */
+    private current(sources: readonly SourceRef[]): EventRow[] {
+        return liveEvents(this.store, sources, this.pins);
     }
 
     private save(before: Item | null, after: Item): void {
@@ -473,12 +502,12 @@ class GlobalCommit {
                 ...note.sources,
                 ...(review?.events ?? []).map(eventSource),
             ]);
-            const events = liveEvents(this.store, sources);
+            const events = this.current(sources);
             const title = review?.action === "correct" && review.title ? review.title : note.title;
             const body = review?.action === "correct" && review.body ? review.body : note.body;
             const isGeneral =
                 note.kind === "preference" &&
-                events.some((event) => general.has(eventId(event)) && hasUserEvent([event]));
+                events.some((event) => general.has(eventId(event)) && statesGeneral(event));
             if (note.kind === "preference" && !isGeneral) {
                 this.warnings.push(
                     `Global preference note ${note.id} stays provisional: no general user statement supports it`,
@@ -552,18 +581,26 @@ class GlobalCommit {
         return item;
     }
 
-    /** Collect the support of a change from project preferences and session references. */
+    /**
+     * Collect the support of a change from project preferences and session references. Only
+     * events that are still evidence count, in the revision that the Analyzer saw. A general
+     * flag of the model counts only when the user's own words state the generality.
+     */
     private support(from: readonly string[], refs: readonly string[]): Support {
-        const support: Support = { events: [], general: false, projects: new Set(), items: [] };
+        const support: Support = {
+            events: [],
+            outside: [],
+            general: false,
+            projects: new Set(),
+            items: [],
+        };
         for (const id of new Set(from)) {
             const item = this.projectPreference(id);
-            const events = itemEvents(this.store, item);
+            const events = this.current(item.sources);
             support.items.push(item);
             support.events.push(...events);
-            if (hasUserEvent(events)) {
-                if (item.general) support.general = true;
-                if (item.projectId) support.projects.add(item.projectId);
-            }
+            if (item.general && events.some(statesGeneral)) support.general = true;
+            if (hasUserEvent(events) && item.projectId) support.projects.add(item.projectId);
         }
         for (const ref of refs) {
             const match = REF.exec(ref);
@@ -572,30 +609,38 @@ class GlobalCommit {
                 this.warnings.push(`Unknown evidence ${ref}`);
                 continue;
             }
+            let cited: SourceRef[];
+            // A cited event is the claim itself; a candidate carries the Analyzer's flag.
+            let claimsGeneral = true;
             if (match[2] === "e") {
                 const entry = result.labels.get(`e${match[3]}`);
                 if (!entry || entry.role === "memory" || entry.event.memoryDerived) {
                     this.warnings.push(`Evidence ${ref} is unknown or came from lune-memory`);
                     continue;
                 }
-                support.events.push(entry.event);
+                cited = [eventSource(entry.event)];
+            } else {
+                const candidate = result.candidates.find((entry) => entry.label === `c${match[3]}`);
+                if (!candidate) {
+                    this.warnings.push(`Unknown evidence ${ref}`);
+                    continue;
+                }
+                cited = candidate.events.map(eventSource);
+                claimsGeneral = candidate.kind === "preference" && candidate.general;
+            }
+            const events = this.current(cited);
+            if (!events.length) {
+                this.warnings.push(
+                    `Evidence ${ref} changed after the analysis or is no longer evidence`,
+                );
                 continue;
             }
-            const candidate = result.candidates.find((entry) => entry.label === `c${match[3]}`);
-            if (!candidate) {
-                this.warnings.push(`Unknown evidence ${ref}`);
-                continue;
-            }
-            support.events.push(...candidate.events);
-            if (
-                candidate.kind === "preference" &&
-                candidate.general &&
-                hasUserEvent(candidate.events)
-            ) {
-                support.general = true;
-            }
+            support.events.push(...events);
+            support.outside.push(...events);
+            if (claimsGeneral && events.some(statesGeneral)) support.general = true;
         }
         support.events = uniqueEvents(support.events);
+        support.outside = uniqueEvents(support.outside);
         return support;
     }
 
@@ -675,7 +720,7 @@ class GlobalCommit {
         const duplicate = this.duplicateOf(hash, before.id);
         if (duplicate) reject(`the new text of ${before.id} duplicates ${duplicate.id}`);
         const sources = uniqueSources([...before.sources, ...support.events.map(eventSource)]);
-        const events = liveEvents(this.store, sources);
+        const events = this.current(sources);
         const after: Item = {
             ...before,
             title,
@@ -711,7 +756,7 @@ class GlobalCommit {
             body: op.body,
             contentHash: hash,
             sources,
-            trust: clampTrust(trust, liveEvents(this.store, sources), "preference"),
+            trust: clampTrust(trust, this.current(sources), "preference"),
             updatedRun: this.runId,
             updatedAt: this.at,
         });
@@ -719,10 +764,38 @@ class GlobalCommit {
         this.counts.merged++;
     }
 
+    /**
+     * Retire a global preference (§3). The support must withdraw it: a user retraction outside a
+     * project, a user retraction for every project, or exceptions in two or more projects. A
+     * statement that the preference itself cites never counts, because it supports it.
+     */
     private retire(op: GlobalRetireOp): void {
         const item = this.globalPreference(op.id);
         const support = this.support(op.from, op.refs);
-        this.requireRule(support, `Retirement of ${op.id}`);
+        const own = new Set(item.sources.map(sourceKey));
+        const fresh = (event: EventRow) => !own.has(eventId(event));
+        const outside = support.outside.some((event) => fresh(event) && statesRetraction(event));
+        const everywhere = support.items.some((from) =>
+            this.current(from.sources).some(
+                (event) => fresh(event) && statesRetraction(event) && statesGeneral(event),
+            ),
+        );
+        const exceptions = new Set(
+            support.items.flatMap((from) =>
+                from.projectId &&
+                from.sources.some(
+                    (source) => source.kind === "item" && source.itemId === item.id,
+                ) &&
+                hasUserEvent(this.current(from.sources))
+                    ? [from.projectId]
+                    : [],
+            ),
+        );
+        if (!outside && !everywhere && exceptions.size < 2) {
+            reject(
+                `Retirement of ${op.id} needs a user retraction, or exceptions to it in two or more projects`,
+            );
+        }
         this.retireItem(item);
         this.counts.retired++;
     }
@@ -792,10 +865,7 @@ function commitGlobal(
         for (const result of input.results) markProcessed(store, result.snapshot);
         for (const scope of scopes) {
             const after = stableL1Size(store, paths, scope);
-            const was = before.get(scope);
-            if (!after.fits && (!was || after.lines > was.lines || after.bytes > was.bytes)) {
-                throw new BudgetError(after);
-            }
+            if (stableL1Grew(before.get(scope), after)) throw new BudgetError(after);
         }
         finishRun(store, runId, {
             status: "ok",

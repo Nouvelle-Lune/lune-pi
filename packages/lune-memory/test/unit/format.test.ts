@@ -99,6 +99,20 @@ describe("formatNote", () => {
         const global = formatNote({ ...base, scope: "global", projectId: null } as Item, "Updated");
         assert.match(global, /\(note, provisional, global, trust inference\)/u);
     });
+
+    it("adds the views warning and says that the note is saved when projectionError is set", () => {
+        const actual = formatNote({ ...base, projectionError: "disk full" }, "Saved");
+
+        const expected =
+            'Saved note n-1: "T" (note, provisional, project p-1, branch main, trust inference). ' +
+            "The Markdown views do not show this change yet (disk full). " +
+            "The note is saved, so do not write it again: the memory service writes the views later.";
+        assert.equal(actual, expected);
+    });
+
+    it("adds nothing without projectionError", () => {
+        assert.doesNotMatch(formatNote(base, "Saved"), /Markdown views/u);
+    });
 });
 
 describe("formatLocation", () => {

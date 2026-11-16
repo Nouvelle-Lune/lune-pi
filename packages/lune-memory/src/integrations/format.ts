@@ -1,4 +1,4 @@
-import type { Item } from "../core/types.ts";
+import type { NoteResult } from "../memory/notes.ts";
 import type { SearchContextEvent, SearchHit, SearchResult } from "../memory/search.ts";
 import type { MemoryLocation } from "../service.ts";
 
@@ -63,12 +63,17 @@ export function formatSearchResult(result: SearchResult): string {
 }
 
 /** One note as a line of text, after a write, update or retract. */
-export function formatNote(item: Item, action: string): string {
+export function formatNote(item: NoteResult, action: string): string {
     const scope =
         item.scope === "project"
             ? `project ${item.projectId ?? "?"}${item.branch ? `, branch ${item.branch}` : ""}`
             : "global";
-    return `${action} note ${item.id}: "${item.title}" (${item.kind}, ${item.status}, ${scope}, trust ${item.trust}).`;
+    const line = `${action} note ${item.id}: "${item.title}" (${item.kind}, ${item.status}, ${scope}, trust ${item.trust}).`;
+    if (!item.projectionError) return line;
+    return (
+        `${line} The Markdown views do not show this change yet (${item.projectionError}). ` +
+        "The note is saved, so do not write it again: the memory service writes the views later."
+    );
 }
 
 /** The memory folders as text. */

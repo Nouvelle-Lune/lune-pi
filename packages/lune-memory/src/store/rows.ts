@@ -166,6 +166,7 @@ export function eventFromRow(row: Row): EventRow {
         active: flag(row, "active"),
         hash: text(row, "hash"),
         processedHash: textOrNull(row, "processed_hash"),
+        processedChars: numOrNull(row, "processed_chars"),
     };
 }
 

@@ -52,6 +52,18 @@ export interface SessionFileRef {
     mtimeMs: number;
 }
 
+/** True when a text names a lune-memory file. The importer builds it from the memory home. */
+export type MemoryPathTest = (text: string) => boolean;
+
+/** Facts of this install that an adapter needs to classify events. */
+export interface ParseContext {
+    /**
+     * Extra test for memory file paths. The adapters always know the default home; this test
+     * also covers a custom `LUNE_MEMORY_HOME` and the real path behind a symlink.
+     */
+    memoryPath?: MemoryPathTest;
+}
+
 export interface HarnessAdapter {
     harness: Harness;
     /** List candidate session files below `root`. Read-only. */
@@ -61,7 +73,7 @@ export interface HarnessAdapter {
      * conversation session, for example a subagent rollout. Throw `AdapterFormatError` when a
      * critical record has an unknown format.
      */
-    parse(path: string, text: string): SessionEvidence | null;
+    parse(path: string, text: string, context?: ParseContext): SessionEvidence | null;
 }
 
 /** An unknown critical format. Import records it on the session and never drops events silently. */

@@ -8,12 +8,19 @@ import {
     findJsonlFiles,
     isMemoryToolCall,
     isMemoryToolName,
+    knownContent,
     obj,
     parseJsonl,
     str,
 } from "./common.ts";
 import { AdapterFormatError } from "./types.ts";
-import type { EvidenceEvent, HarnessAdapter, SessionEvidence } from "./types.ts";
+import type {
+    EvidenceEvent,
+    HarnessAdapter,
+    MemoryPathTest,
+    ParseContext,
+    SessionEvidence,
+} from "./types.ts";
 
 /**
  * Pi keeps one folder for each working directory below the sessions root. Files in deeper
@@ -62,6 +69,8 @@ interface ParseState {
     warned: Set<string>;
     /** Tool call ids of memory-derived tool calls. Their results are memory-derived too. */
     memoryCalls: Set<string>;
+    /** Extra test for memory file paths of the home in use. */
+    memoryPath?: MemoryPathTest;
 }
 
 export const piAdapter: HarnessAdapter = {
@@ -69,12 +78,16 @@ export const piAdapter: HarnessAdapter = {
     discover(root) {
         return findJsonlFiles("pi", root, SESSION_DEPTH);
     },
-    parse(path, text) {
-        return parsePiSession(path, text);
+    parse(path, text, context) {
+        return parsePiSession(path, text, context);
     },
 };
 
-function parsePiSession(path: string, text: string): SessionEvidence | null {
+function parsePiSession(
+    path: string,
+    text: string,
+    context: ParseContext = {},
+): SessionEvidence | null {
     const warnings: string[] = [];
     const records = parseJsonl(text, warnings);
     const first = records[0];
@@ -95,6 +108,7 @@ function parsePiSession(path: string, text: string): SessionEvidence | null {
     const onPath = activePath(entries);
     const omitted = omittedTargets(entries, onPath);
     const state: ParseState = { filtered: {}, warnings, warned: new Set(), memoryCalls: new Set() };
+    if (context.memoryPath) state.memoryPath = context.memoryPath;
     const events: EvidenceEvent[] = [];
     let title: string | undefined;
     let updatedAt: string | undefined;
@@ -244,7 +258,7 @@ function messageDrafts(entry: Entry, state: ParseState): Draft[] {
         case "toolResult":
             return [toolResultDraft(message, state)];
         case "bashExecution":
-            return bashDrafts(message);
+            return bashDrafts(message, state);
         // Version 2 files call custom messages `hookMessage`.
         case "custom":
         case "hookMessage":
@@ -276,10 +290,7 @@ function assistantDrafts(
     line: number,
     state: ParseState,
 ): Draft[] {
-    const content = message.content;
-    if (typeof content !== "string" && !Array.isArray(content)) {
-        throw new AdapterFormatError(`line ${line}: Pi assistant content has an unknown format`);
-    }
+    const content = knownContent(message.content, `line ${line}: Pi assistant`);
     const blocks: unknown[] =
         typeof content === "string" ? [{ type: "text", text: content }] : content;
     const drafts: Draft[] = [];
@@ -317,7 +328,7 @@ function assistantDrafts(
 function toolCallDraft(block: Record<string, unknown>, state: ParseState): Draft {
     const toolName = str(block.name);
     const args = argumentsToText(block.arguments);
-    const memoryDerived = isMemoryToolCall(toolName, args);
+    const memoryDerived = isMemoryToolCall(toolName, args, state.memoryPath);
     const id = str(block.id);
     if (memoryDerived && id) state.memoryCalls.add(id);
     return draft("tool_call", args, { toolName, memoryDerived });
@@ -361,15 +372,19 @@ function nestedMemoryCall(value: unknown, state: ParseState): boolean {
     bump(state.filtered, "nested_call", calls.length);
     return calls.some((call) => {
         const record = obj(call);
-        return isMemoryToolCall(str(record?.name), argumentsToText(record?.arguments));
+        return isMemoryToolCall(
+            str(record?.name),
+            argumentsToText(record?.arguments),
+            state.memoryPath,
+        );
     });
 }
 
 /** A `!` command that the user ran. The output comes from outside the conversation. */
-function bashDrafts(message: Record<string, unknown>): Draft[] {
+function bashDrafts(message: Record<string, unknown>, state: ParseState): Draft[] {
     const command = str(message.command) ?? "";
     const output = str(message.output) ?? "";
-    const memoryDerived = isMemoryToolCall("bash", command);
+    const memoryDerived = isMemoryToolCall("bash", command, state.memoryPath);
     const notes: string[] = [];
     if (message.cancelled === true) notes.push("[cancelled]");
     if (message.truncated === true) notes.push("[output truncated]");
@@ -427,10 +442,7 @@ function unknownEntry(entry: Entry, state: ParseState): Draft[] {
 }
 
 function contentText(content: unknown, line: number, role: string): string {
-    if (typeof content !== "string" && !Array.isArray(content)) {
-        throw new AdapterFormatError(`line ${line}: Pi ${role} content has an unknown format`);
-    }
-    return blocksToText(content);
+    return blocksToText(knownContent(content, `line ${line}: Pi ${role}`));
 }
 
 function draft(role: EventRole, text: string, flags: DraftFlags = {}): Draft {

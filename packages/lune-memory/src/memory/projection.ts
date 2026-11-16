@@ -23,7 +23,14 @@ import {
     type MemoryPaths,
 } from "../core/paths.ts";
 import type { Item, ItemKind, Project, SessionRow, SourceRef } from "../core/types.ts";
-import { firstSentence, nowIso, safeSegment, slugify, writeFileAtomic } from "../core/util.ts";
+import {
+    errorMessage,
+    firstSentence,
+    nowIso,
+    safeSegment,
+    slugify,
+    writeFileAtomic,
+} from "../core/util.ts";
 import type { Store } from "../store/db.ts";
 import { getEvent, getProject, getSession, listItems, listProjects } from "../store/rows.ts";
 
@@ -607,7 +614,34 @@ export function regenerateProjection(
     config: { generations: number },
     options: ProjectionOptions = {},
 ): ProjectionResult {
-    return withProjectionLock(paths, () => regenerateLocked(store, paths, config, options));
+    return markOnFailure(store, () =>
+        withProjectionLock(paths, () => regenerateLocked(store, paths, config, options)),
+    );
+}
+
+/** Meta key with the error of the last failed projection write. Empty when the views are current. */
+const STALE_KEY = "projection_stale";
+
+/**
+ * Error of the last failed projection write, or null when the views show the database. A failed
+ * write leaves the views behind SQLite until a full regeneration succeeds.
+ */
+export function projectionStale(store: Store): string | null {
+    return store.getMeta(STALE_KEY) || null;
+}
+
+/** Run a projection write. On a failure, record the error so that a later call can repair the views. */
+function markOnFailure<T>(store: Store, write: () => T): T {
+    try {
+        return write();
+    } catch (error) {
+        try {
+            store.setMeta(STALE_KEY, errorMessage(error) || "unknown error");
+        } catch {
+            // The database is not writable either. The caller gets the first error.
+        }
+        throw error;
+    }
 }
 
 function regenerateLocked(
@@ -641,14 +675,16 @@ function regenerateLocked(
         rmSync(dir, { recursive: true, force: true });
         throw error;
     }
+    // A full generation shows all of SQLite, so an earlier failure does not matter any more.
+    if (projectionStale(store)) store.setMeta(STALE_KEY, "");
     pruneGenerations(paths, config.generations);
     return { generation, dir, files };
 }
 
 /**
  * Bring one item into the current generation at once, for example a new Agentic Note. The item
- * page is written or removed and the index of its scope is rewritten. Without views, a full
- * regeneration runs.
+ * page is written or removed and the index of its scope is rewritten. Without views, or with
+ * views that an earlier failure left behind, a full regeneration runs.
  */
 export function projectItem(
     store: Store,
@@ -657,7 +693,9 @@ export function projectItem(
     config: { generations: number },
     options: ProjectionOptions = {},
 ): void {
-    withProjectionLock(paths, () => projectItemLocked(store, paths, item, config, options));
+    markOnFailure(store, () =>
+        withProjectionLock(paths, () => projectItemLocked(store, paths, item, config, options)),
+    );
 }
 
 function projectItemLocked(
@@ -668,7 +706,8 @@ function projectItemLocked(
     options: ProjectionOptions,
 ): void {
     const current = currentGeneration(paths);
-    if (!current) {
+    // Views behind SQLite after an earlier failure need all items, not only this one.
+    if (!current || projectionStale(store)) {
         regenerateLocked(store, paths, config, options);
         return;
     }

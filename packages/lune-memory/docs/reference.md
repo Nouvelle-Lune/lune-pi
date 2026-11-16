@@ -36,6 +36,11 @@ views/
 The views are read-only. Each change to the database writes a new generation and moves the
 `views` link. `lune-memory regenerate` writes one from the database at any time.
 
+When a view write fails, the change stays in the database and the views are out of date. `status`
+shows `Views out of date` with the error. A note, `revert` and `forget` report the error too, so
+the caller does not repeat a change that is already saved. The daemon writes the views again after
+each scheduled import, and `regenerate` writes them at once.
+
 ## Configuration
 
 `config.json` holds the settings. The settings page, `lune-memory config set` and `PUT
@@ -95,8 +100,8 @@ lune-memory <command> [options]
 | `search <query...> [--project id \| --all] [--harness h] [--session id] [--since time] [--until time] [--limit n] [--context n] [--cwd dir]` | Search transcripts                                                      |
 | `location [--cwd dir]`                                                                                                                       | Print the project of a folder and its view paths                        |
 | `import [harness...]`                                                                                                                        | Import new sessions now                                                 |
-| `dream [--force] [--project id] [harness:id...]`                                                                                             | Run a Dreaming pass now                                                 |
-| `status`                                                                                                                                     | Show the daemon, the import and the Dreaming state                      |
+| `dream [--force] [--project id\|_unassigned] [harness:id...]`                                                                                | Run a Dreaming pass now                                                 |
+| `status`                                                                                                                                     | Show the daemon, the import, the Dreaming and the view state            |
 | `runs [--limit n]`                                                                                                                           | List the latest passes                                                  |
 | `sessions [--limit n] [--project id\|_unassigned]`                                                                                           | List imported sessions                                                  |
 | `revert <run> [--reprocess]`                                                                                                                 | Undo a pass; `--reprocess` marks its sessions unprocessed               |
@@ -116,9 +121,12 @@ lune-memory <command> [options]
 | `mcp [--harness h] [--session id] [--cwd dir]`                                                                                               | Run the MCP server over stdio                                           |
 | `hook --harness <claude\|codex>`                                                                                                             | SessionStart hook; reads the hook input on stdin                        |
 
-`--home <dir>` selects the memory folder. `--json` prints JSON. `--help` and `--version` work with
-every command. The CLI calls the daemon
-when it runs and opens the database itself when it does not.
+`--home <dir>` selects the memory folder. It can come before the command name, as in the hook and
+MCP commands that `setup` writes. `--json` prints JSON. `--help` and `--version` work with every
+command. The CLI calls the daemon when it runs and opens the database itself when it does not.
+
+`dream` with no `--project` covers every project, and with no `harness:id` every eligible
+session. `--project _unassigned` covers the sessions outside any project.
 
 | Exit code | Meaning                 |
 | --------- | ----------------------- |
@@ -152,8 +160,14 @@ each match.
 ### `note_write`
 
 Save a note. A `cwd` in a project gives a note of that project. Any other note is a global
-candidate that only the global pass can promote to Global Memory. The note is provisional until a
-Dreaming pass reviews it.
+candidate that only the global pass can promote to Global Memory.
+
+The note is provisional until a Dreaming pass reviews it. The note becomes active only when the
+review keeps or corrects it and live session evidence supports it. With no review or no live
+evidence, it stays provisional and the next revision of the session reviews it again. A
+retraction in the review retires it. An open item on a closed branch is retired too. When the
+view write fails, the note is saved and the result says that the views do not show it yet, so the
+agent does not write it again.
 
 | Argument     | Type   | Meaning                                                                                  |
 | ------------ | ------ | ---------------------------------------------------------------------------------------- |
@@ -193,8 +207,29 @@ timeout. `setup` backs up a file before it changes it and keeps the hooks of oth
 The Pi extension registers the five tools as Memory Search, Memory Note, Memory Note Update,
 Memory Note Retract and Memory Location. It reads the session summary at session start and again
 after a compaction. It sets the summary as the same system prompt section on every turn, so the
-prompt cache holds. Before an agent turn it waits up to 10 seconds for a pending read. At session
-start it shows a hint when Pi import is off.
+prompt cache holds. Before an agent turn it waits up to 10 seconds for a pending read. A read that
+ends after a newer read, or after the session ends, is dropped, so an old summary never replaces a
+newer one. At session start it shows a hint when Pi import is off.
+
+## Import
+
+Each import reads the session files of the enabled harnesses and stores the new or changed events.
+A file that did not change is not imported again.
+
+- The import follows a symlink in a harness root only when its real path is in the real root.
+- A message with a content shape that the adapter does not know makes the import of that file
+  fail. A Claude Code file with a cycle in the parent chain of its active path fails too. The
+  file and its session get the error, `import` prints it and exits with 1, and the earlier events
+  stay. The import does not skip the unknown events, because that would remove them.
+- Claude Code events take the order of the parent chain. A file that is in chain order keeps its
+  order.
+- A Codex event key comes from the content of its line, so a record keeps its key when other
+  lines change. A record that is written again becomes a removed event and a new event.
+- All tool events of a session that runs in the memory folder come from the memory itself.
+- When events are removed or moved, the next remaining event, or the new last event, becomes
+  unprocessed again, so the next pass sees the change.
+- A changed session with no branch in its transcript takes the branch that its work tree has
+  checked out now.
 
 ## Session summary (L1)
 
@@ -217,17 +252,33 @@ A folder in a Git repository belongs to the project of that repository. Three lo
 project:
 
 - `git_common_dir`: the shared `.git` folder, so all worktrees of a clone match
-- `remote`: the normalized URL of the `origin` remote, so all clones match
+- `remote`: the normalized fetch URL of each remote of the repository, so all clones match
 - `path`: a folder outside Git that you registered
 
-A remote that is a local path is not a locator, so unrelated clones of a local repository stay
-apart. Sessions in a folder outside any project stay unassigned until you register the folder.
-Registration moves the already imported sessions of that folder to the project and marks them
-unprocessed.
+A remote URL becomes `host/path`, with no protocol, no user and no `.git`, and a lowercase host.
+The default port of the protocol goes away. Another port stays (`host:2222/path`), because two
+services on one host are two remotes. scp syntax, `git+ssh` and `ssh+git` count as ssh. A remote
+that is a local path or a `file:` URL is not a locator, so unrelated clones of a local repository
+stay apart. Sessions in a folder outside any project stay unassigned until you register the
+folder. Registration moves the already imported sessions of that folder to the project and marks
+them unprocessed.
 
-`merge` moves the sessions, items and locators of one project into another and hides the source. `split` moves one
-locator and its sessions to a project of its own and marks those sessions unprocessed, so the next
-pass builds the memory of that project. A split never moves a locator into a project that is in use.
+A clone that moves keeps its project when it has a remote, and the project root follows it when
+the old root no longer exists. A moved clone with no remote becomes a new project; `merge` joins
+it to the old one. The branch of a folder is read from its work tree on each request, so a branch
+switch shows at once.
+
+Dreaming reads the state of each branch from Git. In one clone, a branch is deleted when no local
+or remote-tracking ref has its name, merged when no worktree has it checked out and its tip is in
+a mainline branch, and open in all other cases. Across the clones of a project, open wins over
+merged and merged wins over deleted. A clone folder that is no longer a repository does not
+count. `main`, `master`, `dev`, `develop` and `trunk` are mainline branches and stay open.
+
+`merge` moves the sessions, items and locators of one project into another and hides the source.
+`split` moves one locator and its sessions to a project of its own and marks those sessions
+unprocessed, so the next pass builds the memory of that project. It also moves each item whose
+evidence all comes from the moved sessions, and each item without evidence that a moved session
+wrote, and prints both counts. A split never moves a locator into a project that is in use.
 When the locator made a project that was merged away (the first project of its Git common dir or
 registered path, or the project of an earlier split of the locator), `split` brings that project
 back with its old name, unless you give `--name`. Otherwise the split makes a new project. When
@@ -250,11 +301,48 @@ A session takes part in a pass when it has unprocessed events and no change for 
 Each project commits its changes in its own transaction, with its own run. The global pass
 commits after the projects, in a separate run. When one of them fails, the others stay
 committed and the pass ends `partial`. Each change records the run, so `revert <run>` restores
-the items of the run. A failed session
-gets another attempt in the next pass, up to `maxAttempts` for each revision.
+the items of the run. A failed session gets another attempt in the next pass, up to
+`maxAttempts` for each revision.
 
-Events that the memory itself put into a session, such as the session summary, are context, not
+The import goes on during a pass. A pass commits an event as processed only when its hash is the
+hash that the model saw, so an event that changed during the pass stays unprocessed for the next
+pass. An event that is longer than the session budget is analyzed in parts over several passes.
+
+### Evidence
+
+Every change needs live evidence, the project index and the wiki pages included. Live evidence
+is an event that exists, did not come from the memory itself, and has the hash that the model
+saw. Events that the memory put into a session, such as the session summary, are context, not
 evidence. The Analyzer does not take them as new facts.
+
+An event off the active conversation path, such as an abandoned attempt, supports only a lesson, a
+fact or a reference. An active project item goes to review in the next pass of a session when it
+cites an event of that session that is gone or came from the memory. An item of another kind
+also goes to review when it cites an event that left the active path. The pass retires the item
+when the Analyzer lists it as unsupported, no other session supports it, and all its other
+evidence in the session was in the snapshot. Otherwise the item drops the dead sources of the
+session. When no live evidence stays, it keeps its sources and becomes `source-missing`.
+
+### Branches
+
+When a branch is merged or deleted, the next pass retires its Working State and its open items,
+provisional notes included. A Working State change for a closed branch is rejected, and an open
+item for a closed branch loses its branch.
+
+### Global pass
+
+A change to a global preference needs the user's own words or support in two or more projects.
+A preference is general only when the user's own words say that it applies everywhere; a
+statement that names one project is not general. A global preference retires only with a user
+retraction outside a project, a user retraction whose words say that it applies everywhere, or
+exceptions in two or more projects. A statement that the preference already cites does not
+count. The pass also compares the words of a change with the stored preference.
+This check can only stop a change; it does not prove that two statements are about the same
+preference.
+
+A reverted global run counts as the last global run, so the next pass does not repeat the
+reverted result without new input. `revert <run> --reprocess` marks the sessions of the run
+unprocessed, so the next pass analyzes them again.
 
 ## Local API
 
@@ -290,7 +378,7 @@ address fragment, so the token does not go to the server log or the `Referer` he
 | `POST /api/regenerate`               | Write a new Markdown generation                                |
 | `POST /api/runs/:id/revert`          | Revert a pass                                                  |
 | `POST /api/sessions/forget`          | Forget a session                                               |
-| `GET /api/status`                    | Daemon, import and Dreaming state                              |
+| `GET /api/status`                    | Daemon, import, Dreaming and view state                        |
 | `GET /api/runs`                      | Latest passes                                                  |
 | `GET /api/projects`                  | Projects and their locators                                    |
 | `GET /api/sessions`                  | Imported sessions                                              |

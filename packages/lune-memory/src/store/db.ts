@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
 
 /** Schema version of `memory.db`. Increment it and add a step to `MIGRATIONS` for a change. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -194,7 +194,13 @@ CREATE TABLE source_files (
 );
 `;
 
-const MIGRATIONS: Record<number, string> = { 1: SCHEMA_V1 };
+/**
+ * Version 2: `processed_chars` is the analysis cursor of a pending event. The first characters
+ * of a long event were analyzed, and the next pass continues after them.
+ */
+const SCHEMA_V2 = "ALTER TABLE events ADD COLUMN processed_chars INTEGER;";
+
+const MIGRATIONS: Record<number, string> = { 1: SCHEMA_V1, 2: SCHEMA_V2 };
 
 export type Row = Record<string, unknown>;
 export type Param = SQLInputValue;

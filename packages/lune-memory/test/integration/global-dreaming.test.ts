@@ -3,7 +3,8 @@ import test from "node:test";
 
 import { runGlobalPass } from "../../src/dreaming/global.ts";
 import { createDreamingModel } from "../../src/dreaming/model.ts";
-import { getItem, listItems } from "../../src/store/rows.ts";
+import { revertRun } from "../../src/memory/revert.ts";
+import { getItem, listItems, startRun } from "../../src/store/rows.ts";
 import {
     analyzerReply,
     createDreamEnv,
@@ -313,4 +314,47 @@ test("a changed preference with no model configured reports no-model and writes 
     assert.equal(summary.global, null);
     assert.equal(runCount(env, "global", "ok") + runCount(env, "global", "failed"), 0);
     assert.equal(listItems(env.store, { scope: "global" }).length, 0);
+});
+
+test("a reverted global run is not applied again by the next pass without new input", async (t) => {
+    const env = createDreamEnv(t);
+    seedPreference(env, "pref1", "p1", { general: true });
+    env.route({ global: { summary: "promoted", ops: [promote(["pref1"])] } });
+
+    const first = await env.pass();
+
+    assert.equal(first.global?.status, "ok");
+    assert.equal(listItems(env.store, { scope: "global", kind: ["preference"] }).length, 1);
+    const runId = first.global?.runId;
+    assert.ok(runId);
+    revertRun(env.store, env.paths, runId, { reprocess: false, generations: 3 });
+    assert.equal(listItems(env.store, { scope: "global", kind: ["preference"] }).length, 0);
+    const callsBefore = env.calls.length;
+
+    const second = await env.pass();
+
+    assert.equal(env.calls.length, callsBefore);
+    assert.equal(second.global, null);
+    assert.equal(listItems(env.store, { scope: "global", kind: ["preference"] }).length, 0);
+    assert.equal(runCount(env, "global", "reverted"), 1);
+    assert.equal(runCount(env, "global", "ok"), 0);
+});
+
+test("a project preference that changes after a reverted global run starts a new global pass", async (t) => {
+    const env = createDreamEnv(t);
+    seedPreference(env, "pref1", "p1", { general: true });
+    env.route({ global: { summary: "promoted", ops: [promote(["pref1"])] } });
+    const first = await env.pass();
+    const runId = first.global?.runId;
+    assert.ok(runId);
+    revertRun(env.store, env.paths, runId, { reprocess: false, generations: 3 });
+    // A later run changes the preference, so the global pass has new input.
+    const later = startRun(env.store, { kind: "project", trigger: "test" });
+    env.store.run("UPDATE items SET updated_run = ? WHERE id = 'pref1'", later);
+    const callsBefore = env.calls.length;
+
+    const second = await env.pass();
+
+    assert.equal(second.global?.called, true);
+    assert.equal(env.calls.length, callsBefore + 1);
 });
