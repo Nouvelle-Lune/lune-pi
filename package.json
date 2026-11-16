@@ -11,14 +11,15 @@
         "packages/pi-shell-inspector",
         "packages/pi-compaction",
         "packages/pi-recap",
-        "packages/pi-subagent"
+        "packages/pi-subagent",
+        "packages/lune-memory"
     ],
     "engines": {
         "node": ">=22.19.0"
     },
     "packageManager": "npm@11.6.2",
     "scripts": {
-        "build": "npm run build --workspace=@lune_99/pi-lune-extensions-core && npm run build --workspace=@lune_99/pi-recap",
+        "build": "npm run build --workspace=@lune_99/pi-lune-extensions-core && npm run build --workspace=@lune_99/pi-recap && npm run build --workspace=@lune_99/lune-memory",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint . --max-warnings=0",

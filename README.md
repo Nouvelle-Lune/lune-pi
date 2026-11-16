@@ -4,14 +4,14 @@
 
 ### Light tools. Deeper work.
 
-Eight cooperating extensions that turn the [Pi](https://pi.dev) coding agent into a calm, readable terminal workspace.<br>
+Nine cooperating extensions that turn the [Pi](https://pi.dev) coding agent into a calm, readable terminal workspace.<br>
 See what the agent did, decide with context, keep long commands in reach, and pick up a session where you left it.
 
 [Quick start](#quick-start) · [Tour](#a-short-tour) · [Packages](#the-family) · [Palettes](#palettes) · [Develop](#develop)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-7aa2f7.svg)](LICENSE)
 [![Node.js 22.19+](https://img.shields.io/badge/node-%E2%89%A522.19-7aa2f7.svg)](package.json)
-[![Pi extensions](https://img.shields.io/badge/pi-8_extensions-7aa2f7.svg)](#the-family)
+[![Pi extensions](https://img.shields.io/badge/pi-9_extensions-7aa2f7.svg)](#the-family)
 
 </div>
 
@@ -38,8 +38,9 @@ Pi is the coding agent. Lune is a set of extensions for it. You keep Pi's agent 
 | **Keep commands in reach** | Long shell jobs run in the background. Watch their live output, then let the result go back to the agent.         |
 | **Return to the thread**   | Choose how the context is compacted, and get a short recap of the goal and progress when you come back.           |
 | **Delegate side work**     | Hand a task to a subagent run. It works in its own session, optionally in its own Git worktree, and reports back. |
+| **Remember the project**   | Earlier sessions become one searchable project memory, and each new session starts with a short summary of it.    |
 
-You can install all eight packages, or only the ones you want.
+You can install all nine packages, or only the ones you want.
 
 <br>
 
@@ -125,6 +126,7 @@ pi install ./packages/pi-shell-inspector
 pi install ./packages/pi-compaction
 pi install ./packages/pi-recap
 pi install ./packages/pi-subagent
+pi install ./packages/lune-memory
 ```
 
 Pi loads these packages from the checkout, so do not move or delete it.
@@ -169,6 +171,7 @@ Each package has its own README with all settings and behavior.
 | **[Compaction](packages/pi-compaction/README.md)**<br><sub>`@lune_99/pi-compaction`</sub>                | Your choice of summary model and thinking level for `/compact`, with optional review of tool history.                                         |
 | **[Recap](packages/pi-recap/README.md)**<br><sub>`@lune_99/pi-recap`</sub>                               | A short reminder above the editor with the goal, progress, blocker and next step.                                                             |
 | **[Subagent](packages/pi-subagent/README.md)**<br><sub>`@lune_99/pi-subagent`</sub>                      | Delegated tasks in separate Pi sessions with a fresh context, optional Git worktrees, reports back to the agent, and the `/agents` inspector. |
+| **[Memory](packages/lune-memory/README.md)**<br><sub>`@lune_99/lune-memory`</sub>                        | One project memory for Pi, Claude Code and Codex: session search over MCP, a session summary at start, and background Dreaming.               |
 | **[Core](packages/pi-lune-extensions-core/README.md)**<br><sub>`@lune_99/pi-lune-extensions-core`</sub>  | Shared settings, settings panels, lifecycle cleanup, Dock contracts and `@` session mentions. Other extension authors can use it too.         |
 
 <br>
@@ -191,7 +194,7 @@ Each pictured palette is captured in a fresh Pi process. Click an image to see i
 
 Daily development targets the default `dev` branch. Create a topic branch from `origin/dev`, validate it, then merge locally into `dev` and push directly; CI runs after the push. PRs into `dev` are optional. Validated work reaches the stable `main` branch through a promotion PR, and every PR requires explicit prior user consent. See [CONTRIBUTING.md](CONTRIBUTING.md#branch-workflow) for merge methods, hotfixes and release synchronization.
 
-The eight packages share one npm workspace and lockfile, and each has its own version. Run the full check before you send a change:
+The nine packages share one npm workspace and lockfile, and each has its own version. Run the full check before you send a change:
 
 ```bash
 npm run check
@@ -203,13 +206,13 @@ npm run check
 
 | Command                | What it does                                                 |
 | ---------------------- | ------------------------------------------------------------ |
-| `npm run build`        | Build Core, then Recap                                       |
+| `npm run build`        | Build Core, Recap and Memory                                 |
 | `npm run format`       | Format source, configuration and documentation with Prettier |
 | `npm run format:check` | Check formatting without changing files                      |
 | `npm run lint`         | Lint TypeScript and JavaScript with ESLint                   |
 | `npm run typecheck`    | Build dependencies and typecheck every package               |
 | `npm test`             | Build dependencies and run every package's tests             |
-| `npm run pack:check`   | Inspect all eight npm tarballs without publishing            |
+| `npm run pack:check`   | Inspect all nine npm tarballs without publishing             |
 | `npm run check`        | Run formatting, lint, typechecks, tests and package checks   |
 
 To run a command for one package, give its workspace name or path:

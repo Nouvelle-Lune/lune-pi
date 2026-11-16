@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="referrer" content="no-referrer" />
+        <title>Lune Memory Settings</title>
+        <link rel="stylesheet" href="/ui/app.css" />
+        <script type="module" src="/ui/app.js"></script>
+    </head>
+    <body>
+        <div class="app" id="app" hidden>
+            <aside class="sidebar">
+                <div class="brand">
+                    <span class="brand-mark" aria-hidden="true"></span>
+                    <div>
+                        <div class="brand-name">Lune Memory</div>
+                        <div class="brand-sub">Local settings</div>
+                    </div>
+                </div>
+                <nav class="nav" id="nav" aria-label="Sections"></nav>
+                <div class="sidebar-foot">
+                    <span class="conn" id="conn">Connecting</span>
+                </div>
+            </aside>
+            <main class="main" id="main">
+                <header class="page-head">
+                    <h1 id="page-title"></h1>
+                    <p class="lede" id="page-lede"></p>
+                </header>
+                <div id="view"></div>
+            </main>
+        </div>
+
+        <section class="locked" id="locked" hidden>
+            <div class="locked-card">
+                <span class="brand-mark large" aria-hidden="true"></span>
+                <h1>Open settings from your terminal</h1>
+                <p>
+                    This page needs the access token of the local lune-memory daemon. Run the
+                    command below. It starts the daemon when needed and opens this page with a fresh
+                    token.
+                </p>
+                <pre class="command"><code>lune-memory settings</code></pre>
+                <p class="hint">
+                    The token stays in this browser tab only. It is never stored on disk by the
+                    page.
+                </p>
+            </div>
+        </section>
+
+        <div class="savebar" id="savebar" hidden>
+            <div class="savebar-inner">
+                <span class="savebar-text" id="savebar-text">You have unsaved changes</span>
+                <div class="savebar-actions">
+                    <button type="button" class="btn ghost" id="discard">Discard</button>
+                    <button type="button" class="btn primary" id="save">Save changes</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+        <dialog class="dialog" id="dialog"></dialog>
+    </body>
+</html>
