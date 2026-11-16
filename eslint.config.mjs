@@ -20,6 +20,13 @@ export default defineConfig(
         },
     },
     {
+        // The lune-memory settings page runs in the browser.
+        files: ["packages/lune-memory/ui/**/*.js"],
+        languageOptions: {
+            globals: globals.browser,
+        },
+    },
+    {
         files: ["**/*.{ts,tsx,mts,cts}"],
         extends: [tseslint.configs.recommended],
         rules: {
