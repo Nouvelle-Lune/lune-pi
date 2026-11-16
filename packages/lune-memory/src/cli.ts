@@ -431,6 +431,12 @@ async function hookCommandRun(ctx: Context): Promise<number> {
                 }),
             );
         }
+        if (result.overBudget) {
+            ctx.err(
+                `lune-memory hook: the memory context is ${result.lines} lines and ${result.bytes} ` +
+                    "bytes, which is over its budget. It was injected in full.",
+            );
+        }
     } catch (error) {
         ctx.err(`lune-memory hook: ${errorMessage(error)}`);
     }

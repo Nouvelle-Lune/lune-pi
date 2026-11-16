@@ -1,5 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync } from "node:fs";
 
 import { memoryPathTest } from "../adapters/common.ts";
 import { ADAPTERS, AdapterFormatError, readSessionFile } from "../adapters/index.ts";
@@ -11,7 +10,7 @@ import { errorMessage, nowIso, sha256 } from "../core/util.ts";
 import type { ProjectResolver } from "../projects/resolver.ts";
 import { bit, text, textOrNull, type Store } from "../store/db.ts";
 import { getSession, liveProjectId, putSession } from "../store/rows.ts";
-import { redact, safeErrorText } from "./redact.ts";
+import { safeErrorText, storedContent } from "./redact.ts";
 import { removeTranscript, writeSessionTranscript } from "./transcripts.ts";
 
 export type FileOutcome = "imported" | "unchanged" | "skipped" | "error";
@@ -112,20 +111,6 @@ export function eventHash(event: {
             event.active,
         ]),
     );
-}
-
-function realpathOr(path: string): string {
-    try {
-        return realpathSync(path);
-    } catch {
-        return path;
-    }
-}
-
-/** True when `path` is `dir` or below it. */
-function isInside(dir: string, path: string): boolean {
-    const rel = relative(dir, path);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function timeMs(value: string | null | undefined): number | null {
@@ -249,7 +234,6 @@ export class Importer {
             this.recordFile(ref, fileHash, null, "skipped", null);
             return { outcome: "skipped" };
         }
-        this.markMemoryHomeTools(evidence);
         if (this.isForgotten(evidence.harness, evidence.sessionId)) {
             this.recordFile(ref, fileHash, evidence.sessionId, "forgotten", null);
             return { outcome: "skipped" };
@@ -279,25 +263,6 @@ export class Importer {
             const message = safeErrorText(error);
             this.recordFile(ref, fileHash, evidence.sessionId, "error", message);
             return { outcome: "error", error: message };
-        }
-    }
-
-    /**
-     * A session that runs inside the memory home reads memory files by relative paths, such as
-     * `views/projects/x/wiki/a.md`, that no path test can see. All its tool events are
-     * memory-derived, so they never become evidence.
-     */
-    private markMemoryHomeTools(evidence: SessionEvidence): void {
-        if (!evidence.cwd) return;
-        const home = realpathOr(resolve(this.paths.home));
-        const cwd = realpathOr(resolve(evidence.cwd));
-        if (!isInside(home, cwd) && !isInside(resolve(this.paths.home), resolve(evidence.cwd))) {
-            return;
-        }
-        for (const event of evidence.events) {
-            if (event.role === "tool_call" || event.role === "tool_result") {
-                event.memoryDerived = true;
-            }
         }
     }
 
@@ -362,7 +327,7 @@ export class Importer {
                 continue;
             }
             seen.add(event.key);
-            const clean = redact(event.text);
+            const clean = storedContent(event.text);
             redactions += clean.count;
             const prepared = {
                 key: event.key,
@@ -404,14 +369,16 @@ export class Importer {
         // The harness record is best. A session that changed since the last import is active
         // now, so the branch of the work tree now is its branch: the user can have switched
         // branches before resuming it. For an unchanged session, a branch seen at an earlier
-        // import is closer to its time than the branch now.
-        const branch =
-            evidence.branch ??
-            (changed && existing ? resolution?.branch : null) ??
-            existing?.branch ??
-            resolution?.branch ??
-            null;
-        const title = evidence.title ? redact(evidence.title).text : null;
+        // import is closer to its time than the branch now. A work tree on a detached HEAD has no
+        // branch, so a changed session there has none: its new work is not on the old branch.
+        let branch = evidence.branch ?? null;
+        if (!branch) {
+            branch =
+                changed && existing && resolution?.repo
+                    ? resolution.branch
+                    : (existing?.branch ?? resolution?.branch ?? null);
+        }
+        const title = evidence.title ? storedContent(evidence.title).text : null;
 
         let processedRevision = existing?.processedRevision ?? null;
         let markProcessed = false;
@@ -488,8 +455,20 @@ export class Importer {
                     markProcessed ? event.hash : null,
                 );
             }
-            this.removeVanishedEvents(session, events, nowText);
-            if (!markProcessed) this.markSeams(session, revisionSeams(previous, events));
+            const vanished = this.removeVanishedEvents(session, events, nowText);
+            const seams = markProcessed ? [] : revisionSeams(previous, events);
+            this.markSeams(session, seams);
+            if (vanished && !markProcessed) {
+                // Items that cite this session can rest on text that is gone now. The flag keeps
+                // the session eligible until a pass reviews them (§5), also when no event is
+                // left to process.
+                this.store.run(
+                    "UPDATE sessions SET review_revision = ? WHERE harness = ? AND id = ?",
+                    session.revision,
+                    session.harness,
+                    session.id,
+                );
+            }
             if (projectId && branch) {
                 this.store.run(
                     "INSERT OR IGNORE INTO branches(project_id, name, status, first_seen) VALUES (?, ?, 'open', ?)",
@@ -525,12 +504,17 @@ export class Importer {
             .map((row) => text(row, "key"));
     }
 
-    /** Mark the seam events of a revision unprocessed, so the next pass reads them again. */
+    /**
+     * Mark the seam events of a revision unprocessed, so the next pass reads them again. The
+     * reset revision stops a pass that analyzed an older revision from marking them processed:
+     * their hash is unchanged, so the hash check alone does not see the reset.
+     */
     private markSeams(session: SessionRow, keys: readonly string[]): void {
         if (!keys.length) return;
         this.store.run(
-            `UPDATE events SET processed_hash = NULL, processed_chars = NULL
+            `UPDATE events SET processed_hash = NULL, processed_chars = NULL, reset_revision = ?
             WHERE harness = ? AND session_id = ? AND key IN (SELECT value FROM json_each(?))`,
+            session.revision,
             session.harness,
             session.id,
             JSON.stringify(keys),
@@ -539,9 +523,14 @@ export class Importer {
 
     /**
      * Delete events that are no longer in the session file. An item whose event sources are all
-     * gone becomes source-missing. An item that keeps at least one source stays as it is.
+     * gone becomes source-missing. An item that keeps at least one source stays active until a
+     * pass reviews it. It returns true when events vanished.
      */
-    private removeVanishedEvents(session: SessionRow, events: PreparedEvent[], at: string): void {
+    private removeVanishedEvents(
+        session: SessionRow,
+        events: PreparedEvent[],
+        at: string,
+    ): boolean {
         const keys = JSON.stringify(events.map((event) => event.key));
         const vanished = this.store.all(
             "SELECT key FROM events WHERE harness = ? AND session_id = ? AND key NOT IN (SELECT value FROM json_each(?))",
@@ -549,7 +538,7 @@ export class Importer {
             session.id,
             keys,
         );
-        if (vanished.length === 0) return;
+        if (vanished.length === 0) return false;
         this.store.run(
             "DELETE FROM events WHERE harness = ? AND session_id = ? AND key NOT IN (SELECT value FROM json_each(?))",
             session.harness,
@@ -575,6 +564,7 @@ export class Importer {
             session.id,
             JSON.stringify(vanished.map((row) => text(row, "key"))),
         );
+        return true;
     }
 
     /**

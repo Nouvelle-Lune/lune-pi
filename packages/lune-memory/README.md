@@ -6,7 +6,7 @@
 Dreaming.**
 
 Lune Memory reads the session files of your coding agents and keeps one memory for each project.
-A local daemon imports new sessions, redacts secrets and indexes every event. When a session is
+A local daemon imports new sessions and indexes every event. When a session is
 idle, a Dreaming pass reads what changed and updates the project wiki, the working state of each
 branch and your preferences. Each new session starts with a short summary of that memory, and the
 agent can search all earlier sessions through MCP.
@@ -46,8 +46,9 @@ its API key there. Without a model, import and search work, but no Dreaming pass
 - **Dream in the background.** After a session is idle for 6 hours, an Analyzer reads its new
   events and an Organizer updates the project memory. Every change cites its evidence and every
   pass can be reverted.
-- **Keep secrets out.** Import and note writes redact keys, tokens, passwords and private keys
-  before the text reaches the database, the Markdown views or a model.
+- **Know what is stored.** Import and note writes keep the text as it is, with no redaction for
+  now. Keys and tokens in a session reach the database, the Markdown views and the Dreaming
+  model. A setting that turns redaction on is planned.
 - **Stay local.** The daemon listens on loopback only, with a random token. All data stays in
   `~/.lune-memory`.
 
@@ -58,7 +59,7 @@ its API key there. Without a model, import and search work, but no Dreaming pass
 | L1    | Preferences, project overview, working state, open threads | Injected at session start                  |
 | L2    | Project wiki: an index and topic pages                     | Linked from L1; Markdown files in `views/` |
 | L3    | Notes, decisions, lessons, facts and open items            | `note_write`, Markdown files in `views/`   |
-| L4    | Redacted transcripts of every imported session             | `transcript_search`, Markdown in `views/`  |
+| L4    | Transcripts of every imported session                      | `transcript_search`, Markdown in `views/`  |
 
 The SQLite database is the source of truth. The `views` folder is a read-only Markdown projection
 that each change rebuilds. Earlier generations stay for restore.

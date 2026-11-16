@@ -1,6 +1,7 @@
 /**
- * Secret redaction. Import runs it on every event before the event reaches SQLite, L4 views or
- * a model, so search and Dreaming never see the secret.
+ * Secret redaction. Imported content and Notes are stored as written: `storedContent` keeps them
+ * unchanged, so the memory can recall a key or a password that the user gave. `redact` stays for
+ * error text, which can come from a provider or a file and is shown in status output.
  */
 
 interface Rule {
@@ -41,6 +42,15 @@ export function redact(text: string): { text: string; count: number } {
         });
     }
     return { text: out, count };
+}
+
+/**
+ * Text of an imported event, a session title or a Note as it goes into the store. `count` is the
+ * number of redactions, which is 0 while content stays unredacted.
+ */
+export function storedContent(text: string): { text: string; count: number } {
+    // TODO: Add a configurable redaction switch. Keep imported content and notes unredacted until then.
+    return { text, count: 0 };
 }
 
 /** Error text that is safe to store or show: redacted, on one line, at most 500 characters. */

@@ -2,6 +2,7 @@ import type { EventRole } from "../core/types.ts";
 import {
     PI_L1_CUSTOM_TYPE,
     argumentsToText,
+    blockText,
     blocksToText,
     bump,
     containsMemoryContext,
@@ -71,6 +72,8 @@ interface ParseState {
     memoryCalls: Set<string>;
     /** Extra test for memory file paths of the home in use. */
     memoryPath?: MemoryPathTest;
+    /** Working folder of the session, for relative memory paths in tool calls. */
+    cwd?: string;
 }
 
 export const piAdapter: HarnessAdapter = {
@@ -107,8 +110,10 @@ function parsePiSession(
 
     const onPath = activePath(entries);
     const omitted = omittedTargets(entries, onPath);
+    const cwd = str(header.cwd);
     const state: ParseState = { filtered: {}, warnings, warned: new Set(), memoryCalls: new Set() };
     if (context.memoryPath) state.memoryPath = context.memoryPath;
+    if (cwd) state.cwd = cwd;
     const events: EvidenceEvent[] = [];
     let title: string | undefined;
     let updatedAt: string | undefined;
@@ -134,7 +139,6 @@ function parsePiSession(
         if (time && (!updatedAt || time > updatedAt)) updatedAt = time;
     }
 
-    const cwd = str(header.cwd);
     const startedAt = isoTime(header.timestamp);
     return {
         harness: "pi",
@@ -228,7 +232,7 @@ function entryDrafts(entry: Entry, state: ParseState): Draft[] {
         case "message":
             return messageDrafts(entry, state);
         case "custom_message":
-            return customDrafts(record, state);
+            return customDrafts(record, entry.line, state);
         case "compaction":
         case "branch_summary":
             return summaryDrafts(str(record.summary), state);
@@ -256,13 +260,13 @@ function messageDrafts(entry: Entry, state: ParseState): Draft[] {
         case "assistant":
             return assistantDrafts(message, entry.line, state);
         case "toolResult":
-            return [toolResultDraft(message, state)];
+            return [toolResultDraft(message, entry.line, state)];
         case "bashExecution":
             return bashDrafts(message, state);
         // Version 2 files call custom messages `hookMessage`.
         case "custom":
         case "hookMessage":
-            return customDrafts(message, state);
+            return customDrafts(message, entry.line, state);
         case "compactionSummary":
         case "branchSummary":
             return summaryDrafts(str(message.summary), state);
@@ -307,7 +311,7 @@ function assistantDrafts(
         const record = obj(block);
         const type = str(record?.type) ?? "(none)";
         if (type === "text") {
-            const text = str(record?.text);
+            const text = blockText(record, `line ${line}: Pi assistant`);
             if (text) texts.push(text);
         } else if (type === "toolCall" && record) {
             flush();
@@ -328,7 +332,7 @@ function assistantDrafts(
 function toolCallDraft(block: Record<string, unknown>, state: ParseState): Draft {
     const toolName = str(block.name);
     const args = argumentsToText(block.arguments);
-    const memoryDerived = isMemoryToolCall(toolName, args, state.memoryPath);
+    const memoryDerived = isMemoryToolCall(toolName, args, state.memoryPath, state.cwd);
     const id = str(block.id);
     if (memoryDerived && id) state.memoryCalls.add(id);
     return draft("tool_call", args, { toolName, memoryDerived });
@@ -352,10 +356,10 @@ function stopNotice(message: Record<string, unknown>): Draft | undefined {
     }
 }
 
-function toolResultDraft(message: Record<string, unknown>, state: ParseState): Draft {
+function toolResultDraft(message: Record<string, unknown>, line: number, state: ParseState): Draft {
     const toolName = str(message.toolName);
     const callId = str(message.toolCallId);
-    const output = blocksToText(message.content);
+    const output = blocksToText(message.content, `line ${line}: Pi tool result`);
     const text = message.isError === true ? (output ? `[error] ${output}` : "[error]") : output;
     const memoryDerived =
         (callId !== undefined && state.memoryCalls.has(callId)) ||
@@ -376,6 +380,7 @@ function nestedMemoryCall(value: unknown, state: ParseState): boolean {
             str(record?.name),
             argumentsToText(record?.arguments),
             state.memoryPath,
+            state.cwd,
         );
     });
 }
@@ -384,7 +389,7 @@ function nestedMemoryCall(value: unknown, state: ParseState): boolean {
 function bashDrafts(message: Record<string, unknown>, state: ParseState): Draft[] {
     const command = str(message.command) ?? "";
     const output = str(message.output) ?? "";
-    const memoryDerived = isMemoryToolCall("bash", command, state.memoryPath);
+    const memoryDerived = isMemoryToolCall("bash", command, state.memoryPath, state.cwd);
     const notes: string[] = [];
     if (message.cancelled === true) notes.push("[cancelled]");
     if (message.truncated === true) notes.push("[output truncated]");
@@ -406,8 +411,8 @@ function bashDrafts(message: Record<string, unknown>, state: ParseState): Draft[
  * An extension message. Injected L1 context is kept as memory-derived. Other messages are kept
  * only when the user sees them. Extensions write them, so their text is untrusted.
  */
-function customDrafts(record: Record<string, unknown>, state: ParseState): Draft[] {
-    const text = blocksToText(record.content);
+function customDrafts(record: Record<string, unknown>, line: number, state: ParseState): Draft[] {
+    const text = blocksToText(record.content, `line ${line}: Pi custom message`);
     const isL1 = record.customType === PI_L1_CUSTOM_TYPE;
     if (!isL1 && record.display !== true) {
         bump(state.filtered, "custom_hidden");
@@ -442,7 +447,8 @@ function unknownEntry(entry: Entry, state: ParseState): Draft[] {
 }
 
 function contentText(content: unknown, line: number, role: string): string {
-    return blocksToText(knownContent(content, `line ${line}: Pi ${role}`));
+    const where = `line ${line}: Pi ${role}`;
+    return blocksToText(knownContent(content, where), where);
 }
 
 function draft(role: EventRole, text: string, flags: DraftFlags = {}): Draft {

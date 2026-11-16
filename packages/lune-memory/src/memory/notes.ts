@@ -8,7 +8,7 @@ import {
     type Trust,
 } from "../core/types.ts";
 import { newId, nowIso, sha256 } from "../core/util.ts";
-import { redact } from "../ingest/redact.ts";
+import { storedContent } from "../ingest/redact.ts";
 import type { ProjectResolver } from "../projects/resolver.ts";
 import type { Store } from "../store/db.ts";
 import { finishRun, getItem, putItem, recordHistory, startRun } from "../store/rows.ts";
@@ -45,12 +45,12 @@ export function contentHash(title: string, body: string): string {
 }
 
 /**
- * Normalize and check the text of a note. Secrets are redacted first, like on import, so the
- * store, the views and the Dreaming model never see them.
+ * Normalize and check the text of a note. The text is stored as written, like imported content
+ * (`storedContent`).
  */
 function checkText(input: { title: string; body: string }): { title: string; body: string } {
-    const title = redact(input.title).text.replace(/\s+/gu, " ").trim();
-    const body = redact(input.body).text.trim();
+    const title = storedContent(input.title).text.replace(/\s+/gu, " ").trim();
+    const body = storedContent(input.body).text.trim();
     if (!title) throw new MemoryOperationError("A note needs a title");
     if (!body) throw new MemoryOperationError("A note needs a body");
     if (title.length > 200)

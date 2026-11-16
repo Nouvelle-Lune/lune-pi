@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import { MEMORY_CONTEXT_TAG } from "../../src/core/types.ts";
 import { getSession, listEvents } from "../../src/store/rows.ts";
 import {
+    claudeRecord,
     codexMessage,
     codexMeta,
     createIngestEnv,
@@ -42,7 +43,7 @@ describe("import", () => {
     let env: IngestEnv;
     afterEach(() => env.cleanup());
 
-    it("imports a session, redacts secrets and writes the transcript", () => {
+    it("imports a session, keeps event text as written and writes the transcript with it", () => {
         env = createIngestEnv({ now: NOW });
         const secret = `ghp_${"A1b2C3d4E5".repeat(4)}`;
         piFile(env, "s1.jsonl", "s1", ["hello", `my token ${secret}`]);
@@ -52,13 +53,14 @@ describe("import", () => {
         const session = getSession(env.store, "pi", "s1");
         assert.ok(session);
         assert.equal(session.revision, 1);
-        assert.equal(session.redactions, 1);
+        assert.equal(session.redactions, 0);
         const events = listEvents(env.store, "pi", "s1");
         assert.deepEqual(
             events.map((e) => e.text),
-            ["hello", "my token [redacted]"],
+            ["hello", `my token ${secret}`],
         );
         assert.ok(session.transcriptPath && existsSync(session.transcriptPath));
+        assert.ok(readFileSync(session.transcriptPath, "utf8").includes(secret));
     });
 
     it("is idempotent: a second import changes nothing", () => {
@@ -214,6 +216,72 @@ describe("import", () => {
         assert.equal(summary.errors, 1);
         assert.equal(summary.imported, 1);
         assert.match(summary.problems[0]?.error ?? "", /Unknown format/u);
+    });
+
+    describe("a text block with an unknown shape in a changed file", () => {
+        const badBlock = { type: "text", text: { value: "Keep this evidence" } };
+
+        function expectFailedImportKeepsEvents(
+            harness: "pi" | "claude" | "codex",
+            id: string,
+            write: (records: unknown[]) => void,
+            good: unknown[],
+            bad: unknown[],
+        ): void {
+            write(good);
+            env.importer.importAll();
+            const before = listEvents(env.store, harness, id).map((e) => [e.key, e.text]);
+            assert.ok(before.length > 0);
+
+            write([...good, ...bad]);
+            const summary = env.importer.importAll();
+
+            assert.equal(summary.errors, 1);
+            assert.match(summary.problems[0]?.error ?? "", /line \d+: .*unknown format/u);
+            const after = listEvents(env.store, harness, id).map((e) => [e.key, e.text]);
+            assert.deepEqual(after, before);
+        }
+
+        it("Pi: records an error that names the record and keeps the previous events", () => {
+            env = createIngestEnv({ now: NOW });
+            const path = join(env.roots.pi, "cwd-a", "s1.jsonl");
+            expectFailedImportKeepsEvents(
+                "pi",
+                "s1",
+                (records) => writeText(path, jsonl(records)),
+                [piHeader("s1", env.cwd), piMessage("m0", null, "user", "kept")],
+                [piMessage("m1", "m0", "assistant", [badBlock])],
+            );
+        });
+
+        it("Claude: records an error that names the record and keeps the previous events", () => {
+            env = createIngestEnv({ now: NOW });
+            const path = join(env.roots.claude, "proj", "s1.jsonl");
+            expectFailedImportKeepsEvents(
+                "claude",
+                "s1",
+                (records) => writeText(path, jsonl(records)),
+                [claudeRecord("s1", "u1", null, "user", "kept", { cwd: env.cwd })],
+                [claudeRecord("s1", "a2", "u1", "assistant", [badBlock], { cwd: env.cwd })],
+            );
+        });
+
+        it("Codex: records an error that names the record and keeps the previous events", () => {
+            env = createIngestEnv({ now: NOW });
+            const path = join(env.roots.codex, "2026", "05", "31", "rollout-x-c1.jsonl");
+            expectFailedImportKeepsEvents(
+                "codex",
+                "c1",
+                (records) => writeText(path, jsonl(records)),
+                [codexMeta("c1", env.cwd), codexMessage("user", "kept")],
+                [
+                    {
+                        type: "response_item",
+                        payload: { type: "message", role: "assistant", content: [badBlock] },
+                    },
+                ],
+            );
+        });
     });
 
     it("skips subagent rollouts and imports other Codex sessions", () => {

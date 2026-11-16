@@ -89,6 +89,7 @@ export function sessionFromRow(row: Row): SessionRow {
         attempts: num(row, "attempts"),
         attemptRevision: numOrNull(row, "attempt_revision"),
         processedRevision: numOrNull(row, "processed_revision"),
+        reviewRevision: numOrNull(row, "review_revision"),
         warnings: jsonOr<string[]>(row, "warnings", []),
         filtered: jsonOr<Record<string, number>>(row, "filtered", {}),
         redactions: num(row, "redactions"),

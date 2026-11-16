@@ -141,7 +141,14 @@ export function createPiExtension(options: PiExtensionOptions = {}): (pi: Extens
             pending = client
                 .l1({ cwd: ctx.cwd, harness: "pi", sessionId, announceSession: false })
                 .then((result) => {
-                    if (id === request) section = l1SectionText(result.text);
+                    if (id !== request) return;
+                    section = l1SectionText(result.text);
+                    if (result.overBudget) {
+                        warn(
+                            ctx,
+                            `the memory context is ${result.lines} lines and ${result.bytes} bytes, which is over its budget. It was added in full.`,
+                        );
+                    }
                 })
                 .catch((error: unknown) => {
                     if (id !== request) return;

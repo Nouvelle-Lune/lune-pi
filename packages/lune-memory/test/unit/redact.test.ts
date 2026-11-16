@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { redact, safeErrorText } from "../../src/ingest/redact.ts";
+import { redact, safeErrorText, storedContent } from "../../src/ingest/redact.ts";
 
 // Fake secrets are assembled at runtime so no literal credential sits in the source.
 const fake = {
@@ -69,5 +69,20 @@ describe("safeErrorText", () => {
 
     it("accepts a non-Error value", () => {
         assert.equal(safeErrorText("plain  text"), "plain text");
+    });
+});
+
+describe("storedContent", () => {
+    it("keeps text with a secret as written and counts no redaction", () => {
+        const input = `token ${fake.github} and password = hunter2hunter2`;
+        const actual = storedContent(input);
+        assert.deepEqual(actual, { text: input, count: 0 });
+    });
+});
+
+describe("error text keeps its redaction", () => {
+    it("hides a secret in the error text of a failure", () => {
+        const actual = safeErrorText(new Error(`request failed with ${fake.anthropic}`));
+        assert.equal(actual, "request failed with [redacted]");
     });
 });

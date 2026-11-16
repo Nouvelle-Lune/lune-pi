@@ -82,7 +82,7 @@ export function renderTranscript(
     push(`- Revision: ${session.revision}`);
     push(`- Source: ${session.sourcePath}`);
     push(`- Filtered: ${formatFiltered(session.filtered)}`);
-    push(`- Redactions: ${session.redactions}`);
+    if (session.redactions > 0) push(`- Redactions: ${session.redactions}`);
     if (session.warnings.length > 0) {
         push(`- Warnings: ${session.warnings.length}`);
         for (const warning of session.warnings.slice(0, 20)) push(`  - ${oneLine(warning)}`);

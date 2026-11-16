@@ -10,6 +10,7 @@ import {
     getItem,
     getRun,
     getSession,
+    liveProjectId,
     putItem,
     recordHistory,
     startRun,
@@ -95,7 +96,9 @@ export function revertRun(
             const itemId = text(row, "item_id");
             const beforeText = textOrNull(row, "before");
             const current = getItem(store, itemId);
-            const restored = beforeText ? (JSON.parse(beforeText) as Item) : null;
+            const restored = beforeText
+                ? placeRestored(store, JSON.parse(beforeText) as Item, current, now)
+                : null;
             if (restored) putItem(store, restored);
             else if (current) deleteItem(store, itemId);
             // Several history rows for one item: the oldest row runs last and wins.
@@ -114,6 +117,34 @@ export function revertRun(
         return { runId, revertRun: revertId, items: touched.size, reprocessed };
     });
     return withViews(result, store, paths, options.generations, now);
+}
+
+/**
+ * Put a restored project item in the project that it has now. A split or a merge after the run
+ * moved the item, but the history keeps the project of the run, and the restore must not move
+ * the item back. An item that is gone goes to the live project of its old one.
+ */
+function placeRestored(
+    store: Store,
+    restored: Item,
+    current: Item | null,
+    now: () => number,
+): Item {
+    if (restored.scope !== "project" || !restored.projectId) return restored;
+    const projectId =
+        current?.scope === "project" && current.projectId
+            ? current.projectId
+            : liveProjectId(store, restored.projectId);
+    if (projectId === restored.projectId) return restored;
+    if (restored.branch) {
+        store.run(
+            "INSERT OR IGNORE INTO branches(project_id, name, status, first_seen) VALUES (?, ?, 'open', ?)",
+            projectId,
+            restored.branch,
+            nowIso(now()),
+        );
+    }
+    return { ...restored, projectId };
 }
 
 /**

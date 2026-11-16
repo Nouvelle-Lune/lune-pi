@@ -250,6 +250,63 @@ describe("Claude chain order", () => {
     });
 });
 
+describe("Claude active leaf", () => {
+    const flags = (records: unknown[]) =>
+        Object.fromEntries(
+            (claudeAdapter.parse("/p/proj/s.jsonl", jsonl(records))?.events ?? []).map((event) => [
+                event.text,
+                event.active,
+            ]),
+        );
+    const reply = (uuid: string, parent: string, text: string) =>
+        claudeRecord("s", uuid, parent, "assistant", [{ type: "text", text }]);
+
+    it("keeps all events active when a child comes before its parent in the file", () => {
+        const actual = flags([
+            claudeRecord("s", "u1", null, "user", "first"),
+            claudeRecord("s", "u3", "a2", "user", "third"),
+            reply("a2", "u1", "second"),
+        ]);
+
+        assert.deepEqual(actual, { first: true, second: true, third: true });
+    });
+
+    it("marks the old branch abandoned after a rewind from an earlier parent", () => {
+        const actual = flags([
+            claudeRecord("s", "u1", null, "user", "first"),
+            reply("a2", "u1", "second"),
+            claudeRecord("s", "u3", "a2", "user", "old branch"),
+            claudeRecord("s", "u4", "a2", "user", "edited"),
+            reply("a5", "u4", "reply"),
+        ]);
+
+        assert.deepEqual(actual, {
+            first: true,
+            second: true,
+            "old branch": false,
+            edited: true,
+            reply: true,
+        });
+    });
+
+    it("lets the later record in the file win when two leaves have the same place", () => {
+        // Both children come before their parent, so they get the same chain place.
+        const actual = flags([
+            claudeRecord("s", "u1", null, "user", "first"),
+            claudeRecord("s", "c1", "p", "user", "earlier child"),
+            claudeRecord("s", "c2", "p", "user", "later child"),
+            reply("p", "u1", "parent"),
+        ]);
+
+        assert.deepEqual(actual, {
+            first: true,
+            parent: true,
+            "earlier child": false,
+            "later child": true,
+        });
+    });
+});
+
 describe("findJsonlFiles symlinks", () => {
     function setup() {
         const root = join(dir, "root");
