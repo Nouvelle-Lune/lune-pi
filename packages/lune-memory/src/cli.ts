@@ -21,6 +21,7 @@ import {
     installHook,
     isHookHarness,
     mcpAddCommand,
+    sandboxHint,
     piInstallCommand,
     removeHook,
 } from "./integrations/setup.ts";
@@ -368,6 +369,7 @@ async function setupCommand(ctx: Context): Promise<number> {
             ctx.out(`Run "lune-memory setup ${name} --install-hook" to install it.`);
         }
         ctx.out(`Add the MCP server: ${mcpAddCommand(name, commandOptions)}`);
+        for (const line of sandboxHint(name, ctx.paths.views)) ctx.out(line);
     } else {
         ctx.out(`Install the Pi extension: ${piInstallCommand()}`);
     }

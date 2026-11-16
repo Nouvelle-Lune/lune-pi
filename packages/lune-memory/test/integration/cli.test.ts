@@ -425,6 +425,7 @@ describe("setup", () => {
             install.stdout.includes(`Hook installed in ${join(box.claudeDir, "settings.json")}`),
         );
         assert.match(after.stdout, /^claude: enabled, .*, hook installed$/mu);
+        assert.match(install.stdout, /^Sandbox: .*\n.*permissions\.allow.*Read\(\/\//mu);
         assert.match(remove.stdout, /^Removed 1 hook\(s\) from /mu);
     });
 
@@ -435,6 +436,7 @@ describe("setup", () => {
 
         assert.equal(actual.code, 0, actual.stderr);
         assert.match(readFileSync(join(box.codexDir, "config.toml"), "utf8"), /hooks = true/u);
+        assert.match(actual.stdout, /^Sandbox: /mu);
     });
 
     it("prints the Pi install command and the disabled state", async (t) => {

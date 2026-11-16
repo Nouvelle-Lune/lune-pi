@@ -19,11 +19,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 
 ### Changed
 
+- **Setup prints sandbox access.** `setup claude` and `setup codex` print how a sandboxed session reads the memory files: the Read rule for Claude Code, and the views folder for a Codex sandbox that limits reads. Setup does not change a permission setting.
+- **Over-budget summary.** When the stable part of a project's summary is over its budget, Dreaming asks the Organizer to shorten it, even with no new sessions, for at most `maxAttempts` passes in a row. A manual pass ignores the limit.
 - **Model judgment for preferences.** Let the Dreaming models decide generality, withdrawal and preference matching from evidence and context. Remove the backend's semantic keyword lists, negation patterns and word matching; retain source, citation, scope and revision validation. When global preferences exist, new trusted user statements from eligible sessions outside a project reach the global model for review.
 
 ### Fixed
 
 - **Evidence and review consistency.** Fix existing source evidence before analysis, including missing sources and global Notes, and require evidence from each Note review. Review deleted citations across project and global scopes, preserve Note review after registration, reject results whose project ownership changed, and retry global promotions rejected for stale evidence. Project extraction and global promotion now keep separate idempotency ownership.
+- **Claude compaction with a preserved segment.** Import Claude Code sessions whose compaction keeps a segment of recent messages. The parent chain of such a session formed a loop and the whole file failed to import.
+- **Global pass retries.** Stop a failing global pass after `maxAttempts` failures in a row, until a project preference changes or new results arrive. A manual pass ignores the limit.
 - **Native session provenance and history.** Recognize quoted memory paths and Claude shell reads, and preserve earlier evidence when unknown text or tool-result content fails import. Honor Codex injected-instruction and subagent markers, restore Claude compaction's preserved context, and roll back Codex tasks as complete turns.
 
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev/packages/lune-memory

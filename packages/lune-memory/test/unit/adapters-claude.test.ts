@@ -108,6 +108,65 @@ describe("Claude adapter", () => {
         });
     });
 
+    /** A session with a compact boundary whose logical parent is the tail of the kept records. */
+    function compactSession(preserved: boolean): Record<string, boolean> {
+        const text = jsonl([
+            claudeRecord("s", "u1", null, "user", "Old request"),
+            claudeRecord("s", "a1", "u1", "assistant", [{ type: "text", text: "Old answer" }]),
+            claudeRecord("s", "u2", "a1", "user", "Kept request"),
+            claudeRecord("s", "a2", "u2", "assistant", [{ type: "text", text: "Kept answer" }]),
+            {
+                ...claudeRecord("s", "b1", null, "user", "unused"),
+                type: "system",
+                subtype: "compact_boundary",
+                logicalParentUuid: "a2",
+                compactMetadata: preserved
+                    ? { preservedSegment: { headUuid: "u2", tailUuid: "a2", anchorUuid: "s1" } }
+                    : {},
+            },
+            claudeRecord("s", "s1", "b1", "user", "Summary of the conversation", {
+                isCompactSummary: true,
+            }),
+            claudeRecord("s", "u3", "a2", "user", "Next request"),
+            claudeRecord("s", "a3", "u3", "assistant", [{ type: "text", text: "Next answer" }]),
+        ]);
+        return Object.fromEntries(
+            (claudeAdapter.parse("/p/proj/s.jsonl", text)?.events ?? []).map((event) => [
+                event.text,
+                event.active,
+            ]),
+        );
+    }
+
+    it("reconnects a preserved segment whose boundary also has a logical parent, without a cycle", () => {
+        const actual = compactSession(true);
+
+        assert.deepEqual(actual, {
+            "Old request": false,
+            "Old answer": false,
+            "Kept request": true,
+            "Kept answer": true,
+            "Summary of the conversation": true,
+            "Next request": true,
+            "Next answer": true,
+        });
+    });
+
+    it("walks a compact boundary without a preserved segment into the old history through its logical parent", () => {
+        // The next request hangs off the kept tail, so the summary is on a side branch here.
+        const actual = compactSession(false);
+
+        assert.deepEqual(actual, {
+            "Old request": true,
+            "Old answer": true,
+            "Kept request": true,
+            "Kept answer": true,
+            "Summary of the conversation": false,
+            "Next request": true,
+            "Next answer": true,
+        });
+    });
+
     it("pairs a tool result with its call, strips reminders and marks output untrusted", () => {
         const text = jsonl([
             claudeRecord("s", "u1", null, "user", "run it"),

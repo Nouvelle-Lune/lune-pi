@@ -103,6 +103,24 @@ export function mcpAddCommand(harness: HookHarness, options: CommandOptions = {}
         : `codex mcp add lune-memory -- ${server}`;
 }
 
+/**
+ * Lines that tell the user how a sandboxed session reads the memory files (§2). Setup prints them
+ * and does not change a permission setting, because that is a decision of the user.
+ */
+export function sandboxHint(harness: HookHarness, viewsDir: string): string[] {
+    if (harness === "claude") {
+        const rule = `Read(//${viewsDir.replace(/^[/\\]+/u, "")}/**)`;
+        return [
+            "Sandbox: Claude Code asks before the Read tool opens a file outside the project.",
+            `To read the memory files without a prompt, add this rule to "permissions.allow" in settings.json: ${rule}`,
+        ];
+    }
+    return [
+        "Sandbox: the default Codex sandbox lets the agent read files outside the project.",
+        `If your sandbox limits reads, allow reads of ${viewsDir} for the memory files.`,
+    ];
+}
+
 /** Command that adds the Pi extension of this package. */
 export function piInstallCommand(): string {
     return `pi install ${quote(resolve(cliPath(), "..", ".."))}`;
