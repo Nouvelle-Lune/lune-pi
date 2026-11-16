@@ -23,7 +23,7 @@ import {
     type CommitCounts,
 } from "./commit.ts";
 import { findEligible, markTrivial, type SessionSnapshot } from "./eligibility.ts";
-import { pinItemSources, type EventPins } from "./evidence.ts";
+import { addPins, pinItemSources, type EventPins } from "./evidence.ts";
 import { globalWork, runGlobalPass, type GlobalPassResult } from "./global.ts";
 import {
     addUsage,
@@ -296,6 +296,27 @@ async function runLocked(
         }
     }
 
+    const itemProjects = new Set([
+        ...work.keys(),
+        ...found.eligible.flatMap((snapshot) => (snapshot.projectId ? [snapshot.projectId] : [])),
+    ]);
+    const itemPins = new Map<string, string | null>();
+    for (const snapshot of found.eligible) addPins(itemPins, snapshot.itemPins);
+    addPins(
+        itemPins,
+        pinItemSources(store, [
+            ...listItems(store, { scope: "global", status: [...ORGANIZER_STATUSES] }),
+            ...[...itemProjects].flatMap((projectId) =>
+                listItems(store, {
+                    scope: "project",
+                    projectId,
+                    status: [...ORGANIZER_STATUSES],
+                }),
+            ),
+            ...found.eligible.flatMap((snapshot) => [...snapshot.notes, ...snapshot.earlier]),
+        ]),
+    );
+
     // Without a model, only closed branches with nothing left on them can close.
     const results: AnalyzerResult[] = [];
     if (model && found.eligible.length) {
@@ -326,13 +347,39 @@ async function runLocked(
             });
             continue;
         }
-        if (result.snapshot.projectId) projectWork(result.snapshot.projectId).results.push(result);
-        else globalResults.push(result);
+        if (result.snapshot.projectId) {
+            projectWork(result.snapshot.projectId).results.push(result);
+            const notes = result.snapshot.notes.filter((note) => note.scope === "global");
+            if (notes.length) {
+                globalResults.push({
+                    ...result,
+                    snapshot: {
+                        ...result.snapshot,
+                        notes,
+                        review: new Set(),
+                        reviewOverflow: false,
+                    },
+                    candidates: result.candidates.filter(
+                        (candidate) => candidate.kind === "preference" && candidate.general,
+                    ),
+                    unsupported: [],
+                    noteReviews: result.noteReviews.filter((review) =>
+                        notes.some((note) => note.id === review.noteId),
+                    ),
+                });
+            }
+        } else globalResults.push(result);
     }
 
     const projects = [...work.values()].filter((entry) => model || !needsOrganizer(entry));
     const outcomes = await mapLimit(projects, config.dreaming.concurrency, (entry) =>
-        runProject(store, paths, model, entry, { pass, trigger, now, signal: options.signal }),
+        runProject(store, paths, model, entry, {
+            pass,
+            trigger,
+            now,
+            signal: options.signal,
+            itemPins,
+        }),
     );
     for (const outcome of outcomes) {
         summary.projects.push(outcome.result);
@@ -352,6 +399,7 @@ async function runLocked(
             pass,
             trigger,
             results: globalResults,
+            itemPins,
             now,
             ...(options.signal ? { signal: options.signal } : {}),
         });
@@ -420,6 +468,7 @@ interface ProjectContext {
     trigger: string;
     now: number;
     signal: AbortSignal | undefined;
+    itemPins: EventPins;
 }
 
 /** Organize and commit one project. A failure is recorded as a failed run, not thrown. */
@@ -452,7 +501,7 @@ async function runProject(
         let feedback: string | undefined;
         for (let attempt = 0; ; attempt++) {
             let ops: OrganizerOp[] = [];
-            let itemPins: EventPins | undefined;
+            const itemPins = new Map(context.itemPins);
             const warnings = work.results.flatMap((entry) => entry.warnings);
             if (needsOrganizer(work)) {
                 if (!model) throw new Error("The Organizer needs a model, and none is configured");
@@ -479,11 +528,14 @@ async function runProject(
                     ...(feedback ? { feedback } : {}),
                 };
                 // The model judges these items with their evidence as it is now.
-                itemPins = pinItemSources(store, [
-                    ...input.items,
-                    ...input.globals,
-                    ...input.closedBranches.flatMap((branch) => branch.items),
-                ]);
+                addPins(
+                    itemPins,
+                    pinItemSources(store, [
+                        ...input.items,
+                        ...input.globals,
+                        ...input.closedBranches.flatMap((branch) => branch.items),
+                    ]),
+                );
                 called = true;
                 const plan = await organizeProject(model, input, context.signal);
                 addUsage(usage, plan.usage);
@@ -504,7 +556,7 @@ async function runProject(
                     closedBranches: work.closed,
                     usage,
                     warnings,
-                    ...(itemPins ? { itemPins } : {}),
+                    itemPins,
                     now: context.now,
                 });
                 result.status = "ok";

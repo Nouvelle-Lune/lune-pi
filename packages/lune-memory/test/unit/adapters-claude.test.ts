@@ -67,6 +67,47 @@ describe("Claude adapter", () => {
         });
     });
 
+    it("reconnects the preserved segment after compaction and leaves the older history inactive", () => {
+        const text = jsonl([
+            claudeRecord("s", "old", null, "user", "Ancient"),
+            claudeRecord("s", "head", "old", "user", "Retained request"),
+            claudeRecord("s", "tail", "head", "assistant", [
+                { type: "text", text: "Retained answer" },
+            ]),
+            {
+                ...claudeRecord("s", "boundary", null, "user", "unused"),
+                type: "system",
+                subtype: "compact_boundary",
+                compactMetadata: {
+                    preservedSegment: {
+                        headUuid: "head",
+                        tailUuid: "tail",
+                        anchorUuid: "summary",
+                    },
+                },
+            },
+            claudeRecord("s", "summary", "boundary", "user", "Plan summary", {
+                isCompactSummary: true,
+            }),
+            claudeRecord("s", "new", "summary", "user", "Continue"),
+        ]);
+
+        const actual = Object.fromEntries(
+            (claudeAdapter.parse("/p/proj/s.jsonl", text)?.events ?? []).map((event) => [
+                event.text,
+                event.active,
+            ]),
+        );
+
+        assert.deepEqual(actual, {
+            Ancient: false,
+            "Retained request": true,
+            "Retained answer": true,
+            "Plan summary": true,
+            Continue: true,
+        });
+    });
+
     it("pairs a tool result with its call, strips reminders and marks output untrusted", () => {
         const text = jsonl([
             claudeRecord("s", "u1", null, "user", "run it"),

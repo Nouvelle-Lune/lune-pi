@@ -12,6 +12,7 @@ import {
     knownContent,
     obj,
     parseJsonl,
+    rejectUnknownTextBlock,
     str,
 } from "./common.ts";
 import {
@@ -66,6 +67,7 @@ interface Entry {
     index: number;
     line: number;
     record: Rec;
+    parent?: string;
     uuid?: string;
 }
 
@@ -75,6 +77,9 @@ interface Piece {
     text: string;
     toolName?: string;
     untrusted: boolean;
+    memoryDerived?: boolean;
+    shellCommand?: string;
+    shellOutput?: boolean;
 }
 
 interface Pending {
@@ -107,7 +112,13 @@ function tagText(text: string, tag: string): string {
 
 function commandOutput(text: string, tags: readonly string[], toolName: string): Piece {
     const parts = tags.map((tag) => tagText(text, tag)).filter(Boolean);
-    return { role: "tool_result", text: parts.join("\n"), toolName, untrusted: true };
+    return {
+        role: "tool_result",
+        text: parts.join("\n"),
+        toolName,
+        untrusted: true,
+        shellOutput: true,
+    };
 }
 
 /**
@@ -127,8 +138,10 @@ function classifyUserText(text: string, filtered: Record<string, number>): Piece
             const command = [tagText(text, "command-name"), tagText(text, "command-args")];
             return { role: "user", text: command.filter(Boolean).join(" "), untrusted: false };
         }
-        case "bash-input":
-            return { role: "user", text: `!${tagText(text, "bash-input")}`, untrusted: false };
+        case "bash-input": {
+            const command = tagText(text, "bash-input");
+            return { role: "user", text: `!${command}`, untrusted: false, shellCommand: command };
+        }
         case "local-command-stdout":
         case "local-command-stderr":
             return commandOutput(
@@ -213,7 +226,14 @@ function parseClaudeSession(
 
     const entries: Entry[] = parseJsonl(text, warnings).map(({ line, record }, index) => {
         const uuid = str(record.uuid);
-        return uuid ? { index, line, record, uuid } : { index, line, record };
+        const parent = str(record.parentUuid);
+        return {
+            index,
+            line,
+            record,
+            ...(uuid ? { uuid } : {}),
+            ...(parent ? { parent } : {}),
+        };
     });
 
     // Working folder for tool calls whose record has no cwd: the first own cwd, else any cwd.
@@ -245,6 +265,46 @@ function parseClaudeSession(
             toolCalls.set(id, uuid ? { name, memory, recordUuid: uuid } : { name, memory });
         }
     }
+
+    reconnectPreservedSegments(entries, byUuid, sessionId);
+
+    const shellMemory = (entry: Entry): boolean => {
+        const seen = new Set<Entry>();
+        let current: Entry | undefined = entry;
+        while (current && !seen.has(current)) {
+            seen.add(current);
+            const { record } = current;
+            const content = obj(record.message)?.content ?? record.content;
+            let shellContinuation = false;
+            for (const value of contentBlocks(content)) {
+                const raw = str(obj(value)?.text)?.replace(SYSTEM_REMINDER, "").trim() ?? "";
+                const tag = START_TAG.exec(raw)?.[1];
+                if (tag === "bash-input") {
+                    return isMemoryToolCall(
+                        "bash",
+                        tagText(raw, "bash-input"),
+                        memoryPath,
+                        callCwd(record),
+                    );
+                }
+                shellContinuation ||= /^(?:local-command|bash)-(?:stdout|stderr|caveat)$/u.test(
+                    tag ?? "",
+                );
+            }
+            // A shell result belongs to the command on its own parent chain.
+            if (
+                current !== entry &&
+                !shellContinuation &&
+                (record.type === "user" ||
+                    record.type === "assistant" ||
+                    record.subtype === "local_command")
+            ) {
+                break;
+            }
+            current = current.parent ? byUuid.get(current.parent) : undefined;
+        }
+        return false;
+    };
 
     const foreignIds = new Set<string>();
     const pending: Pending[] = [];
@@ -309,6 +369,14 @@ function parseClaudeSession(
                 bump(filtered, "empty");
                 return;
             }
+            if (piece.shellCommand !== undefined) {
+                piece.memoryDerived = isMemoryToolCall(
+                    "bash",
+                    piece.shellCommand,
+                    memoryPath,
+                    callCwd(record),
+                );
+            }
             pieces.push(callId ? { ...piece, part, callId } : { ...piece, part });
         };
 
@@ -352,8 +420,9 @@ function parseClaudeSession(
                         const callId = str(block?.tool_use_id);
                         const call = callId ? toolCalls.get(callId) : undefined;
                         // The harness also appends reminders to tool output.
+                        const where = `line ${line}: Claude tool result`;
                         const output = stripReminders(
-                            blocksToText(block?.content, `line ${line}: Claude tool result`),
+                            blocksToText(knownContent(block?.content, where), where),
                             filtered,
                         );
                         const result = block?.is_error === true ? `[error] ${output}` : output;
@@ -361,6 +430,7 @@ function parseClaudeSession(
                         if (call?.name) piece.toolName = call.name;
                         add(part, piece, callId);
                     } else {
+                        rejectUnknownTextBlock(block, `line ${line}: Claude user`);
                         bump(filtered, `block:${blockType ?? "unknown"}`);
                         warnOnce(`block:${blockType}`, `unknown user block "${blockType}" skipped`);
                     }
@@ -392,10 +462,17 @@ function parseClaudeSession(
                             role: "tool_call",
                             text: `${name} ${args}`.trim(),
                             untrusted: false,
+                            memoryDerived: isMemoryToolCall(
+                                name,
+                                args,
+                                memoryPath,
+                                callCwd(record),
+                            ),
                         };
                         if (name) piece.toolName = name;
                         add(part, piece);
                     } else {
+                        rejectUnknownTextBlock(block, `line ${line}: Claude assistant`);
                         bump(filtered, `block:${blockType ?? "unknown"}`);
                         warnOnce(
                             `block:${blockType}`,
@@ -456,6 +533,7 @@ function parseClaudeSession(
             const last = merged[merged.length - 1];
             if (last && last.role === "user" && piece.role === "user") {
                 last.text = `${last.text}\n${piece.text}`;
+                last.memoryDerived ||= piece.memoryDerived === true;
             } else {
                 merged.push({ ...piece });
             }
@@ -469,13 +547,8 @@ function parseClaudeSession(
                 text: piece.text,
                 sourceLine: line,
                 memoryDerived:
-                    (piece.role === "tool_call" &&
-                        isMemoryToolCall(
-                            piece.toolName,
-                            piece.text,
-                            memoryPath,
-                            callCwd(record),
-                        )) ||
+                    piece.memoryDerived === true ||
+                    (piece.shellOutput === true && shellMemory(entry)) ||
                     call?.memory === true ||
                     containsMemoryContext(piece.text),
                 untrusted: piece.untrusted,
@@ -541,6 +614,39 @@ function parseClaudeSession(
     return evidence;
 }
 
+/** Compaction keeps the segment on disk with its old parents; reconnect the effective chain. */
+function reconnectPreservedSegments(
+    entries: readonly Entry[],
+    byUuid: ReadonlyMap<string, Entry>,
+    sessionId: string,
+): void {
+    for (const { record, line } of entries) {
+        if (
+            record.type !== "system" ||
+            record.subtype !== "compact_boundary" ||
+            record.isSidechain === true ||
+            (record.sessionId !== undefined && record.sessionId !== sessionId)
+        ) {
+            continue;
+        }
+        const value = obj(record.compactMetadata)?.preservedSegment;
+        if (value === undefined) continue;
+        const segment = obj(value);
+        const head = byUuid.get(str(segment?.headUuid) ?? "");
+        const tail = str(segment?.tailUuid);
+        const anchor = str(segment?.anchorUuid);
+        if (!head || !tail || !anchor || !byUuid.has(tail) || !byUuid.has(anchor)) {
+            throw new AdapterFormatError(
+                `line ${line}: compaction preserved segment has an unknown format`,
+            );
+        }
+        for (const entry of entries) {
+            if (entry.parent === anchor) entry.parent = tail;
+        }
+        head.parent = anchor;
+    }
+}
+
 /** Place of a record on its parent chain. */
 interface ChainPlace {
     /** Highest file index on the chain from the root to the record. */
@@ -570,7 +676,7 @@ function chainPlaces(
         while (current && !places.has(current.index) && !onWalk.has(current.index)) {
             walk.push(current);
             onWalk.add(current.index);
-            const parent = str(current.record.parentUuid);
+            const parent: string | undefined = current.parent;
             current = parent ? byUuid.get(parent) : undefined;
         }
         let above = current ? places.get(current.index) : undefined;
@@ -635,7 +741,7 @@ function activePath(
             const type = current.record.type;
             if (type === "user" || type === "assistant") break;
             chain.push(current.uuid);
-            current = byUuid.get(str(current.record.parentUuid) ?? "");
+            current = byUuid.get(current.parent ?? "");
         }
         if (current?.uuid && active.has(current.uuid)) {
             for (const uuid of chain) active.add(uuid);
@@ -650,7 +756,7 @@ function parentEntry(
     byUuid: ReadonlyMap<string, Entry>,
     warnings: string[],
 ): Entry | undefined {
-    const parent = str(entry.record.parentUuid);
+    const parent = entry.parent;
     if (parent) {
         const found = byUuid.get(parent);
         if (!found) warnings.push(`line ${entry.line}: parent record is missing`);

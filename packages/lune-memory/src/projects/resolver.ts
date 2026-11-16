@@ -2,10 +2,10 @@ import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve as resolvePath, sep } from "node:path";
 
 import { MemoryOperationError } from "../core/errors.ts";
-import type { LocatorKind, Project } from "../core/types.ts";
+import type { Harness, LocatorKind, Project } from "../core/types.ts";
 import { hash8, nowIso } from "../core/util.ts";
 import { text, textOrNull, type Store } from "../store/db.ts";
-import { getProject, liveProjectId } from "../store/rows.ts";
+import { getProject, liveProjectId, sessionOwnershipKey } from "../store/rows.ts";
 import { currentBranch, repoInfo, type RepoInfo } from "./git.ts";
 
 export interface Resolution {
@@ -235,17 +235,7 @@ export class ProjectResolver {
             const harness = text(session, "harness");
             const sessionId = text(session, "id");
             this.store.tx(() => {
-                this.store.run(
-                    "UPDATE sessions SET project_id = ?, processed_revision = NULL WHERE harness = ? AND id = ?",
-                    projectId,
-                    harness,
-                    sessionId,
-                );
-                this.store.run(
-                    "UPDATE events SET processed_hash = NULL, processed_chars = NULL WHERE harness = ? AND session_id = ?",
-                    harness,
-                    sessionId,
-                );
+                this.moveSession(projectId, harness, sessionId);
                 const branch = textOrNull(session, "branch");
                 if (branch) {
                     this.store.run(
@@ -259,6 +249,32 @@ export class ProjectResolver {
             moved.push({ harness, sessionId });
         }
         return moved;
+    }
+
+    private moveSession(projectId: string, harness: string, sessionId: string): void {
+        // Ownership changes invalidate pending work even when every event hash stays the same.
+        const session = this.store.get(
+            `UPDATE sessions SET project_id = ?, revision = revision + 1, processed_revision = NULL
+            WHERE harness = ? AND id = ? RETURNING revision`,
+            projectId,
+            harness,
+            sessionId,
+        );
+        if (!session) throw new Error(`Session ${harness}:${sessionId} is missing during move`);
+        // The ownership marker must survive deletion and restoration of every source event.
+        this.store.setMeta(
+            sessionOwnershipKey({ harness: harness as Harness, id: sessionId }),
+            String(session.revision),
+        );
+        this.store.run(
+            `UPDATE events SET processed_hash = NULL, processed_chars = NULL,
+                reset_revision = (SELECT revision FROM sessions WHERE harness = ? AND id = ?)
+            WHERE harness = ? AND session_id = ?`,
+            harness,
+            sessionId,
+            harness,
+            sessionId,
+        );
     }
 
     /**
@@ -340,7 +356,12 @@ export class ProjectResolver {
                 to,
                 from,
             );
-            this.store.run("UPDATE sessions SET project_id = ? WHERE project_id = ?", to, from);
+            for (const session of this.store.all(
+                "SELECT harness, id FROM sessions WHERE project_id = ?",
+                from,
+            )) {
+                this.moveSession(to, text(session, "harness"), text(session, "id"));
+            }
             this.store.run(
                 "UPDATE items SET project_id = ? WHERE project_id = ? AND scope = 'project'",
                 to,

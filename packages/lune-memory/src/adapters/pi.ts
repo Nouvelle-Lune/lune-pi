@@ -12,6 +12,7 @@ import {
     knownContent,
     obj,
     parseJsonl,
+    rejectUnknownTextBlock,
     str,
 } from "./common.ts";
 import { AdapterFormatError } from "./types.ts";
@@ -319,6 +320,7 @@ function assistantDrafts(
         } else if (type === "thinking") {
             bump(state.filtered, "thinking");
         } else {
+            rejectUnknownTextBlock(record, `line ${line}: Pi assistant`);
             bump(state.filtered, `block:${type}`);
             warnOnce(state, `block:${type}`, `unknown Pi assistant block type: ${type}`);
         }
@@ -359,7 +361,8 @@ function stopNotice(message: Record<string, unknown>): Draft | undefined {
 function toolResultDraft(message: Record<string, unknown>, line: number, state: ParseState): Draft {
     const toolName = str(message.toolName);
     const callId = str(message.toolCallId);
-    const output = blocksToText(message.content, `line ${line}: Pi tool result`);
+    const where = `line ${line}: Pi tool result`;
+    const output = blocksToText(knownContent(message.content, where), where);
     const text = message.isError === true ? (output ? `[error] ${output}` : "[error]") : output;
     const memoryDerived =
         (callId !== undefined && state.memoryCalls.has(callId)) ||

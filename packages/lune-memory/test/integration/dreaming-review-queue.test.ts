@@ -87,6 +87,37 @@ test("an emptied session with nothing left to review is trivial and leaves the q
     assert.equal(getSession(env.store, "claude", "dead")?.reviewRevision ?? null, null);
 });
 
+test("a deleted source of a global preference keeps its session in the review queue", async (t) => {
+    const env = createDreamEnv(t);
+    seedEmptiedSession(env);
+    env.addSession({
+        id: "other",
+        projectId: "p1",
+        processedRevision: 1,
+        events: [{ text: "Hello.", key: "other-k1", processed: true }],
+    });
+    env.addItem({
+        id: "global-pref",
+        scope: "global",
+        projectId: null,
+        kind: "preference",
+        title: "Reply in Chinese",
+        body: "Reply in Chinese.",
+        general: true,
+        sources: [deadSource("d-k1"), deadSource("other-k1", "other")],
+    });
+    env.route({ analyzer: analyzerReply([]), organizer: { summary: "", ops: [] } });
+
+    const summary = await env.pass({ force: true, sessions: ["claude:dead"] });
+
+    assert.equal(summary.eligible, 1);
+    assert.equal(summary.trivial, 0);
+    const item = getItem(env.store, "global-pref");
+    assert.equal(item?.status, "active");
+    assert.deepEqual(item?.sources, [deadSource("other-k1", "other")]);
+    assert.equal(getSession(env.store, "claude", "dead")?.reviewRevision ?? null, null);
+});
+
 test("when more than 40 items need review the session stays queued and the next pass reviews the rest", async (t) => {
     const env = createDreamEnv(t);
     seedEmptiedSession(env);

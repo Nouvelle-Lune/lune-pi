@@ -9,6 +9,7 @@ import { piAdapter } from "../../src/adapters/pi.ts";
 import type { ParseContext } from "../../src/adapters/types.ts";
 import { memoryPaths } from "../../src/core/paths.ts";
 import {
+    claudeRecord,
     codexMessage,
     codexMeta,
     jsonl,
@@ -16,6 +17,7 @@ import {
     piHeader,
     piMessage,
     removeDir,
+    writeText,
 } from "../harness/ingest.ts";
 
 let dir: string;
@@ -27,15 +29,24 @@ beforeEach(() => {
     // The working folder is a sibling of the memory home, so `../memory/...` reaches it.
     work = join(dir, "work");
     home = join(dir, "memory");
-    const paths = memoryPaths(home);
-    context = {
-        memoryPath: memoryPathTest([paths.views, paths.generations, paths.transcripts, paths.db]),
-    };
+    context = pathContext(home);
 });
 afterEach(() => removeDir(dir));
 
+/** Parse context that knows the files of this memory home. */
+function pathContext(memoryHome: string): ParseContext {
+    const paths = memoryPaths(memoryHome);
+    return {
+        memoryPath: memoryPathTest([paths.views, paths.generations, paths.transcripts, paths.db]),
+    };
+}
+
 /** Memory-derived flags of a tool call and its result in a Pi session. */
-function piFlags(cwd: string, args: Record<string, unknown>): boolean[] {
+function piFlags(
+    cwd: string,
+    args: Record<string, unknown>,
+    parseContext: ParseContext = context,
+): boolean[] {
     const text = jsonl([
         piHeader("s1", cwd),
         piMessage("m1", null, "user", "look"),
@@ -55,7 +66,7 @@ function piFlags(cwd: string, args: Record<string, unknown>): boolean[] {
             },
         },
     ]);
-    const events = piAdapter.parse("/p/cwd/s1.jsonl", text, context)?.events ?? [];
+    const events = piAdapter.parse("/p/cwd/s1.jsonl", text, parseContext)?.events ?? [];
     return events.filter((e) => e.role !== "user").map((e) => e.memoryDerived);
 }
 
@@ -185,6 +196,78 @@ describe("memory-derived tool calls with relative paths", () => {
                 .map((e) => e.memoryDerived),
             [true, true],
         );
+    });
+});
+
+describe("memory provenance in ordinary commands and shell mode", () => {
+    it("marks a quoted relative memory path whose folder name contains a space", () => {
+        const command = 'cat "../memory home/views/projects/p/wiki/a.md"';
+
+        const actual = piFlags(work, { command }, pathContext(join(dir, "memory home")));
+
+        assert.deepEqual(actual, [true, true]);
+    });
+
+    it("does not mark an absolute read outside the memory home when the cwd is inside views", () => {
+        const external = join(dir, "independent-project", "result.txt");
+        writeText(external, "Tests passed: 12");
+
+        const actual = piFlags(memoryPaths(home).views, { command: `cat ${external}` });
+
+        assert.deepEqual(actual, [false, false]);
+    });
+
+    it("still marks a relative memory read when the cwd is inside views", () => {
+        const actual = piFlags(memoryPaths(home).views, { command: "cat projects/p/wiki/a.md" });
+
+        assert.deepEqual(actual, [true, true]);
+    });
+
+    it("Claude: marks a memory read in shell mode and its output", () => {
+        const text = jsonl([
+            claudeRecord(
+                "s",
+                "u1",
+                null,
+                "user",
+                "<bash-input>cat /home/u/.lune-memory/views/global/index.md</bash-input>",
+            ),
+            claudeRecord(
+                "s",
+                "u2",
+                "u1",
+                "user",
+                "<local-command-stdout>memory text</local-command-stdout>",
+            ),
+        ]);
+
+        const events = claudeAdapter.parse("/p/proj/s.jsonl", text)?.events ?? [];
+        const command = events.find((event) =>
+            event.text.includes("/home/u/.lune-memory/views/global/index.md"),
+        );
+        const output = events.find((event) => event.text.trim() === "memory text");
+
+        assert.equal(command?.memoryDerived, true);
+        assert.equal(output?.memoryDerived, true);
+    });
+
+    it("Claude: does not mark a shell mode command and output that do not read memory", () => {
+        const text = jsonl([
+            claudeRecord("s", "u1", null, "user", "<bash-input>ls</bash-input>"),
+            claudeRecord(
+                "s",
+                "u2",
+                "u1",
+                "user",
+                "<local-command-stdout>a.txt</local-command-stdout>",
+            ),
+        ]);
+
+        const actual = (claudeAdapter.parse("/p/proj/s.jsonl", text)?.events ?? []).map(
+            (event) => event.memoryDerived,
+        );
+
+        assert.deepEqual(actual, [false, false]);
     });
 });
 

@@ -331,13 +331,14 @@ several passes.
 
 Every change needs live evidence, the project index and the wiki pages included. Live evidence
 is an event that exists, did not come from the memory itself, and has the hash that the model
-saw. This includes the sources of the existing items and preferences that the model saw: a
-change that cites one of them after it changed or was removed is rejected as a whole, and its
-events stay unprocessed. Events that the memory put into a session, such as the session summary,
-are context, not evidence. The Analyzer does not take them as new facts.
+saw. Existing item sources are fixed before the Analyzer runs, including a missing source;
+restoring one during the pass does not make it reviewed evidence. A change that cites evidence
+that changed or disappeared is rejected as a whole, and its events stay unprocessed. Events
+that the memory put into a session, such as the session summary, are context, not evidence.
+The Analyzer does not take them as new facts.
 
 An event off the active conversation path, such as an abandoned attempt, supports only a lesson, a
-fact or a reference. An active project item goes to review in the next pass of a session when it
+fact or a reference. An active item in any scope goes to review in the next pass of a session when it
 cites an event of that session that is gone or came from the memory. An item of another kind
 also goes to review when it cites an event that left the active path. The pass retires the item
 when the Analyzer lists it as unsupported, no other session supports it, and all its other
@@ -354,20 +355,23 @@ item for a closed branch loses its branch.
 
 ### Global pass
 
-A change to a global preference needs the user's own words or support in two or more projects.
-A preference is general only when the user's own words say that it applies everywhere; a
-statement that names one project, or says "this service" or "this project", is not general. A
-global preference retires only with a user retraction outside a project, a user retraction whose
-words say that it applies everywhere, or exceptions in two or more projects. The retraction must
-be in the same clause as a negation and share a topic word with the preference, so "Always answer
-in English, and don't use tabs" does not retire an English rule, and "don't forget" is not a
-retraction. A user retraction in a session outside a project starts the global pass. A statement
-that the preference already cites does not count. The pass also compares the words of a change
-with the stored preference. These checks compare words: they can only stop a change, and they do
-not prove that two statements are about the same preference.
+The Analyzer, Organizer and global model decide whether a user preference applies across
+projects, whether later statements withdraw it, and which existing preference they concern.
+They read the cited evidence and its context; the backend does not classify language with
+keywords, negation patterns or word overlap. A promotion needs a model judgment of generality
+backed by trusted user evidence, or trusted user evidence in two or more projects. The backend
+checks the sources, references, scopes and evidence revisions before committing the result.
 
-A global note becomes active only when the global pass keeps or corrects it with live evidence.
-Without such a review it stays provisional, and a retract review retires it.
+When global preferences exist, new trusted user statements from eligible sessions outside a
+project go to the global model. It can keep the preferences unchanged, update them or retire
+them according to the user's meaning. A project session contributes through project preference
+items; routing its global Note for review does not make its messages outside-project evidence.
+Stale item-based operations remain pending for a later global pass.
+
+A global note becomes active only when the global pass keeps or corrects it with live evidence
+cited by that review. Its supplied source list alone does not complete a review. Global Notes
+still reach review when their writer's folder is registered as a project. Without such a review
+a Note stays provisional, and a retract review retires it.
 
 A reverted global run counts as the last global run, so the next pass does not repeat the
 reverted result without new input. `revert <run> --reprocess` marks the sessions of the run

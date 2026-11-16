@@ -66,6 +66,10 @@ export function listProjects(store: Store, includeMerged = false): Project[] {
 // ---------------------------------------------------------------------------------------------
 // Sessions
 
+export function sessionOwnershipKey(session: Pick<SessionRow, "harness" | "id">): string {
+    return `session_ownership:${session.harness}:${session.id}`;
+}
+
 export function sessionFromRow(row: Row): SessionRow {
     return {
         harness: text(row, "harness") as Harness,

@@ -17,4 +17,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 - **Command line.** `lune-memory` covers setup, search, import, Dreaming, runs, sessions, projects, config, credentials, the daemon and the hooks. It calls the daemon when it runs and opens the database itself when it does not. `--home` can come before the command, and `dream --project _unassigned` covers the sessions outside any project.
 - **Forget and retention.** `forget` deletes one session and the memory that only it supports, and keeps its file from a new import. `retentionDays` deletes older sessions, events and transcripts and keeps the items.
 
+### Changed
+
+- **Model judgment for preferences.** Let the Dreaming models decide generality, withdrawal and preference matching from evidence and context. Remove the backend's semantic keyword lists, negation patterns and word matching; retain source, citation, scope and revision validation. When global preferences exist, new trusted user statements from eligible sessions outside a project reach the global model for review.
+
+### Fixed
+
+- **Evidence and review consistency.** Fix existing source evidence before analysis, including missing sources and global Notes, and require evidence from each Note review. Review deleted citations across project and global scopes, preserve Note review after registration, reject results whose project ownership changed, and retry global promotions rejected for stale evidence. Project extraction and global promotion now keep separate idempotency ownership.
+- **Native session provenance and history.** Recognize quoted memory paths and Claude shell reads, and preserve earlier evidence when unknown text or tool-result content fails import. Honor Codex injected-instruction and subagent markers, restore Claude compaction's preserved context, and roll back Codex tasks as complete turns.
+
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev/packages/lune-memory

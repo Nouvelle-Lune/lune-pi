@@ -358,3 +358,155 @@ test("a project preference that changes after a reverted global run starts a new
     assert.equal(second.global?.called, true);
     assert.equal(env.calls.length, callsBefore + 1);
 });
+
+test("a stale promotion is retried after the changed source is processed, even when the project item stays unchanged", async (t) => {
+    const env = createDreamEnv(t);
+    seedPreference(env, "pref1", "p1", { general: true });
+    const globalBody = "Reply in English everywhere.";
+    env.route({
+        global: (_user, index) => {
+            if (index === 0) {
+                env.store.run(
+                    "UPDATE events SET text = 'Always reply in English.', hash = 'edited' WHERE session_id = 'sess-pref1' AND key = 'ev-pref1'",
+                );
+                env.store.run("UPDATE sessions SET revision = 2 WHERE id = 'sess-pref1'");
+            }
+            return { summary: "promote", ops: [promote(["pref1"])] };
+        },
+        analyzer: analyzerReply([]),
+        organizer: { summary: "", ops: [] },
+    });
+
+    const first = await env.pass();
+
+    assert.equal(first.global?.counts.rejected, 1);
+    assert.equal(listItems(env.store, { scope: "global", kind: ["preference"] }).length, 0);
+
+    const second = await env.pass();
+
+    const analyzed = env.calls.filter((call) => call.role === "analyzer");
+    assert.match(analyzed.at(-1)?.user ?? "", /Always reply in English\./u);
+    assert.equal(second.global?.counts.promoted, 1);
+    const globals = listItems(env.store, { scope: "global", kind: ["preference"] });
+    assert.equal(globals.length, 1);
+    assert.equal(globals[0]?.body, globalBody);
+    assert.equal(getItem(env.store, "pref1")?.status, "retired");
+
+    const third = await env.pass();
+
+    assert.equal(third.status, "idle");
+    assert.equal(env.calls.filter((call) => call.role === "global").length, 2);
+});
+
+test("a project preference created in the same pass can be promoted with its text and evidence", async (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "One");
+    env.addSession({
+        id: "s1",
+        projectId: "p1",
+        events: [{ role: "user", text: "Always answer in English, in every project." }],
+    });
+    const body = "Reply in English in every project.";
+    const create = {
+        ...createOp(TITLE, ["s1.c1"], { kind: "preference", body }),
+        general: true,
+    };
+    let promotedFrom = "";
+    env.route({
+        analyzer: analyzerReply([
+            {
+                kind: "preference",
+                title: TITLE,
+                body,
+                trust: "user",
+                general: true,
+                evidence: ["e1"],
+                updates: null,
+            },
+        ]),
+        organizer: { summary: "extract", ops: [create, create] },
+        global: () => {
+            const [pref] = listItems(env.store, {
+                scope: "project",
+                projectId: "p1",
+                kind: ["preference"],
+                status: ["active"],
+            });
+            assert.ok(pref);
+            promotedFrom = pref.id;
+            return { summary: "promote", ops: [promote([pref.id], { body })] };
+        },
+    });
+
+    const summary = await env.pass();
+
+    assert.equal(summary.projects[0]?.counts?.created, 1);
+    assert.equal(summary.projects[0]?.counts?.rejected, 1);
+    assert.equal(summary.global?.counts?.promoted, 1);
+    assert.equal(summary.global?.counts?.rejected, 0);
+    const globals = listItems(env.store, { scope: "global", kind: ["preference"] });
+    assert.equal(globals.length, 1);
+    assert.equal(globals[0]?.title, TITLE);
+    assert.equal(globals[0]?.body, body);
+    assert.deepEqual(globals[0]?.sources, getItem(env.store, promotedFrom)?.sources);
+    assert.equal(getItem(env.store, promotedFrom)?.status, "retired");
+});
+
+test("a repeated promotion of the same evidence and text in Global Memory is rejected", async (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "One");
+    env.addProject("p2", "Two");
+    const evidence = {
+        kind: "event" as const,
+        harness: "claude" as const,
+        sessionId: "sess-1",
+        eventKey: "ev-1",
+    };
+    env.addSession({
+        id: "sess-1",
+        projectId: "p1",
+        processedRevision: 1,
+        events: [
+            {
+                role: "user",
+                text: "Always answer in English, in every project.",
+                key: "ev-1",
+                processed: true,
+            },
+        ],
+    });
+    const body = "Reply in English everywhere.";
+    env.addItem({
+        id: "pref1",
+        projectId: "p1",
+        kind: "preference",
+        title: TITLE,
+        body,
+        general: true,
+        sources: [evidence],
+    });
+    env.addItem({
+        id: "pref2",
+        projectId: "p2",
+        kind: "preference",
+        title: TITLE,
+        body,
+        general: true,
+        updatedRun: 999,
+        sources: [evidence],
+    });
+    env.route({
+        global: (_user, index) => ({
+            summary: "promote",
+            ops: [promote([index === 0 ? "pref1" : "pref2"])],
+        }),
+    });
+
+    const first = await env.pass();
+    const second = await env.pass();
+
+    assert.equal(first.global?.counts.promoted, 1);
+    assert.equal(second.global?.counts.promoted, 0);
+    assert.equal(second.global?.counts.rejected, 1);
+    assert.equal(listItems(env.store, { scope: "global", kind: ["preference"] }).length, 1);
+});
