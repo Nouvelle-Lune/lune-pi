@@ -102,6 +102,8 @@ export interface OrganizerInput {
     l1: Pick<StableL1Size, "lines" | "bytes" | "maxLines" | "maxBytes">;
     /** Why the backend rejected the previous reply, for one retry. */
     feedback?: string;
+    /** A task for a pass that has no new sessions, such as shortening an over-budget L1. */
+    notice?: string;
 }
 
 export interface OrganizerPlan {
@@ -306,6 +308,7 @@ export function renderOrganizerInput(
         }
     });
 
+    if (input.notice) lines.push("", "# Task for this pass", input.notice);
     if (input.feedback) {
         lines.push("", "# The backend rejected your previous reply", input.feedback);
     }

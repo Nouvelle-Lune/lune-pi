@@ -69,6 +69,8 @@ interface Entry {
     record: Rec;
     parent?: string;
     uuid?: string;
+    /** True for a compact boundary whose preserved segment was reconnected to the chain. */
+    reconnected?: boolean;
 }
 
 /** Text after classification, before it becomes an event. */
@@ -620,7 +622,8 @@ function reconnectPreservedSegments(
     byUuid: ReadonlyMap<string, Entry>,
     sessionId: string,
 ): void {
-    for (const { record, line } of entries) {
+    for (const boundary of entries) {
+        const { record, line } = boundary;
         if (
             record.type !== "system" ||
             record.subtype !== "compact_boundary" ||
@@ -644,6 +647,7 @@ function reconnectPreservedSegments(
             if (entry.parent === anchor) entry.parent = tail;
         }
         head.parent = anchor;
+        boundary.reconnected = true;
     }
 }
 
@@ -764,6 +768,9 @@ function parentEntry(
     }
     const logical = str(entry.record.logicalParentUuid);
     if (!logical) return undefined;
+    // A reconnected segment already links the kept records to the summary. The logical parent
+    // of the boundary is the tail of that segment, so following it would make a loop.
+    if (entry.reconnected) return undefined;
     const found = byUuid.get(logical);
     if (found && found.index < entry.index) return found;
     // Some boundaries link to a record that is not in the file, or to a later record. In real

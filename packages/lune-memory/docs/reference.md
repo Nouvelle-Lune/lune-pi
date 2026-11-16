@@ -46,29 +46,29 @@ each scheduled import, and `regenerate` writes them at once.
 `config.json` holds the settings. The settings page, `lune-memory config set` and `PUT
 /api/config` change it. An invalid value falls back to its default.
 
-| Key                           | Default                | Meaning                                                                       |
-| ----------------------------- | ---------------------- | ----------------------------------------------------------------------------- |
-| `harnesses.pi.enabled`        | `false`                | Import Pi sessions                                                            |
-| `harnesses.pi.root`           | `~/.pi/agent/sessions` | Folder with Pi session files                                                  |
-| `harnesses.claude.enabled`    | `false`                | Import Claude Code sessions                                                   |
-| `harnesses.claude.root`       | `~/.claude/projects`   | Folder with Claude Code sessions; follows `CLAUDE_CONFIG_DIR`                 |
-| `harnesses.codex.enabled`     | `false`                | Import Codex sessions                                                         |
-| `harnesses.codex.root`        | `~/.codex/sessions`    | Folder with Codex sessions; follows `CODEX_HOME`                              |
-| `importSeconds`               | `60`                   | Seconds between imports in the daemon, at least 5                             |
-| `autoStart`                   | `true`                 | Start the daemon when a hook, the MCP server or Pi needs it                   |
-| `retentionDays`               | `0`                    | Days to keep imported sessions; 0 keeps everything                            |
-| `generations`                 | `3`                    | Markdown generations to keep, 1 to 20                                         |
-| `dreaming.enabled`            | `true`                 | Run scheduled passes; a manual pass runs in any case                          |
-| `dreaming.model`              | `null`                 | Model as `provider/id`; no model means no pass                                |
-| `dreaming.thinking`           | `low`                  | Thinking level of the model calls                                             |
-| `dreaming.idleHours`          | `6`                    | Idle time after the last change before a session takes part                   |
-| `dreaming.maxSessionsPerPass` | `8`                    | Sessions in one pass, 1 to 100                                                |
-| `dreaming.maxCharsPerSession` | `80000`                | Event characters of one session in one pass, at least 1000                    |
-| `dreaming.maxAttempts`        | `3`                    | Failed passes for one session revision before it waits for a change, 1 to 100 |
-| `dreaming.concurrency`        | `3`                    | Analyzer calls at the same time, 1 to 16                                      |
-| `dreaming.scanMinutes`        | `10`                   | Minutes between scheduled scans, at least 1                                   |
-| `dreaming.historyDays`        | `30`                   | On the first run, older sessions go to L4 only                                |
-| `dreaming.maxRetries`         | `2`                    | Provider retries for one model call, 0 to 10                                  |
+| Key                           | Default                | Meaning                                                                                                                                                            |
+| ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `harnesses.pi.enabled`        | `false`                | Import Pi sessions                                                                                                                                                 |
+| `harnesses.pi.root`           | `~/.pi/agent/sessions` | Folder with Pi session files                                                                                                                                       |
+| `harnesses.claude.enabled`    | `false`                | Import Claude Code sessions                                                                                                                                        |
+| `harnesses.claude.root`       | `~/.claude/projects`   | Folder with Claude Code sessions; follows `CLAUDE_CONFIG_DIR`                                                                                                      |
+| `harnesses.codex.enabled`     | `false`                | Import Codex sessions                                                                                                                                              |
+| `harnesses.codex.root`        | `~/.codex/sessions`    | Folder with Codex sessions; follows `CODEX_HOME`                                                                                                                   |
+| `importSeconds`               | `60`                   | Seconds between imports in the daemon, at least 5                                                                                                                  |
+| `autoStart`                   | `true`                 | Start the daemon when a hook, the MCP server or Pi needs it                                                                                                        |
+| `retentionDays`               | `0`                    | Days to keep imported sessions; 0 keeps everything                                                                                                                 |
+| `generations`                 | `3`                    | Markdown generations to keep, 1 to 20                                                                                                                              |
+| `dreaming.enabled`            | `true`                 | Run scheduled passes; a manual pass runs in any case                                                                                                               |
+| `dreaming.model`              | `null`                 | Model as `provider/id`; no model means no pass                                                                                                                     |
+| `dreaming.thinking`           | `low`                  | Thinking level of the model calls                                                                                                                                  |
+| `dreaming.idleHours`          | `6`                    | Idle time after the last change before a session takes part                                                                                                        |
+| `dreaming.maxSessionsPerPass` | `8`                    | Sessions in one pass, 1 to 100                                                                                                                                     |
+| `dreaming.maxCharsPerSession` | `80000`                | Event characters of one session in one pass, at least 1000                                                                                                         |
+| `dreaming.maxAttempts`        | `3`                    | Failed passes for one session revision, failed global passes in a row, or passes that shorten an over-budget summary, before Dreaming waits for a change, 1 to 100 |
+| `dreaming.concurrency`        | `3`                    | Analyzer calls at the same time, 1 to 16                                                                                                                           |
+| `dreaming.scanMinutes`        | `10`                   | Minutes between scheduled scans, at least 1                                                                                                                        |
+| `dreaming.historyDays`        | `30`                   | On the first run, older sessions go to L4 only                                                                                                                     |
+| `dreaming.maxRetries`         | `2`                    | Provider retries for one model call, 0 to 10                                                                                                                       |
 
 A `~` at the start of a harness root expands to the home folder. A change to `importSeconds` or
 `scanMinutes` resets the daemon timers at once.
@@ -204,6 +204,13 @@ the matcher `^(startup|resume|clear|compact|fork)$`. The Codex hook goes into
 and `setup` sets `hooks = true` under `[features]` in `config.toml`. Both hooks have a 30-second
 timeout. `setup` backs up a file before it changes it and keeps the hooks of other tools.
 
+`setup` also prints how a sandboxed session reads the memory files under `~/.lune-memory/views`.
+Claude Code asks before its Read tool opens a file outside the project. The printed rule
+`Read(//<absolute path>/**)` goes into `permissions.allow` in `settings.json`, and `setup` does not
+add it. The default Codex sandbox can read files outside the project; when your sandbox limits
+reads, allow the views folder. These settings are not tested in a real sandbox, so check them in
+your harness.
+
 The Pi extension registers the five tools as Memory Search, Memory Note, Memory Note Update,
 Memory Note Retract and Memory Location. It reads the session summary at session start and again
 after a compaction. It sets the summary as the same system prompt section on every turn, so the
@@ -254,7 +261,12 @@ reserve is measured from the real paths of the memory folder: 10 recent sessions
 and the guidance. A longer memory folder path makes the reserve larger. When a session starts,
 the recent sessions that fit the budget are listed, and a last line counts the others. The
 stable part and the guidance are never cut. When they alone are over the budget, the summary
-goes in full, and the hook writes a warning to stderr or Pi shows a warning.
+goes in full, and the hook writes a warning to stderr or Pi shows a warning. Dreaming then asks
+the Organizer to shorten the project index, the project preferences and the working state, and to
+move detail into wiki, decision and lesson items. It does this for at most `maxAttempts` passes in
+a row, even when the project has no new sessions, and starts the count again when the stable part
+fits. `dream --force` ignores the limit. Global preferences are not changed by this task, so a
+project can stay over the budget because of them.
 
 An item that the user did not state carries its trust, `tool` or `inference`, and an item that is
 not active carries its status.
@@ -372,6 +384,13 @@ A global note becomes active only when the global pass keeps or corrects it with
 cited by that review. Its supplied source list alone does not complete a review. Global Notes
 still reach review when their writer's folder is registered as a project. Without such a review
 a Note stays provisional, and a retract review retires it.
+
+The backend does not read the words of a statement. When a model flags a project-only statement
+such as "for this project" as general, and cites a trusted user event, the promotion passes. The
+check for the model is the evidence it cites, not a word list.
+
+A global pass that fails `maxAttempts` times in a row waits for new input: a project preference
+that changed after the last failure, or new results. `dream --force` ignores this limit.
 
 A reverted global run counts as the last global run, so the next pass does not repeat the
 reverted result without new input. `revert <run> --reprocess` marks the sessions of the run

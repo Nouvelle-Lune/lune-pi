@@ -11,6 +11,7 @@ import {
     mcpAddCommand,
     piInstallCommand,
     removeHook,
+    sandboxHint,
 } from "../../src/integrations/setup.ts";
 import { sandbox, type TempSandbox } from "../harness/cli.ts";
 
@@ -361,5 +362,21 @@ describe("generated commands", () => {
         const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
         assert.equal(piInstallCommand(), `pi install ${packageDir}`);
+    });
+});
+
+describe("sandboxHint", () => {
+    it("gives Claude an allow rule for the views folder and names permissions.allow", () => {
+        const actual = sandboxHint("claude", "/home/u/.lune-memory/views").join("\n");
+
+        assert.ok(actual.includes("Read(//home/u/.lune-memory/views/**)"));
+        assert.ok(actual.includes("permissions.allow"));
+    });
+
+    it("names the views folder for Codex and gives no Read rule", () => {
+        const actual = sandboxHint("codex", "/home/u/.lune-memory/views").join("\n");
+
+        assert.ok(actual.includes("/home/u/.lune-memory/views"));
+        assert.ok(!actual.includes("Read("));
     });
 });

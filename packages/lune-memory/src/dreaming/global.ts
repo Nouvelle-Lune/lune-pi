@@ -145,6 +145,10 @@ export interface GlobalPassInput {
     itemPins?: EventPins;
     now?: number;
     signal?: AbortSignal;
+    /** Failed passes in a row before the pass waits for new input. See `globalWork`. */
+    maxAttempts?: number;
+    /** A manual pass ignores the stop point. */
+    force?: boolean;
 }
 
 export interface GlobalPassResult {
@@ -178,13 +182,31 @@ function emptyCounts(): GlobalCounts {
  */
 const GLOBAL_RETRY_SINCE = "dreaming_global_retry_since";
 
-function lastGlobalRun(store: Store): number {
+/** Id of the latest completed global run, or 0. */
+function completedGlobalRun(store: Store): number {
     const row = store.get(
         "SELECT MAX(id) AS id FROM runs WHERE kind = 'global' AND status IN ('ok', 'reverted')",
     );
-    const completed = row && row.id !== null ? num(row, "id") : 0;
+    return row && row.id !== null ? num(row, "id") : 0;
+}
+
+function lastGlobalRun(store: Store): number {
+    const completed = completedGlobalRun(store);
     const retry = store.getMeta(GLOBAL_RETRY_SINCE);
     return retry === null ? completed : Math.min(completed, Number(retry));
+}
+
+/** Failed global runs since the latest completed one, and the id of the latest of them. */
+function globalFailures(store: Store): { count: number; lastRun: number } {
+    const row = store.get(
+        `SELECT COUNT(*) AS count, MAX(id) AS last FROM runs
+        WHERE kind = 'global' AND status = 'failed' AND id > ?`,
+        completedGlobalRun(store),
+    );
+    return {
+        count: row ? num(row, "count") : 0,
+        lastRun: row && row.last !== null ? num(row, "last") : 0,
+    };
 }
 
 /** General preference candidates of sessions outside a project. */
@@ -210,22 +232,43 @@ function userStatements(result: AnalyzerResult): [string, SnapshotEvent][] {
     );
 }
 
+export interface GlobalWorkOptions {
+    /**
+     * Failed global passes in a row after which the pass waits for new input (§10). New input is
+     * a project preference that changed after the last failure, or new results. Without a value
+     * the pass never stops retrying.
+     */
+    maxAttempts?: number;
+    /** A manual pass ignores the stop point. */
+    force?: boolean;
+}
+
 /**
  * Decide what a global pass must do, with no model call. It calls the model only when a project
  * preference changed since the last successful global pass, when a stale operation awaits retry,
  * when a session outside a project stated a general preference, or when such a session has new
- * trusted user statements and a global preference exists for the model to review.
+ * trusted user statements and a global preference exists for the model to review. After
+ * `maxAttempts` failed passes in a row, only new input starts the model again.
  */
-export function globalWork(store: Store, results: readonly AnalyzerResult[]): GlobalWork {
+export function globalWork(
+    store: Store,
+    results: readonly AnalyzerResult[],
+    options: GlobalWorkOptions = {},
+): GlobalWork {
+    const failures = globalFailures(store);
+    const stalled =
+        !options.force &&
+        options.maxAttempts !== undefined &&
+        failures.count >= options.maxAttempts;
     const changed = store.get(
         `SELECT 1 AS hit FROM items i JOIN projects p ON p.id = i.project_id
         WHERE i.scope = 'project' AND i.kind = 'preference' AND p.merged_into IS NULL
         AND i.updated_run > ? LIMIT 1`,
-        lastGlobalRun(store),
+        stalled ? failures.lastRun : lastGlobalRun(store),
     );
     const model =
         !!changed ||
-        store.getMeta(GLOBAL_RETRY_SINCE) !== null ||
+        (!stalled && store.getMeta(GLOBAL_RETRY_SINCE) !== null) ||
         generalCandidates(results).length > 0 ||
         (results.some((result) => userStatements(result).length > 0) && hasGlobals(store));
     return { model, commit: model || results.length > 0 };
@@ -1060,6 +1103,17 @@ function commitGlobal(
     });
 }
 
+/** The retry options of a pass input, without keys that have no value. */
+export function workOptions(input: {
+    maxAttempts?: number | undefined;
+    force?: boolean | undefined;
+}): GlobalWorkOptions {
+    return {
+        ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
+        ...(input.force ? { force: true } : {}),
+    };
+}
+
 /**
  * Run the global pass (§3, §5). It promotes, merges and retires global preferences, and marks
  * the sessions outside any project processed. It never throws: a failure is recorded as a failed
@@ -1081,7 +1135,7 @@ export async function runGlobalPass(
         usage: emptyUsage(),
         error: null,
     };
-    const work = globalWork(store, input.results);
+    const work = globalWork(store, input.results, workOptions(input));
     if (!work.commit) return result;
     const now = input.now ?? Date.now();
     const projects = listProjects(store);

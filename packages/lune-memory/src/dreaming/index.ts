@@ -7,7 +7,7 @@ import { errorMessage, mapLimit, newId, takePidLock } from "../core/util.ts";
 import { openBranches, stableL1Size } from "../memory/l1.ts";
 import { regenerateProjection } from "../memory/projection.ts";
 import type { Store } from "../store/db.ts";
-import { getProject, listItems } from "../store/rows.ts";
+import { getProject, listItems, listProjects } from "../store/rows.ts";
 import { analyzeSessions, type AnalyzerInput, type AnalyzerResult } from "./analyzer.ts";
 import {
     pendingClosedBranches,
@@ -24,7 +24,7 @@ import {
 } from "./commit.ts";
 import { findEligible, markTrivial, type SessionSnapshot } from "./eligibility.ts";
 import { addPins, pinItemSources, type EventPins } from "./evidence.ts";
-import { globalWork, runGlobalPass, type GlobalPassResult } from "./global.ts";
+import { globalWork, runGlobalPass, workOptions, type GlobalPassResult } from "./global.ts";
 import {
     addUsage,
     createDreamingModel,
@@ -157,10 +157,46 @@ interface ProjectWork {
     closed: ClosedBranch[];
     /** Items of the closed branches. The Organizer can keep what is still useful. */
     closedItems: Map<string, Item[]>;
+    /** The startup context of the project is over its budget, and the Organizer must shorten it. */
+    shrink?: boolean;
+}
+
+const SHRINK_ATTEMPTS = "dreaming_shrink:";
+
+const SHRINK_NOTICE =
+    "The startup context of this project is over its budget. Shorten the project index, the " +
+    "project preferences and the working state that are shown above. Move detail into wiki, " +
+    "decision or lesson items, and retire or merge items that repeat each other. Do not add " +
+    "anything to the startup context.";
+
+/**
+ * Projects whose startup context is over its budget (§3). The Organizer shortens it, with at most
+ * `maxAttempts` passes in a row. A project that fits again starts with a new count, and a manual
+ * pass ignores the limit.
+ */
+function overBudgetProjects(
+    store: Store,
+    paths: MemoryPaths,
+    config: MemoryConfig,
+    options: DreamOptions,
+): string[] {
+    const found: string[] = [];
+    for (const project of listProjects(store)) {
+        if (options.projectId !== undefined && options.projectId !== project.id) continue;
+        const key = `${SHRINK_ATTEMPTS}${project.id}`;
+        if (stableL1Size(store, paths, project.id).fits) {
+            if (store.getMeta(key) !== null) store.run("DELETE FROM meta WHERE key = ?", key);
+            continue;
+        }
+        const attempts = Number(store.getMeta(key) ?? "0");
+        if (!options.force && attempts >= config.dreaming.maxAttempts) continue;
+        found.push(project.id);
+    }
+    return found;
 }
 
 function needsOrganizer(work: ProjectWork): boolean {
-    if (work.results.length) return true;
+    if (work.results.length || work.shrink) return true;
     return [...work.closedItems.values()].some((items) => items.length > 0);
 }
 
@@ -273,10 +309,18 @@ async function runLocked(
         }
     }
 
+    for (const projectId of overBudgetProjects(store, paths, config, options)) {
+        projectWork(projectId).shrink = true;
+    }
+
     const needModel =
         found.eligible.length > 0 ||
         [...work.values()].some(needsOrganizer) ||
-        globalWork(store, []).model;
+        globalWork(
+            store,
+            [],
+            workOptions({ maxAttempts: config.dreaming.maxAttempts, force: options.force }),
+        ).model;
     let model: DreamingModel | null = options.model ?? null;
     if (needModel && !model) {
         if (!config.dreaming.model) {
@@ -394,13 +438,15 @@ async function runLocked(
         });
     }
 
-    if (model || !globalWork(store, globalResults).model) {
+    const retry = workOptions({ maxAttempts: config.dreaming.maxAttempts, force: options.force });
+    if (model || !globalWork(store, globalResults, retry).model) {
         const global = await runGlobalPass(store, paths, model, {
             pass,
             trigger,
             results: globalResults,
             itemPins,
             now,
+            ...retry,
             ...(options.signal ? { signal: options.signal } : {}),
         });
         if (global.status !== "skipped") {
@@ -505,6 +551,10 @@ async function runProject(
             const warnings = work.results.flatMap((entry) => entry.warnings);
             if (needsOrganizer(work)) {
                 if (!model) throw new Error("The Organizer needs a model, and none is configured");
+                if (work.shrink && attempt === 0) {
+                    const key = `${SHRINK_ATTEMPTS}${project.id}`;
+                    store.setMeta(key, String(Number(store.getMeta(key) ?? "0") + 1));
+                }
                 const input: OrganizerInput = {
                     projectId: project.id,
                     projectName: project.name,
@@ -525,6 +575,7 @@ async function runProject(
                         items: work.closedItems.get(branch.name) ?? [],
                     })),
                     l1: stableL1Size(store, paths, project.id),
+                    ...(work.shrink ? { notice: SHRINK_NOTICE } : {}),
                     ...(feedback ? { feedback } : {}),
                 };
                 // The model judges these items with their evidence as it is now.
