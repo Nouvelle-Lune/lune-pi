@@ -155,3 +155,103 @@ describe("Codex adapter", () => {
         assert.equal(actual?.events[0]?.text, "compressed");
     });
 });
+
+/** Texts of the user events that evidence may read as the person's own statement. */
+function trustedUserTexts(
+    events: ReadonlyArray<{ role: string; text: string; untrusted: boolean }>,
+): string[] {
+    return events
+        .filter((event) => event.role === "user" && !event.untrusted)
+        .map((event) => event.text);
+}
+
+/** User message with the desktop content-kind metadata of the rollout format. */
+function markdownUserItem(text: string, kinds: string[]) {
+    return {
+        type: "response_item",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text }],
+            internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
+        },
+    };
+}
+
+describe("Codex source markers", () => {
+    it("does not read marked project instructions as a user statement", () => {
+        const text = jsonl([
+            codexMeta("c1", "/w", { source: "cli", thread_source: "user" }),
+            markdownUserItem("Always use tabs in every project.", ["agents_md.instructions"]),
+            markdownUserItem("Question", ["user.text"]),
+        ]);
+
+        const actual = trustedUserTexts(
+            codexAdapter.parse("/p/rollout-x.jsonl", text)?.events ?? [],
+        );
+
+        assert.deepEqual(actual, ["Question"]);
+    });
+
+    it("does not read the task of a subagent thread as a user statement", () => {
+        const text = jsonl([
+            codexMeta("agent", "/w", { source: "cli", thread_source: "subagent" }),
+            codexMessage("user", "Hidden agent task"),
+        ]);
+
+        const actual = trustedUserTexts(
+            codexAdapter.parse("/p/rollout-agent.jsonl", text)?.events ?? [],
+        );
+
+        assert.deepEqual(actual, []);
+    });
+});
+
+describe("Codex rollback by task", () => {
+    const taskEvent = (type: string) => ({ type: "event_msg", payload: { type } });
+    const rollback = {
+        type: "event_msg",
+        payload: { type: "thread_rolled_back", num_turns: 1 },
+    };
+    const userFlags = (text: string) =>
+        (codexAdapter.parse("/p/rollout-x.jsonl", text)?.events ?? [])
+            .filter((event) => event.role === "user")
+            .map((event) => [event.text, event.active]);
+
+    it("rolls back every user message of the rolled back task", () => {
+        const text = jsonl([
+            codexMeta("c1", "/w"),
+            taskEvent("task_started"),
+            codexMessage("user", "Request"),
+            codexMessage("user", "Steer"),
+            taskEvent("task_complete"),
+            rollback,
+        ]);
+
+        assert.deepEqual(userFlags(text), [
+            ["Request", false],
+            ["Steer", false],
+        ]);
+    });
+
+    it("does not count a task without a user message as a rolled back turn", () => {
+        const text = jsonl([
+            codexMeta("c2", "/w"),
+            taskEvent("task_started"),
+            codexMessage("user", "Keep"),
+            taskEvent("task_complete"),
+            taskEvent("task_started"),
+            taskEvent("turn_aborted"),
+            taskEvent("task_started"),
+            codexMessage("user", "Last"),
+            taskEvent("task_complete"),
+            rollback,
+        ]);
+
+        assert.deepEqual(userFlags(text), [
+            ["Keep", true],
+            ["Last", false],
+        ]);
+    });
+});

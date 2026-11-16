@@ -14,12 +14,15 @@ import type { Store } from "../store/db.ts";
 import {
     finishRun,
     getItem,
+    getProject,
     getSession,
     listItems,
+    liveProjectId,
     putItem,
     recordHistory,
     sourceKey,
     startRun,
+    sessionOwnershipKey,
 } from "../store/rows.ts";
 import type { AnalyzerResult, NoteReview } from "./analyzer.ts";
 import type { ClosedBranch } from "./branches.ts";
@@ -31,15 +34,14 @@ import {
     clampTrust,
     eventId,
     eventSource,
+    hasUserEvent,
     idemKey,
-    liveEvents,
-    sessionSources,
-    statesGeneral,
     uniqueSources,
     type EventPins,
 } from "./evidence.ts";
 import type { Usage } from "./model.ts";
 import type { CreateOp, MergeOp, OrganizerOp, RetireOp, UpdateOp } from "./organizer.ts";
+import { reviewEarlier } from "./review.ts";
 
 /** A commit that would make the stable part of L1 larger than its budget. It rolls back. */
 export class BudgetError extends Error {
@@ -109,6 +111,25 @@ export function sessionLabel(snapshot: Pick<SessionSnapshot, "session">): string
     return `${snapshot.session.harness}:${snapshot.session.id}`;
 }
 
+function sameOwnership(store: Store, snapshot: SessionSnapshot): boolean {
+    const current = getSession(store, snapshot.session.harness, snapshot.session.id);
+    if (!current || current.status !== "ok" || current.projectId !== snapshot.session.projectId)
+        return false;
+    if (store.getMeta(sessionOwnershipKey(current)) !== snapshot.ownershipRevision) return false;
+    const projectId = current.projectId ? liveProjectId(store, current.projectId) : null;
+    if (projectId !== snapshot.projectId) return false;
+    return projectId === null || getProject(store, projectId)?.mergedInto === null;
+}
+
+/** Source imports may append while a pass runs; ownership changes invalidate the whole result. */
+export function assertSnapshotOwnership(store: Store, snapshot: SessionSnapshot): void {
+    if (!sameOwnership(store, snapshot)) {
+        throw new Error(
+            `Session ${sessionLabel(snapshot)} changed ownership during the pass. It waits for reprocessing.`,
+        );
+    }
+}
+
 function emptyCounts(): CommitCounts {
     return { created: 0, updated: 0, retired: 0, merged: 0, rejected: 0, notes: 0 };
 }
@@ -161,11 +182,12 @@ class ProjectCommit {
     private readonly at: string;
     private readonly sessionBranches = new Map<string, string | null>();
     /** Hash of each event that the Analyzer saw. Evidence must still have this text. */
-    private readonly pins = new Map<string, string>();
+    private readonly pins = new Map<string, string | null>();
     /** Items that an update or merge of this commit changed or kept. */
     private readonly touched = new Set<string>();
     /** Events of rejected stale operations. They stay unprocessed for the next pass. */
     readonly hold = new Set<string>();
+    readonly pendingReview = new Set<string>();
 
     constructor(store: Store, projectId: string, runId: number, now: number) {
         this.store = store;
@@ -176,6 +198,7 @@ class ProjectCommit {
 
     rememberSession(snapshot: SessionSnapshot): void {
         this.sessionBranches.set(sessionLabel(snapshot), snapshot.session.branch);
+        addPins(this.pins, snapshot.itemPins);
         for (const { event } of snapshot.events) this.pins.set(eventId(event), event.hash);
     }
 
@@ -275,9 +298,18 @@ class ProjectCommit {
             );
             // The next pass reviews the note again with the new text.
             for (const event of review.events) this.hold.add(eventId(event));
+            if (note.writerHarness && note.writerSession) {
+                this.pendingReview.add(`${note.writerHarness}:${note.writerSession}`);
+            }
             return;
         }
-        if (events.length === 0) {
+        const reviewed = checkEvidence(
+            this.store,
+            review.events.map(eventSource),
+            this.pins,
+            note.kind,
+        );
+        if (reviewed.events.length === 0) {
             this.warnings.push(
                 `Note ${note.id}: the review cites no live evidence. It stays provisional.`,
             );
@@ -478,7 +510,7 @@ class ProjectCommit {
             ...this.linkSources(op.links, op.kind),
         ]);
         const hash = contentHash(op.title, op.body);
-        const key = idemKey(op.kind, events, `${this.projectId}|${op.title}`);
+        const key = idemKey(op.kind, events, `project:${this.projectId}`, op.title);
         const known = this.store.get(
             "SELECT item_id FROM item_keys WHERE idem_key = ? AND content_hash = ?",
             key,
@@ -498,8 +530,7 @@ class ProjectCommit {
             trust: clampTrust(op.trust, events, op.kind),
             status: "active",
             origin: "dreaming",
-            // The model's flag is a claim. It holds only when the user said so (§3).
-            general: op.kind === "preference" && op.general && events.some(statesGeneral),
+            general: op.kind === "preference" && op.general && hasUserEvent(events),
             writerHarness: null,
             writerSession: null,
             idemKey: key,
@@ -560,6 +591,7 @@ class ProjectCommit {
                 idemKey(
                     after.kind,
                     this.evidence(op.events.map(eventSource), after.kind),
+                    `project:${this.projectId}`,
                     after.id,
                 ),
                 after.contentHash,
@@ -608,7 +640,7 @@ class ProjectCommit {
             contentHash: contentHash(op.title, op.body),
             trust: clampTrust(claimed, events, keep.kind),
             status: "active",
-            general: items.some((item) => item.general) && events.some(statesGeneral),
+            general: items.some((item) => item.general) && hasUserEvent(events),
             sources,
             updatedRun: this.runId,
             updatedAt: this.at,
@@ -625,51 +657,18 @@ class ProjectCommit {
     // -----------------------------------------------------------------------------------------
     // Earlier items under review
 
-    /**
-     * Settle the earlier items that a session marked for review: some of their evidence in the
-     * session was removed or left the active path (§4, §5). An item that the Analyzer lists as
-     * unsupported is retired when no event of another session supports it and the snapshot showed
-     * all its remaining evidence in the session. Every other reviewed item drops its dead sources
-     * of the session, so the next pass does not review it again. An item without live evidence
-     * keeps its sources and becomes source-missing, as the importer does for vanished events.
-     */
     reviewEarlier(result: AnalyzerResult): void {
-        const { snapshot } = result;
-        const unsupported = new Set(result.unsupported.map((entry) => entry.id));
-        const shown = new Set(snapshot.events.map(({ event }) => eventId(event)));
-        for (const id of snapshot.review) {
-            const item = getItem(this.store, id);
-            if (!item || item.status !== "active") continue;
-            if (item.scope !== "project" || item.projectId !== this.projectId) continue;
-            const cited = sessionSources(item.sources, snapshot.session);
-            const kept = liveEvents(this.store, cited, undefined, item.kind);
-            if (kept.length === cited.length) continue;
-            const live = liveEvents(this.store, item.sources, undefined, item.kind);
-            const elsewhere = live.length > kept.length;
-            if (unsupported.has(id) && !this.touched.has(id)) {
-                if (!elsewhere && kept.every((event) => shown.has(eventId(event)))) {
-                    this.retireItem(item);
-                    this.counts.retired++;
-                    continue;
-                }
-                const why = elsewhere
-                    ? "another session supports it"
-                    : "the pass did not show all its evidence";
-                this.warnings.push(`Kept ${id}, which the Analyzer found unsupported: ${why}`);
-            }
-            const alive = new Set(kept.map((event) => sourceKey(eventSource(event))));
-            const dead = new Set(cited.map(sourceKey).filter((key) => !alive.has(key)));
-            const missing = live.length === 0;
-            this.save(item, {
-                ...item,
-                sources: missing
-                    ? item.sources
-                    : item.sources.filter((source) => !dead.has(sourceKey(source))),
-                status: missing ? "source-missing" : item.status,
-                updatedRun: this.runId,
-                updatedAt: this.at,
-            });
-        }
+        const reviewed = reviewEarlier(
+            this.store,
+            result,
+            this.runId,
+            Date.parse(this.at),
+            this.touched,
+        );
+        this.counts.retired += reviewed.retired;
+        this.warnings.push(...reviewed.warnings);
+        for (const id of reviewed.itemIds) this.itemIds.add(id);
+        if (reviewed.pending) this.pendingReview.add(sessionLabel(result.snapshot));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -724,7 +723,9 @@ export function markProcessed(
     store: Store,
     snapshot: SessionSnapshot,
     hold?: ReadonlySet<string>,
+    reviewPending = false,
 ): void {
+    assertSnapshotOwnership(store, snapshot);
     const { harness, id } = snapshot.session;
     let held = false;
     for (const [key, { hash, end }] of snapshot.covered) {
@@ -759,9 +760,10 @@ export function markProcessed(
     }
     store.run(
         `UPDATE sessions SET attempts = 0, attempt_revision = NULL, last_error = NULL
-        WHERE harness = ? AND id = ?`,
+        WHERE harness = ? AND id = ? AND revision = ?`,
         harness,
         id,
+        snapshot.revision,
     );
     if (snapshot.complete && !held) {
         store.run(
@@ -772,7 +774,7 @@ export function markProcessed(
             snapshot.revision,
         );
     }
-    if (snapshot.reviewOverflow) {
+    if (snapshot.reviewOverflow || reviewPending) {
         store.run(
             `UPDATE sessions SET review_revision = COALESCE(review_revision, ?)
             WHERE harness = ? AND id = ?`,
@@ -803,6 +805,10 @@ export function commitProject(
 ): CommitResult {
     const sessions = input.results.map((result) => sessionLabel(result.snapshot));
     return store.tx(() => {
+        const project = getProject(store, input.projectId);
+        if (!project || project.mergedInto)
+            throw new Error(`Project ${input.projectId} is no longer live`);
+        for (const result of input.results) assertSnapshotOwnership(store, result.snapshot);
         const before = stableL1Size(store, paths, input.projectId);
         const runId = startRun(store, {
             pass: input.pass,
@@ -821,7 +827,14 @@ export function commitProject(
         for (const op of input.ops) commit.apply(op);
         for (const result of input.results) commit.reviewEarlier(result);
         for (const branch of input.closedBranches) commit.closeBranch(branch);
-        for (const result of input.results) markProcessed(store, result.snapshot, commit.hold);
+        for (const result of input.results) {
+            markProcessed(
+                store,
+                result.snapshot,
+                commit.hold,
+                commit.pendingReview.has(sessionLabel(result.snapshot)),
+            );
+        }
         const after = stableL1Size(store, paths, input.projectId);
         const grown = grownStableBranch(before, after);
         if (grown)
@@ -876,6 +889,13 @@ export function recordFailure(store: Store, input: FailureInput): number {
             sessions,
         });
         for (const snapshot of input.snapshots) {
+            const current = getSession(store, snapshot.session.harness, snapshot.session.id);
+            if (
+                !current ||
+                current.revision !== snapshot.revision ||
+                !sameOwnership(store, snapshot)
+            )
+                continue;
             store.run(
                 `UPDATE sessions SET
                     attempts = CASE WHEN attempt_revision = ? THEN attempts + 1 ELSE 1 END,

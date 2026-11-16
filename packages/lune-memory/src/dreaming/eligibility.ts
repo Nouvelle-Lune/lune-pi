@@ -1,8 +1,21 @@
 import type { DreamingConfig } from "../core/config.ts";
 import type { EventRow, Item, SessionRow } from "../core/types.ts";
 import type { Store } from "../store/db.ts";
-import { getItem, listEvents, listItems, liveProjectId, sessionFromRow } from "../store/rows.ts";
-import { liveEvents, sessionSources, uniqueEvents } from "./evidence.ts";
+import {
+    getItem,
+    listEvents,
+    listItems,
+    liveProjectId,
+    sessionFromRow,
+    sessionOwnershipKey,
+} from "../store/rows.ts";
+import {
+    liveEvents,
+    pinItemSources,
+    sessionSources,
+    uniqueEvents,
+    type EventPins,
+} from "./evidence.ts";
 
 /** Earlier events that the Analyzer sees before the first new event, for continuity. */
 const LEAD_IN_EVENTS = 3;
@@ -46,6 +59,8 @@ export interface SessionSnapshot {
     /** Live project of the session. Null outside a project. */
     projectId: string | null;
     revision: number;
+    /** Persistent ownership generation, independent of ordinary source imports. */
+    ownershipRevision: string | null;
     /** Events for the Analyzer, in session order. */
     events: SnapshotEvent[];
     /** New events that the Analyzer sees, by key. Commit marks them processed or moves their cursor. */
@@ -56,8 +71,10 @@ export interface SessionSnapshot {
     notes: Item[];
     /** Earlier Dreaming items that cite this session. */
     earlier: Item[];
+    /** Evidence state of existing items, fixed before the Analyzer reads them. */
+    itemPins: EventPins;
     /**
-     * Ids of earlier project items that lost evidence in this session: a cited event is gone or
+     * Ids of earlier items in any scope that lost evidence in this session: a cited event is gone or
      * left the active path. The Analyzer reviews them, and commit retires the unsupported ones.
      */
     review: Set<string>;
@@ -207,8 +224,8 @@ function selectEvents(
 }
 
 /**
- * Earlier Dreaming items that cite one session. A project item of `projectId` that cites an
- * event of the session that can no longer support it goes to review and comes first: the event
+ * Earlier Dreaming items that cite one session, across all owning scopes. An active item that
+ * cites an event of the session that can no longer support it goes to review and comes first: the event
  * is gone, came from lune-memory itself, or left the active path while the item kind needs the
  * current state (§4). Its conclusion may rest on text that no longer exists in that form (§5).
  * The remaining source events of reviewed items in the session come back as context. `overflow`
@@ -217,7 +234,6 @@ function selectEvents(
 function earlierItems(
     store: Store,
     session: SessionRow,
-    projectId: string | null,
 ): { items: Item[]; review: Set<string>; overflow: boolean; context: EventRow[] } {
     const ids = store
         .all(
@@ -234,8 +250,7 @@ function earlierItems(
         if (!item || item.origin !== "dreaming") continue;
         if (item.status !== "active" && item.status !== "provisional") continue;
         items.push(item);
-        if (item.status !== "active" || item.projectId === null) continue;
-        if (item.scope !== "project" || item.projectId !== projectId) continue;
+        if (item.status !== "active") continue;
         const cited = sessionSources(item.sources, session);
         const events = liveEvents(store, cited, undefined, item.kind);
         if (events.length < cited.length) live.set(item.id, events);
@@ -269,13 +284,13 @@ function reviewNotes(
     const notes = listItems(store, {
         origin: "agent_note",
         status: ["provisional"],
-        ...(projectId ? { projectId } : { scope: "global" as const }),
     });
     const texts = events.filter((entry) => entry.role === "new").map((entry) => entry.event.text);
     return notes.filter((note) => {
         if (note.writerSession) {
             return note.writerSession === session.id && note.writerHarness === session.harness;
         }
+        if (note.projectId !== projectId) return false;
         return texts.some((value) => value.includes(note.title));
     });
 }
@@ -289,22 +304,25 @@ export function snapshotSession(
     const projectId = session.projectId ? liveProjectId(store, session.projectId) : null;
     const events = listEvents(store, session.harness, session.id);
     const selected = selectEvents(events, config.maxCharsPerSession);
-    const earlier = earlierItems(store, session, projectId);
+    const earlier = earlierItems(store, session);
     const shown = new Set(selected.events.map((entry) => entry.event.key));
     for (const event of earlier.context) {
         if (shown.has(event.key)) continue;
         selected.events.push({ event, role: "context", ...truncate(event.text, REVIEW_CHARS) });
     }
     selected.events.sort((a, b) => a.event.seq - b.event.seq);
+    const notes = reviewNotes(store, session, projectId, selected.events);
     return {
         session,
         projectId,
         revision: session.revision,
+        ownershipRevision: store.getMeta(sessionOwnershipKey(session)),
         events: selected.events,
         covered: selected.covered,
         complete: selected.complete,
-        notes: reviewNotes(store, session, projectId, selected.events),
+        notes,
         earlier: earlier.items,
+        itemPins: pinItemSources(store, [...notes, ...earlier.items]),
         review: earlier.review,
         reviewOverflow: earlier.overflow,
     };
@@ -347,7 +365,11 @@ export function findEligible(
             // No new evidence, but earlier items can rest on removed events. The session needs
             // a pass only when one of them is still to review.
             snapshot = snapshotSession(store, session, config);
-            if (snapshot.review.size === 0 && !snapshot.reviewOverflow) {
+            if (
+                snapshot.notes.length === 0 &&
+                snapshot.review.size === 0 &&
+                !snapshot.reviewOverflow
+            ) {
                 result.trivial.push(session);
                 continue;
             }

@@ -8,6 +8,7 @@ import {
     analyzerReply,
     count,
     createDreamEnv,
+    createOp,
     decisionCandidate,
     NOW,
     type DreamEnv,
@@ -169,6 +170,150 @@ test("an operation with one changed pinned source and one unchanged unrelated so
     assert.equal(item?.body, "Body of M.");
     assert.deepEqual(item?.sources, [source("old-k1"), source("old-k2")]);
     assertStillUnprocessed(env);
+});
+
+/** A wiki that cites an existing item by `from`. */
+function wikiFrom(title: string, body: string, from: string) {
+    return { ...createOp(title, [], { kind: "wiki", body }), from: [from] };
+}
+
+test("an existing item source that changes during the Analyzer rejects the operation", async (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project one");
+    env.addSession({
+        id: "old",
+        projectId: "p1",
+        processedRevision: 1,
+        events: [{ text: "We chose SQLite.", key: "old-k1", processed: true }],
+    });
+    env.addItem({
+        id: "item-a",
+        kind: "decision",
+        title: "Use SQLite",
+        body: "We chose SQLite.",
+        projectId: "p1",
+        sources: [source("old-k1")],
+    });
+    env.addSession({ id: "s1", projectId: "p1", events: [{ text: "Hello from s1." }] });
+    env.route({
+        analyzer: (_user, index) => {
+            if (index === 0) {
+                env.store.run(
+                    "UPDATE events SET text = ?, hash = ? WHERE session_id = 'old' AND key = 'old-k1'",
+                    "We chose PostgreSQL.",
+                    "edited",
+                );
+                env.store.run("UPDATE sessions SET revision = 2 WHERE id = 'old'");
+            }
+            return analyzerReply([]);
+        },
+        organizer: (_user, index) => ({
+            summary: "wiki",
+            ops: index === 0 ? [wikiFrom("SQLite guide", "We chose SQLite.", "item-a")] : [],
+        }),
+    });
+
+    const summary = await env.pass({ force: true, sessions: ["claude:s1"] });
+
+    assert.equal(summary.projects[0]?.counts?.created ?? 0, 0);
+    assert.match(summary.projects[0]?.warnings.join("\n") ?? "", STALE);
+    assert.equal(
+        listItems(env.store, { scope: "project", projectId: "p1", kind: ["wiki"] }).length,
+        0,
+    );
+
+    await env.pass();
+
+    const analyzed = env.calls.filter(
+        (call) => call.role === "analyzer" && call.user.includes("Session: old"),
+    );
+    assert.equal(analyzed.length, 1);
+    assert.match(analyzed[0]?.user ?? "", /We chose PostgreSQL\./u);
+});
+
+test("an absent item source that returns with new text before the commit rejects the operation", async (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project one");
+    env.addSession({ id: "old", projectId: "p1", processedRevision: 1 });
+    env.addItem({
+        id: "item-lost",
+        kind: "decision",
+        title: "Use SQLite",
+        body: "We chose SQLite.",
+        projectId: "p1",
+        status: "source-missing",
+        sources: [source("old-k1")],
+    });
+    env.addSession({ id: "s1", projectId: "p1", events: [{ text: "Hello from s1." }] });
+    env.route({
+        analyzer: analyzerReply([]),
+        organizer: () => {
+            // The vanished source comes back under the same key with other text.
+            env.store.run(
+                `INSERT INTO events (harness, session_id, key, seq, role, tool_name, text, time,
+                    memory_derived, untrusted, active, hash, processed_hash)
+                VALUES ('claude', 'old', 'old-k1', 1, 'user', NULL, 'We chose PostgreSQL.',
+                    '2030-01-01T00:00:00.000Z', 0, 0, 1, 'restored', NULL)`,
+            );
+            return {
+                summary: "wiki",
+                ops: [wikiFrom("SQLite guide", "We chose SQLite.", "item-lost")],
+            };
+        },
+    });
+
+    const summary = await env.pass({ force: true, sessions: ["claude:s1"] });
+
+    assert.equal(summary.projects[0]?.counts?.created ?? 0, 0);
+    assert.equal(
+        listItems(env.store, { scope: "project", projectId: "p1", kind: ["wiki"] }).length,
+        0,
+    );
+});
+
+test("an item whose lost source awaits review cannot support a new item", async (t) => {
+    const env = createDreamEnv(t);
+    env.addProject("p1", "Project one");
+    env.addSession({
+        id: "old",
+        projectId: "p1",
+        revision: 2,
+        processedRevision: 2,
+        events: [{ text: "Hello.", key: "old-k2", processed: true }],
+    });
+    env.store.run("UPDATE sessions SET review_revision = 2 WHERE id = 'old'");
+    env.addItem({
+        id: "decision",
+        kind: "decision",
+        title: "Use SQLite",
+        body: "We chose SQLite.",
+        projectId: "p1",
+        sources: [source("old-k1"), source("old-k2")],
+    });
+    env.addSession({
+        id: "s1",
+        projectId: "p1",
+        events: [{ text: "Hello from another session." }],
+    });
+    env.route({
+        analyzer: analyzerReply([]),
+        organizer: {
+            summary: "wiki",
+            ops: [wikiFrom("SQLite guide", "We chose SQLite.", "decision")],
+        },
+    });
+
+    const summary = await env.pass({ force: true, sessions: ["claude:s1"] });
+
+    assert.equal(summary.projects[0]?.counts?.created ?? 0, 0);
+    assert.equal(
+        listItems(env.store, { scope: "project", projectId: "p1", kind: ["wiki"] }).length,
+        0,
+    );
+    const item = getItem(env.store, "decision");
+    assert.equal(item?.status, "active");
+    assert.deepEqual(item?.sources, [source("old-k1"), source("old-k2")]);
+    assert.equal(getSession(env.store, "claude", "old")?.reviewRevision, 2);
 });
 
 // ---------------------------------------------------------------------------------------------

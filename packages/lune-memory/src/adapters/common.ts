@@ -64,14 +64,52 @@ function pathSource(path: string): string {
         .join("[\\\\/]");
 }
 
-/** Breaks between path tokens in a command or in serialized JSON arguments. */
-const TOKEN_BREAK = /[\s"'`,;|&()<>=]+/u;
-/** An escaped newline or tab in serialized JSON. A doubled backslash is a path separator. */
-const JSON_ESCAPE = /(?<!\\)\\[nrt]/gu;
-/** Words whose next token is a folder that later relative paths can start from. */
+/** Quoted shell arguments stay together, including ordinary paths containing spaces. */
+const PATH_TOKENS = /"((?:\\.|[^"\\])*)"|'([^']*)'|([^\s"'`,;|&()<>=]+)/gu;
 const FOLDER_WORDS = new Set(["cd", "pushd", "-C", "workdir", "cwd", "dir_path"]);
+const PATH_FIELDS = new Set(["path", "file_path", "filePath", "filename", "file", "target"]);
 const MAX_TOKEN = 4096;
 const MAX_BASES = 16;
+
+interface PathToken {
+    value: string;
+    folder: boolean;
+    explicit: boolean;
+}
+
+function pathTokens(text: string): PathToken[] {
+    const tokens: PathToken[] = [];
+    const command = (value: string): void => {
+        let folder = false;
+        for (const match of value.matchAll(PATH_TOKENS)) {
+            const token = (match[1] ?? match[2] ?? match[3] ?? "").replace(/\\(["\\ ])/gu, "$1");
+            tokens.push({ value: token, folder, explicit: false });
+            folder = FOLDER_WORDS.has(token);
+        }
+    };
+    const visit = (value: unknown, field?: string): void => {
+        if (typeof value === "string") {
+            if (field && (FOLDER_WORDS.has(field) || PATH_FIELDS.has(field))) {
+                tokens.push({ value, folder: FOLDER_WORDS.has(field), explicit: true });
+            } else {
+                command(value);
+            }
+        } else if (Array.isArray(value)) {
+            for (const item of value) visit(item, field);
+        } else if (value && typeof value === "object") {
+            for (const [key, item] of Object.entries(value)) visit(item, key);
+        }
+    };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        command(text);
+        return tokens;
+    }
+    visit(parsed);
+    return tokens;
+}
 
 function insideAny(path: string, roots: ReadonlySet<string>): boolean {
     for (const root of roots) {
@@ -96,32 +134,25 @@ function namesRelativePath(
     home: string,
     realCwd: (path: string) => string,
 ): boolean {
-    const tokens = text
-        .replace(JSON_ESCAPE, " ")
-        .split(TOKEN_BREAK)
-        .map((token) => token.replace(/^@/u, ""))
-        .filter(
-            (token) =>
-                token !== "" &&
-                token !== ":" &&
-                token.length <= MAX_TOKEN &&
-                !token.startsWith("$") &&
-                !token.includes("://"),
-        );
+    const tokens = pathTokens(text).filter(
+        ({ value }) => value !== "" && value.length <= MAX_TOKEN && !value.includes("://"),
+    );
     const expand = (token: string): string =>
         token === "~" ? home : token.startsWith("~/") ? join(home, token.slice(2)) : token;
     const bases = new Set([cwd, realCwd(cwd)]);
-    tokens.forEach((token, index) => {
-        const next = tokens[index + 1];
-        if (!next || !FOLDER_WORDS.has(token)) return;
-        for (const base of [...bases]) {
-            if (bases.size >= MAX_BASES) return;
-            bases.add(resolve(base, expand(next)));
-        }
-    });
     for (const token of tokens) {
-        if (FOLDER_WORDS.has(token)) continue;
-        const path = expand(token);
+        if (!token.folder) continue;
+        for (const base of [...bases]) {
+            if (bases.size >= MAX_BASES) break;
+            bases.add(resolve(base, expand(token.value)));
+        }
+    }
+    for (const token of tokens) {
+        const value = token.value.replace(/^@/u, "");
+        // Bare command names and JSON words are not paths, even when cwd is inside views.
+        if (token.folder || FOLDER_WORDS.has(value) || value.startsWith("$")) continue;
+        if (!token.explicit && !/[\\/]|\.[\w-]+$|^\.\.?$/u.test(value)) continue;
+        const path = expand(value);
         for (const base of bases) {
             if (insideAny(resolve(base, path), roots)) return true;
         }
@@ -246,8 +277,26 @@ export function blocksToText(
         const type = typeof record.type === "string" ? record.type : "";
         if (textTypes.includes(type)) parts.push(blockText(record, where));
         else if (type === "image" || type === "input_image") parts.push("[image]");
+        else rejectUnknownTextBlock(record, where);
     }
     return parts.join("\n");
+}
+
+/** Unknown text-bearing blocks must fail import before they replace earlier evidence. */
+export function rejectUnknownTextBlock(block: unknown, where: string): void {
+    const record = obj(block);
+    if (!record || record.type === "thinking" || record.type === "redacted_thinking") return;
+    const holdsText = (value: unknown): boolean => {
+        if (Array.isArray(value)) return value.some(holdsText);
+        const nested = obj(value);
+        return (
+            nested !== undefined &&
+            ("text" in nested || "content" in nested || Object.values(nested).some(holdsText))
+        );
+    };
+    if (holdsText(record)) {
+        throw new AdapterFormatError(`${where} text-bearing block has an unknown format`);
+    }
 }
 
 /** Increment a filter counter. */

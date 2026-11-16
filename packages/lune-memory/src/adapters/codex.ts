@@ -14,6 +14,7 @@ import {
     knownContent,
     obj,
     parseJsonl,
+    rejectUnknownTextBlock,
     str,
 } from "./common.ts";
 import {
@@ -122,6 +123,8 @@ interface State {
     calls: Map<string, CallInfo>;
     /** Event index of each active user turn start, oldest first. A rollback pops from the end. */
     turnStarts: number[];
+    inTurn: boolean;
+    turnHasUser: boolean;
     /** cwd from the first `<environment_context>` block. Legacy rollouts have no other source. */
     contextCwd?: string;
     /** Extra test for memory file paths of the home in use. */
@@ -188,7 +191,9 @@ function readHeader(record: Rec, line: number): Header | undefined {
             sessionId,
             paginated: payload.history_mode === "paginated",
             legacy: false,
-            subagent: source !== undefined && "subagent" in source,
+            subagent:
+                payload.thread_source === "subagent" ||
+                (source !== undefined && "subagent" in source),
             cwd: str(payload.cwd),
             branch: str(obj(payload.git)?.branch),
             startedAt: str(record.timestamp) ?? str(payload.timestamp),
@@ -302,7 +307,12 @@ function handleItem(state: State, item: Rec): void {
 function handleMessage(state: State, item: Rec): void {
     const role = str(item.role);
     if (role === "user") {
-        handleUserMessage(state, knownContent(item.content, `line ${state.line}: Codex user`));
+        const metadata = obj(item.internal_chat_message_metadata_passthrough);
+        handleUserMessage(
+            state,
+            knownContent(item.content, `line ${state.line}: Codex user`),
+            metadata?.content_item_kinds,
+        );
         return;
     }
     if (role === "assistant") {
@@ -320,11 +330,15 @@ function handleMessage(state: State, item: Rec): void {
     warnOnce(state, `role:${role}`, `message role "${role ?? ""}" skipped`);
 }
 
-function handleUserMessage(state: State, content: string | unknown[]): void {
+function handleUserMessage(state: State, content: string | unknown[], kinds: unknown): void {
     const blocks: unknown[] = typeof content === "string" ? [content] : content;
     const parts: string[] = [];
     let reason: string | undefined;
-    for (const block of blocks) {
+    for (const [index, block] of blocks.entries()) {
+        if (Array.isArray(kinds) && kinds[index] === "agents_md.instructions") {
+            reason = "injected";
+            continue;
+        }
         const record = typeof block === "string" ? { type: "input_text", text: block } : obj(block);
         const type = str(record?.type);
         if (type === "input_image" || type === "image") {
@@ -332,8 +346,11 @@ function handleUserMessage(state: State, content: string | unknown[]): void {
             continue;
         }
         const where = `line ${state.line}: Codex user`;
-        const raw = TEXT_BLOCKS.includes(type ?? "") ? blockText(record, where) : str(record?.text);
-        if (raw === undefined) continue;
+        if (!TEXT_BLOCKS.includes(type ?? "")) {
+            rejectUnknownTextBlock(record, where);
+            continue;
+        }
+        const raw = blockText(record, where);
         const result = stripInjected(state, raw);
         if (result.text) parts.push(result.text);
         reason ??= result.reason;
@@ -342,7 +359,9 @@ function handleUserMessage(state: State, content: string | unknown[]): void {
         bump(state.filtered, reason ?? "empty");
         return;
     }
-    state.turnStarts.push(state.events.length);
+    // Steers share a task's user turn; a task without user content adds no rollback point.
+    if (!state.inTurn || !state.turnHasUser) state.turnStarts.push(state.events.length);
+    state.turnHasUser = true;
     emit(state, "user", parts.join("\n"));
 }
 
@@ -463,6 +482,12 @@ function handleAgentMessage(state: State, item: Rec): void {
 
 function handleEvent(state: State, payload: Rec | undefined): void {
     const type = str(payload?.type) ?? "none";
+    if (type === "task_started") {
+        state.inTurn = true;
+        state.turnHasUser = false;
+    } else if (type === "task_complete" || type === "turn_aborted") {
+        state.inTurn = false;
+    }
     if (type === "turn_aborted") {
         const reason = str(payload?.reason);
         emit(state, "notice", reason ? `Turn aborted: ${reason}` : "Turn aborted");
@@ -490,6 +515,8 @@ function rollBack(state: State, numTurns: unknown): void {
     if (start !== undefined) {
         for (const event of state.events.slice(start)) event.active = false;
     }
+    state.inTurn = false;
+    state.turnHasUser = false;
     emit(state, "notice", `Rolled back ${count} ${count === 1 ? "turn" : "turns"}`);
 }
 
@@ -566,6 +593,8 @@ function parseCodexSession(
         warned: new Set(),
         calls: new Map(),
         turnStarts: [],
+        inTurn: false,
+        turnHasUser: false,
         line: first.line,
         record: "",
         part: 0,

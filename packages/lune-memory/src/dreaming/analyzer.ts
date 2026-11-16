@@ -97,8 +97,8 @@ Rules:
 4. Keep only what a later session needs. Skip small talk, small finished steps, and what the code or the Git history already records.
 5. Uncertainty. When events conflict and you cannot verify which one is right, report a conflict. Do not pick a side.
 6. Earlier results. Earlier items from this session are listed with their ids. When the new events change one, put its id in "updates". Do not repeat an item that did not change. An item marked "Review" lost some of its evidence: an event was removed or left the active path. Check it against the events that remain. When they support a changed version, put its id in "updates". When they no longer support it, list it in "unsupported" with its id and the reason.
-7. Notes. Provisional notes that agents wrote are listed with their ids. Review each one against the events: "keep" when the events support it, "correct" with a new title and body when the events show it is partly wrong, "retract" when the events show it is wrong or obsolete. A "keep" or a "correct" cites the events that support it as evidence. A note with no review, or with no evidence, stays provisional.
-8. Set "general" to true only for a preference that the user states for all projects, for example with "always" or "in every project".
+7. Notes. Provisional notes that agents wrote are listed with their ids. Review each one against the events: "keep" when the events support it, "correct" with a new title and body when the events show it is partly wrong, "retract" when the events show it is wrong or obsolete. A "keep" or a "correct" cites the events that support it as evidence. A note with no review, or with no evidence, stays provisional. For a global preference note, also extract a preference candidate with "general": true citing the supporting user statements only when their meaning supports the rule across projects.
+8. Judge the meaning and scope of the user's evidence in context, regardless of language or particular words. Set "general" to true only for a preference that the user states across projects; a project-specific instruction stays local. You decide whether statements support, change or retract the same preference. The backend checks provenance, citations and scope consistency, not natural-language meaning.
 9. Abandoned branches. Events marked "abandoned branch" are on a path that the user left, for example by going back in the conversation or by a retry. They do not show the current state, a decision or a preference. From them, extract only a lesson, a fact or a reference that is still true.
 10. Write in concise plain English. A title has at most 80 characters. A body says what and why in a few sentences.
 
@@ -179,7 +179,7 @@ export function renderAnalyzerInput(
     if (snapshot.notes.length) {
         lines.push("", "# Provisional notes to review");
         for (const note of snapshot.notes) {
-            lines.push(`- [${note.id}] ${note.kind}: ${note.title}`);
+            lines.push(`- [${note.id}] ${note.scope} ${note.kind}: ${note.title}`);
             lines.push(
                 ...excerpt(note.body, 2000)
                     .split("\n")
