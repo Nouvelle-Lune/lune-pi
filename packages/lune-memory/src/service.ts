@@ -9,6 +9,7 @@ import {
     type MemoryConfig,
 } from "./core/config.ts";
 import { MemoryOperationError } from "./core/errors.ts";
+import { appendLog, formatLog, readLog, type LogDetails, type LogSnapshot } from "./core/log.ts";
 import {
     globalViewPaths,
     memoryPaths,
@@ -48,7 +49,7 @@ import { ProjectResolver } from "./projects/resolver.ts";
 import { num, Store } from "./store/db.ts";
 import { getProject, listProjects, listRuns, sessionFromRow, type RunRow } from "./store/rows.ts";
 
-export type ServiceEventType = "import" | "dream" | "index" | "config";
+export type ServiceEventType = "import" | "dream" | "index" | "config" | "log";
 
 /** Runtime event of the service. The daemon sends these over SSE. */
 export interface ServiceEvent {
@@ -323,8 +324,34 @@ export class MemoryService {
     // -----------------------------------------------------------------------------------------
     // Import and Dreaming
 
+    log(message: string, details: LogDetails = {}): void {
+        const context = { level: details.level ?? "info", source: details.source ?? "daemon" };
+        const at = new Date(this.now()).toISOString();
+        let failure: string | undefined;
+        try {
+            appendLog(this.paths, message, at, context);
+        } catch (error) {
+            failure = errorMessage(error);
+            // Logging must not abort imports or escape the scheduler's timer callbacks.
+            console.error(
+                `${at} [ERROR] [DAEMON] Could not write daemon log: ${failure}\n${formatLog(message, at, context).trimEnd()}`,
+            );
+        }
+        this.emit("log", { message, ...context, ...(failure ? { error: failure } : {}) });
+    }
+
+    logs(): LogSnapshot {
+        return readLog(this.paths);
+    }
+
     importNow(harnesses?: readonly Harness[]): ImportSummary {
         const summary = this.importer.importAll(harnesses ?? HARNESSES);
+        for (const problem of summary.problems) {
+            this.log(`Import failed for ${problem.path}: ${problem.error}`, {
+                level: "error",
+                source: "import",
+            });
+        }
         if (summary.imported > 0 || summary.errors > 0 || summary.purged > 0) {
             this.emit("import", {
                 scanned: summary.scanned,

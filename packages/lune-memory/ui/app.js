@@ -41,6 +41,11 @@ const SECTIONS = [
         lede: "Each commit of a Dreaming pass. A revert undoes the memory changes of one run.",
     },
     {
+        id: "logs",
+        label: "Logs",
+        lede: "Recent daemon logs, updated while this page is open.",
+    },
+    {
         id: "storage",
         label: "Storage",
         lede: "Where memory lives on disk, and how long old data stays.",
@@ -75,6 +80,9 @@ const state = {
     sessionProject: "",
     runs: [],
     activity: [],
+    logs: null,
+    logsError: null,
+    logsWriteError: null,
     providerFilter: "",
     connected: false,
     version: null,
@@ -585,6 +593,33 @@ async function loadRuns() {
     if (state.section === "runs") renderView();
 }
 
+let logsLoading = false;
+let logsPending = false;
+
+async function loadLogs() {
+    if (!state.token || state.section !== "logs") return;
+    logsPending = true;
+    if (logsLoading) return;
+    logsLoading = true;
+    renderView();
+    try {
+        do {
+            logsPending = false;
+            try {
+                state.logs = await api("GET", "/api/logs");
+                state.logsError = null;
+            } catch (error) {
+                if (error instanceof LockedError) return;
+                state.logsError = error.message || String(error);
+            }
+            if (state.section === "logs") renderView();
+        } while (logsPending && state.token && state.section === "logs");
+    } finally {
+        logsLoading = false;
+        if (state.section === "logs" && state.token) renderView();
+    }
+}
+
 function quietly(promise) {
     promise.catch((error) => {
         if (!(error instanceof LockedError)) console.warn(error);
@@ -634,7 +669,16 @@ function describeDream(data) {
 
 function onEvent(name, payload) {
     const data = payload?.data ?? {};
-    if (name === "import") {
+    if (name === "log") {
+        const writeError = data.error
+            ? `${data.error}${data.message ? ` — ${data.message}` : ""}`
+            : null;
+        if (state.logsWriteError !== writeError) {
+            state.logsWriteError = writeError;
+            if (state.section === "logs") renderView();
+        }
+        void loadLogs();
+    } else if (name === "import") {
         if (data.error) logActivity(`Import failed: ${data.error}`, "danger");
         else {
             const parts = [`${count(data.imported)} imported`];
@@ -723,6 +767,7 @@ async function streamEvents() {
                         delay = 1000;
                         renderConn();
                         if (!first) quietly(refreshAll());
+                        void loadLogs();
                     } else onEvent(name, payload);
                 }
             }
@@ -772,8 +817,18 @@ function renderView() {
     $("page-title").textContent = section.label;
     $("page-lede").textContent = section.lede;
     const focused = document.activeElement?.id;
+    const previousLog = $("log-content");
+    const logTop = previousLog?.scrollTop ?? 0;
+    const logLeft = previousLog?.scrollLeft ?? 0;
+    const followLogs =
+        !previousLog || previousLog.scrollHeight - previousLog.clientHeight - logTop < 32;
     const view = $("view");
     view.replaceChildren(...[RENDERERS[section.id]()].flat());
+    const log = $("log-content");
+    if (log) {
+        log.scrollTop = followLogs ? log.scrollHeight : logTop;
+        log.scrollLeft = logLeft;
+    }
     if (focused) {
         const again = document.getElementById(focused);
         if (again && again !== document.activeElement) again.focus({ preventScroll: true });
@@ -1773,6 +1828,115 @@ function runRow(run) {
     );
 }
 
+// Rendering: logs ----------------------------------------------------------------------------
+
+const LOG_LEVELS = {
+    INFO: { tone: "accent", symbol: "ℹ" },
+    WARN: { tone: "warning", symbol: "⚠" },
+    ERROR: { tone: "danger", symbol: "✕" },
+    OUTPUT: { tone: "neutral", symbol: "›" },
+};
+const LOG_SOURCES = {
+    DAEMON: "Daemon",
+    IMPORT: "Import",
+    DREAMING: "Dreaming",
+    VIEWS: "Views",
+    HTTP: "HTTP",
+};
+const logTimeFormat = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+});
+
+function logRow(line) {
+    const prefix = line.match(
+        /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})) /,
+    );
+    const date = prefix ? timeOf(prefix[1]) : null;
+    const text = date ? line.slice(prefix[0].length) : line;
+    const metadata = text.match(/^\[(INFO|WARN|ERROR)\] \[(DAEMON|IMPORT|DREAMING|VIEWS|HTTP)\] /);
+    const level = metadata?.[1] ?? "OUTPUT";
+    const source = metadata ? LOG_SOURCES[metadata[2]] : "Process";
+    const { tone, symbol } = LOG_LEVELS[level];
+    return h(
+        "div",
+        { class: `log-row ${tone}` },
+        h(
+            "div",
+            { class: "log-meta" },
+            date
+                ? h(
+                      "time",
+                      { class: "log-time", datetime: date.toISOString(), title: prefix[1] },
+                      logTimeFormat.format(date),
+                  )
+                : h("span", { class: "log-time", title: "Timestamp unavailable" }, "—"),
+            h(
+                "span",
+                { class: `badge log-level ${tone}` },
+                h("span", { "aria-hidden": "true" }, symbol),
+                level,
+            ),
+            h("span", { class: "badge outline" }, source),
+        ),
+        h("pre", { class: "log-message" }, metadata ? text.slice(metadata[0].length) : text),
+    );
+}
+
+function renderLogs() {
+    const logs = state.logs;
+    return card(
+        "Daemon log",
+        h(
+            "button",
+            {
+                id: "logs-refresh",
+                type: "button",
+                class: "btn small",
+                disabled: logsLoading,
+                onclick: () => void loadLogs(),
+            },
+            logsLoading ? "Refreshing…" : "Refresh",
+        ),
+        h(
+            "p",
+            { class: "card-note" },
+            "Up to 200 recent complete lines, oldest first.",
+            logs?.truncated ? " Older log content is omitted." : null,
+        ),
+        logs ? h("p", { class: "card-note" }, h("code", {}, logs.path)) : null,
+        state.logsError
+            ? h("p", { class: "cell-error log-error" }, `Could not load logs: ${state.logsError}`)
+            : null,
+        state.logsWriteError
+            ? h(
+                  "p",
+                  { class: "cell-error log-error" },
+                  `Could not write log: ${state.logsWriteError}`,
+              )
+            : null,
+        logs === null
+            ? state.logsError
+                ? null
+                : loading("Loading logs…")
+            : logs.lines.length === 0
+              ? empty("No log entries yet.")
+              : h(
+                    "div",
+                    {
+                        id: "log-content",
+                        class: "log-content",
+                        tabindex: "0",
+                        "aria-label": "Recent daemon log",
+                    },
+                    logs.lines.map(logRow),
+                ),
+    );
+}
+
 const RENDERERS = {
     overview: renderOverview,
     sources: renderSources,
@@ -1781,6 +1945,7 @@ const RENDERERS = {
     projects: renderProjects,
     sessions: renderSessions,
     runs: renderRuns,
+    logs: renderLogs,
     storage: renderStorage,
 };
 
@@ -1796,6 +1961,7 @@ function navigate() {
     renderNav();
     renderView();
     if (state.section === "overview") renderActivity();
+    if (state.section === "logs") void loadLogs();
     $("main").scrollTo?.(0, 0);
 }
 

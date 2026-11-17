@@ -16,6 +16,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 - **Local daemon and settings page.** Run imports and scheduled passes in a daemon that listens on loopback only and needs a random token for every request. `lune-memory settings` opens a local page where you turn harnesses on, select the model and its limits, store API keys, start and revert passes and manage projects.
 - **Command line.** `lune-memory` covers setup, search, import, Dreaming, runs, sessions, projects, config, credentials, the daemon and the hooks. It calls the daemon when it runs and opens the database itself when it does not. `--home` can come before the command, and `dream --project _unassigned` covers the sessions outside any project.
 - **Forget and retention.** `forget` deletes one session and the memory that only it supports, and keeps its file from a new import. `retentionDays` deletes older sessions, events and transcripts and keeps the items.
+- **Web logs.** The settings page's Logs section shows recent daemon output with time, severity and source badges, and updates while open. File import failures record their paths and reasons in the same log.
 
 ### Changed
 

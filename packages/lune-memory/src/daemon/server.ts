@@ -124,7 +124,7 @@ export function createApp(service: MemoryService, options: AppOptions): FastifyI
     const app = fastify({ logger: false, bodyLimit: 1024 * 1024 });
     const expected = Buffer.from(`Bearer ${options.token}`);
     const uiDir = options.uiDir ?? new URL("../../ui/", import.meta.url);
-    const log = options.log ?? (() => {});
+    const log: DaemonLog = options.log ?? ((message, details) => service.log(message, details));
     const streams = new Set<() => void>();
     const scheduler = options.scheduler;
 
@@ -161,11 +161,14 @@ export function createApp(service: MemoryService, options: AppOptions): FastifyI
         return payload;
     });
 
-    app.setErrorHandler((error, _request, reply) => {
+    app.setErrorHandler((error, request, reply) => {
         const own = (error as { statusCode?: unknown }).statusCode;
         const status =
             typeof own === "number" && own >= 400 && own < 500 ? own : errorStatus(error);
-        if (status >= 500) log(`Request failed: ${errorMessage(error)}`);
+        // Logging a failed log read would make the page retry itself through the log event.
+        if (status >= 500 && request.routeOptions.url !== "/api/logs") {
+            log(`Request failed: ${errorMessage(error)}`, { level: "error", source: "http" });
+        }
         reply.code(status).send({ error: errorMessage(error) });
     });
 
@@ -232,7 +235,9 @@ export function createApp(service: MemoryService, options: AppOptions): FastifyI
         const wait = optBool(body, "wait") ?? true;
         const run = scheduler ? scheduler.dream(dreamRequest) : service.dream(dreamRequest);
         if (wait) return await run;
-        run.catch((error: unknown) => log(`Pass failed: ${errorMessage(error)}`));
+        run.catch((error: unknown) =>
+            log(`Pass failed: ${errorMessage(error)}`, { level: "error", source: "dreaming" }),
+        );
         return reply.code(202).send({ started: true });
     });
 
@@ -260,6 +265,8 @@ export function createApp(service: MemoryService, options: AppOptions): FastifyI
             startedAt: options.startedAt ?? null,
         },
     }));
+
+    app.get("/api/logs", async () => service.logs());
 
     app.get("/api/runs", async (request) =>
         service.runs(intQuery(queryOf(request).limit, "limit")),

@@ -431,6 +431,7 @@ address fragment, so the token does not go to the server log or the `Referer` he
 | `POST /api/runs/:id/revert`          | Revert a pass                                                  |
 | `POST /api/sessions/forget`          | Forget a session                                               |
 | `GET /api/status`                    | Daemon, import, Dreaming and view state                        |
+| `GET /api/logs`                      | Recent daemon log lines, file path and truncation flag         |
 | `GET /api/runs`                      | Latest passes                                                  |
 | `GET /api/projects`                  | Projects and their locators                                    |
 | `GET /api/sessions`                  | Imported sessions                                              |
@@ -444,8 +445,18 @@ address fragment, so the token does not go to the server log or the `Referer` he
 | `POST /api/projects/:id/rename`      | Rename a project                                               |
 | `GET /api/events`                    | Server-sent events                                             |
 
-`GET /api/events` sends `ready` with the version first. Then it sends `import`, `dream`, `index`
-and `config` events, and a ping comment every 25 seconds.
+`GET /api/events` sends `ready` with the version first. Then it sends `import`, `dream`, `index`,
+`config` and `log` events, and a ping comment every 25 seconds.
+
+The settings page's Logs section reads `logs/daemon.log` through `GET /api/logs`. It shows up to
+200 recent lines from a 256 KiB tail, oldest first, and refreshes when new log events arrive or
+the connection returns. Earlier content is marked as omitted when either limit applies.
+History stays in the log file across page reloads and daemon restarts. Application log lines
+carry explicit `INFO`, `WARN` or `ERROR` levels and a `Daemon`, `Import`, `Dreaming`, `Views` or
+`HTTP` source. The page shows a timestamp, colored level badge and source badge for each line;
+unmarked process output has neutral `OUTPUT` and `Process` badges. Individual import failures
+include the file path and the redacted error reason in this same log. A log write failure does
+not abort an import or the scheduler: it is reported to stderr and the connected Logs page.
 
 ## Privacy
 

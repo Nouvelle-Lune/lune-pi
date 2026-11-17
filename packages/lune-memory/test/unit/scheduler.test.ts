@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
+import type { LogDetails } from "../../src/core/log.ts";
 import { DaemonScheduler } from "../../src/daemon/scheduler.ts";
 import type { PassSummary } from "../../src/dreaming/index.ts";
 import type { MemoryService, ServiceEvent, ServiceListener } from "../../src/service.ts";
@@ -56,13 +57,18 @@ function summary(status: PassSummary["status"]): PassSummary {
 
 let service: FakeService;
 let logs: string[];
+let contexts: Array<LogDetails | undefined>;
 let scheduler: DaemonScheduler;
 
 beforeEach(() => {
     mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
     service = new FakeService();
     logs = [];
-    scheduler = new DaemonScheduler(service as unknown as MemoryService, (m) => logs.push(m));
+    contexts = [];
+    scheduler = new DaemonScheduler(service as unknown as MemoryService, (message, details) => {
+        logs.push(message);
+        contexts.push(details);
+    });
 });
 
 afterEach(async () => {
@@ -235,5 +241,28 @@ describe("view repair", () => {
         service.repairThrows = null;
         scheduler.runImport();
         assert.equal(service.repairs, 2);
+    });
+});
+
+describe("log metadata", () => {
+    it("labels import, view and scan logs with their level and source", async () => {
+        service.importError = new Error("disk gone");
+        scheduler.runImport();
+        service.importError = null;
+        service.repairResult = "disk full";
+        scheduler.runImport();
+        service.repairResult = null;
+        scheduler.runImport();
+        const scan = scheduler.runScan();
+        service.pending[0]?.(summary("failed"));
+        await scan;
+
+        const expected = [
+            { level: "error", source: "import" },
+            { level: "warn", source: "views" },
+            { level: "info", source: "views" },
+            { level: "error", source: "dreaming" },
+        ];
+        assert.deepEqual(contexts, expected);
     });
 });
