@@ -29,5 +29,6 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.0.
 - **Claude compaction with a preserved segment.** Import Claude Code sessions whose compaction keeps a segment of recent messages. The parent chain of such a session formed a loop and the whole file failed to import.
 - **Global pass retries.** Stop a failing global pass after `maxAttempts` failures in a row, until a project preference changes or new results arrive. A manual pass ignores the limit.
 - **Native session provenance and history.** Recognize quoted memory paths and Claude shell reads, and preserve earlier evidence when unknown text or tool-result content fails import. Honor Codex injected-instruction and subagent markers, restore Claude compaction's preserved context, and roll back Codex tasks as complete turns.
+- **Retry failed imports.** Retry files with an import error on the next scan even when their size, modification time and content are unchanged. Sessions can recover after a parser fix without editing their native files.
 
 [Unreleased]: https://github.com/Nouvelle-Lune/lune-pi/commits/dev/packages/lune-memory
