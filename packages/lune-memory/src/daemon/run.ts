@@ -50,7 +50,6 @@ export interface RunningDaemon {
 export async function startDaemon(options: StartDaemonOptions = {}): Promise<RunningDaemon> {
     const home = options.home ?? memoryHome();
     const paths = memoryPaths(home);
-    const log = options.log ?? (() => {});
     mkdirSync(home, { recursive: true, mode: 0o700 });
     const lock = takePidLock(paths.lock);
     if (!("release" in lock)) throw new DaemonRunningError(lock.holder);
@@ -59,6 +58,11 @@ export async function startDaemon(options: StartDaemonOptions = {}): Promise<Run
     let app: FastifyInstance | null = null;
     try {
         service = MemoryService.open(home, options.models ? { models: options.models } : {});
+        const runningService = service;
+        const log: DaemonLog = (message, details) => {
+            runningService.log(message, details);
+            options.log?.(message, details);
+        };
         const token = randomBytes(32).toString("base64url");
         const version = packageVersion();
         const startedAt = new Date().toISOString();
@@ -79,7 +83,6 @@ export async function startDaemon(options: StartDaemonOptions = {}): Promise<Run
         if (options.schedule ?? true) scheduler.start();
 
         const runningApp = app;
-        const runningService = service;
         let stopping: Promise<void> | null = null;
         const stop = (): Promise<void> =>
             (stopping ??= (async () => {

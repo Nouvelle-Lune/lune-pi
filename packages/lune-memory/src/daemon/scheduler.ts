@@ -1,9 +1,10 @@
 import { RequestError } from "../api/requests.ts";
+import type { LogDetails } from "../core/log.ts";
 import { errorMessage } from "../core/util.ts";
 import type { PassSummary } from "../dreaming/index.ts";
 import type { DreamRequest, MemoryService } from "../service.ts";
 
-export type DaemonLog = (message: string) => void;
+export type DaemonLog = (message: string, details?: LogDetails) => void;
 
 /**
  * Timers of the daemon: a regular import of new transcripts and a regular Dreaming scan. A
@@ -63,7 +64,7 @@ export class DaemonScheduler {
         try {
             this.service.importNow();
         } catch (error) {
-            this.log(`Import failed: ${errorMessage(error)}`);
+            this.log(`Import failed: ${errorMessage(error)}`, { level: "error", source: "import" });
         } finally {
             this.importing = false;
         }
@@ -79,8 +80,11 @@ export class DaemonScheduler {
         } catch (failure) {
             error = errorMessage(failure) || "unknown error";
         }
-        if (error && error !== this.repairError) this.log(`Views are out of date: ${error}`);
-        else if (!error && this.repairError) this.log("Views are up to date again");
+        if (error && error !== this.repairError) {
+            this.log(`Views are out of date: ${error}`, { level: "warn", source: "views" });
+        } else if (!error && this.repairError) {
+            this.log("Views are up to date again", { level: "info", source: "views" });
+        }
         this.repairError = error;
     }
 
@@ -91,7 +95,12 @@ export class DaemonScheduler {
             return null;
         }
         const summary = await this.dream({ trigger: "scan" });
-        if (summary.status === "failed") this.log(`Scan pass failed: ${summary.errors.join("; ")}`);
+        if (summary.status === "failed") {
+            this.log(`Scan pass failed: ${summary.errors.join("; ")}`, {
+                level: "error",
+                source: "dreaming",
+            });
+        }
         return summary;
     }
 

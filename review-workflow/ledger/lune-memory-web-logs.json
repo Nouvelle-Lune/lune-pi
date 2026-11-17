@@ -1,0 +1,80 @@
+{
+    "schemaVersion": 1,
+    "change": "lune-memory-web-logs",
+    "createdAt": "2026-11-17T01:40:36.230Z",
+    "intent": "Show persistent daemon logs in the web settings page with bounded history, live updates and reconnect refresh; include individual file import errors without proactive notifications.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "e0b8752c5de133802a0805117c40759fd9cc8eaa",
+    "headRev": "e345fc1c9860a03499cbc1ff84a703b623b752f5",
+    "files": [
+        "packages/lune-memory/CHANGELOG.md",
+        "packages/lune-memory/docs/reference.md",
+        "packages/lune-memory/src/cli.ts",
+        "packages/lune-memory/src/core/log.ts",
+        "packages/lune-memory/src/daemon/run.ts",
+        "packages/lune-memory/src/daemon/server.ts",
+        "packages/lune-memory/src/service.ts",
+        "packages/lune-memory/test/integration/logs.test.ts",
+        "packages/lune-memory/ui/app.css",
+        "packages/lune-memory/ui/app.js"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-17T01:40:36.388Z",
+            "scope": "full",
+            "base": "e0b8752c5de133802a0805117c40759fd9cc8eaa",
+            "head": "e0b8752c5de133802a0805117c40759fd9cc8eaa",
+            "status": "ingested",
+            "findings": 2,
+            "newFindings": 2,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-11-17T01:58:04.679Z",
+            "scope": "diff-after-previous-round",
+            "base": "e0b8752c5de133802a0805117c40759fd9cc8eaa",
+            "head": "833ce39c590a8395f958461f0b5a716a8c587ce6",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/lune-memory/src/daemon/run.ts:63:unhandled-error",
+            "round": 1,
+            "severity": "important",
+            "class": "unhandled-error",
+            "file": "packages/lune-memory/src/daemon/run.ts",
+            "line": 63,
+            "summary": "A failed log write escapes the scheduler's error handler and can terminate the daemon. In an isolated home, replacing logs with a file and running scheduler.runImport() after an injected import error throws EEXIST instead of returning.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "MemoryService.log now catches sink failures, reports them to stderr and log event data, and preserves import/scheduler results. Real blocked-path API and startDaemon regressions pass.",
+            "resolvedAt": "2026-11-17T01:57:27.259Z"
+        },
+        {
+            "id": "F1-2",
+            "key": "packages/lune-memory/src/core/log.ts:40:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/lune-memory/src/core/log.ts",
+            "line": 40,
+            "summary": "2 instances: readLog returns a nonterminated final line despite promising complete lines, and discards the first complete line when the 256 KiB boundary falls exactly at its start. Isolated fixtures return [complete, partial] and [B] instead of [complete] and [the long complete line, B].",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "The bounded reader includes one preceding boundary byte, preserves aligned complete lines, and excludes an unterminated trailing fragment. Exact 64-line byte-boundary and trailing-fragment regressions pass.",
+            "resolvedAt": "2026-11-17T01:57:27.360Z"
+        }
+    ],
+    "convergedAt": "2026-11-17T02:01:40.444Z"
+}

@@ -889,10 +889,11 @@ async function daemonCommand(ctx: Context): Promise<number> {
     const { paths } = ctx;
     if (action === "run") {
         const { DaemonRunningError, startDaemon } = await import("./daemon/run.ts");
-        const log = (message: string) => ctx.err(`${new Date().toISOString()} ${message}`);
+        const log = (message: string) =>
+            ctx.err(`${new Date().toISOString()} [INFO] [DAEMON] ${message}`);
         let daemon;
         try {
-            daemon = await startDaemon({ home: ctx.home, log });
+            daemon = await startDaemon({ home: ctx.home });
         } catch (error) {
             if (error instanceof DaemonRunningError) {
                 ctx.err(`The daemon runs already (process ${error.holder ?? "unknown"})`);
