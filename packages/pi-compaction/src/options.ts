@@ -46,7 +46,7 @@ export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = Object.freeze({
 });
 
 export const DEFAULT_CLASSIFIER_CONCURRENCY = 2;
-// Requests run without retries and one rejected request cancels the review, so the cap bounds rate-limit failures.
+// A terminal request failure cancels the review, so the cap bounds rate-limit failures.
 export const MAX_CLASSIFIER_CONCURRENCY = 16;
 
 /** Embedded providers bypass settings schema validation, so every operation rechecks its options. */

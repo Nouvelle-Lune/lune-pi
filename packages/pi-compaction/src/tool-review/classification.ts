@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { ClassifierContext, ClassifierModel, ClassifierResult } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ModelReference } from "@lune_99/pi-lune-extensions-core/panel";
@@ -59,7 +60,47 @@ export function validateAnswers(result: ClassifierResult, context: ClassifierCon
     }
 }
 
-/** One failed request aborts its siblings; context overflow is a result, not a failure. */
+const MAX_TRANSPORT_RETRIES = 2;
+const TRANSPORT_RETRY_DELAY_MS = 500;
+const TRANSIENT_TRANSPORT_ERROR =
+    /\b(?:UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN)\b|fetch failed|other side closed|network error|socket hang up|connection (?:reset|closed|lost)|\bterminated\b/iu;
+
+async function classifyWithRetry(
+    context: ClassifierContext,
+    classify: Classify,
+    signal: AbortSignal,
+): Promise<ClassifierResult> {
+    for (let attempt = 0; ; attempt++) {
+        signal.throwIfAborted();
+        let message: string;
+        try {
+            // Snapshot before another request can reuse the provider's response object.
+            const result = structuredClone(await classify(context, signal));
+            signal.throwIfAborted();
+            if (result.stopReason !== "error" || isClassifierOverflow(result)) return result;
+            message = result.errorMessage ?? "";
+            if (attempt >= MAX_TRANSPORT_RETRIES || !TRANSIENT_TRANSPORT_ERROR.test(message))
+                return result;
+        } catch (error) {
+            signal.throwIfAborted();
+            if (
+                attempt >= MAX_TRANSPORT_RETRIES ||
+                !(error instanceof Error) ||
+                error.name === "AbortError" ||
+                !TRANSIENT_TRANSPORT_ERROR.test(error.message)
+            )
+                throw error;
+            message = error.message;
+        }
+        const delayMs = TRANSPORT_RETRY_DELAY_MS * 2 ** attempt;
+        console.warn(
+            `[pi-compaction] Classifier transport retry ${attempt + 1}/${MAX_TRANSPORT_RETRIES} in ${delayMs}ms: ${message}`,
+        );
+        await delay(delayMs, undefined, { signal });
+    }
+}
+
+/** A terminal request failure aborts its siblings; context overflow is a result, not a failure. */
 export async function runRequests(
     requests: readonly ClassifierContext[],
     classify: Classify,
@@ -83,8 +124,7 @@ export async function runRequests(
             const index = cursor++;
             const request = requests[index]!;
             try {
-                // A provider may reuse response objects across requests; validate and retain our own snapshot.
-                const result = structuredClone(await classify(request, requestSignal));
+                const result = await classifyWithRetry(request, classify, requestSignal);
                 requestSignal.throwIfAborted();
                 if (!isClassifierOverflow(result)) validateAnswers(result, request);
                 results[index] = result;
