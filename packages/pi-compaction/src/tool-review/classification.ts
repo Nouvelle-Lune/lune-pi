@@ -62,8 +62,17 @@ export function validateAnswers(result: ClassifierResult, context: ClassifierCon
 
 const MAX_TRANSPORT_RETRIES = 2;
 const TRANSPORT_RETRY_DELAY_MS = 500;
+// Provider bodies can contain transport words even when account limits make retries futile.
+const NON_RETRYABLE_PROVIDER_LIMIT_ERROR =
+    /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing|subscription_sharing_usage_limit_exceeded/iu;
 const TRANSIENT_TRANSPORT_ERROR =
-    /\b(?:UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN)\b|fetch failed|other side closed|network error|socket hang up|connection (?:reset|closed|lost)|\bterminated\b/iu;
+    /\b(?:UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN)\b|fetch failed|other side closed|network.?error|connection.?(?:error|reset|refused|closed|lost)|getaddrinfo|upstream.?connect|reset before headers|socket (?:hang up|connection was closed)|timed? out|timeout|\bterminated\b|websocket.?(?:closed|error)|ended without|stream ended before (?:message_stop|a terminal response event)|http2 request did not get a response|pending stream has been canceled/iu;
+
+function isTransientTransportError(message: string): boolean {
+    return (
+        !NON_RETRYABLE_PROVIDER_LIMIT_ERROR.test(message) && TRANSIENT_TRANSPORT_ERROR.test(message)
+    );
+}
 
 async function classifyWithRetry(
     context: ClassifierContext,
@@ -79,7 +88,7 @@ async function classifyWithRetry(
             signal.throwIfAborted();
             if (result.stopReason !== "error" || isClassifierOverflow(result)) return result;
             message = result.errorMessage ?? "";
-            if (attempt >= MAX_TRANSPORT_RETRIES || !TRANSIENT_TRANSPORT_ERROR.test(message))
+            if (attempt >= MAX_TRANSPORT_RETRIES || !isTransientTransportError(message))
                 return result;
         } catch (error) {
             signal.throwIfAborted();
@@ -87,7 +96,7 @@ async function classifyWithRetry(
                 attempt >= MAX_TRANSPORT_RETRIES ||
                 !(error instanceof Error) ||
                 error.name === "AbortError" ||
-                !TRANSIENT_TRANSPORT_ERROR.test(error.message)
+                !isTransientTransportError(error.message)
             )
                 throw error;
             message = error.message;

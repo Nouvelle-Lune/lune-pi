@@ -51,6 +51,36 @@ function settleMicrotasks(): Promise<void> {
     return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+type RunOutcome<T> =
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: unknown };
+
+// The steps are bounded so a wrongly retried request fails on its attempt count instead of waiting
+// for a backoff timer that no assertion fires.
+const CLOCK_STEP_MS = 5_000;
+const MAX_CLOCK_STEPS = 8;
+
+async function settleWithClock<T>(run: Promise<T>): Promise<RunOutcome<T>> {
+    const state: { outcome: RunOutcome<T> | undefined } = { outcome: undefined };
+    void run.then(
+        (value) => {
+            state.outcome = { ok: true, value };
+        },
+        (error: unknown) => {
+            state.outcome = { ok: false, error };
+        },
+    );
+    for (let step = 0; step < MAX_CLOCK_STEPS; step++) {
+        await settleMicrotasks();
+        if (state.outcome) break;
+        mock.timers.tick(CLOCK_STEP_MS);
+    }
+    await settleMicrotasks();
+    if (!state.outcome)
+        throw new Error(`Classifier run did not settle within ${MAX_CLOCK_STEPS} clock steps`);
+    return state.outcome;
+}
+
 function result(
     answers: Record<string, { type: "bool"; probability: number }>,
     overrides: Partial<ClassifierResult> = {},
@@ -373,6 +403,58 @@ test("runRequests retries thrown fetch and socket failures until a request succe
     );
 });
 
+// Pi treats these transport bodies as retryable, so Jev must not cancel the run on the first one.
+const retryableTransportMessages = [
+    "Connection error.",
+    "getaddrinfo ENOTFOUND api.example",
+    "reset before headers",
+    "socket connection was closed",
+] as const;
+
+for (const message of retryableTransportMessages)
+    test(`runRequests retries a thrown "${message}" transport failure`, async () => {
+        let attempts = 0;
+        const run = runRequests(
+            [contextWith(["a"])],
+            async () => {
+                attempts++;
+                if (attempts === 1) throw new Error(message);
+                return result({ a: { type: "bool", probability: 0.3 } });
+            },
+            1,
+            new AbortController().signal,
+            () => undefined,
+        );
+        const actual = await settleWithClock(run);
+        assert.equal(attempts, 2, `"${message}" must be retried once`);
+        if (!actual.ok) assert.fail(`expected a retried result, received ${String(actual.error)}`);
+        const expected = [result({ a: { type: "bool", probability: 0.3 } })];
+        assert.deepEqual(actual.value, expected);
+    });
+
+test("runRequests retries a returned connection error body", async () => {
+    let attempts = 0;
+    const run = runRequests(
+        [contextWith(["a"])],
+        () => {
+            attempts++;
+            return Promise.resolve(
+                attempts === 1
+                    ? result({}, { stopReason: "error", errorMessage: "Connection error." })
+                    : result({ a: { type: "bool", probability: 0.3 } }),
+            );
+        },
+        1,
+        new AbortController().signal,
+        () => undefined,
+    );
+    const actual = await settleWithClock(run);
+    assert.equal(attempts, 2, "a normalized transport body must be retried once");
+    if (!actual.ok) assert.fail(`expected a retried result, received ${String(actual.error)}`);
+    const expected = [result({ a: { type: "bool", probability: 0.3 } })];
+    assert.deepEqual(actual.value, expected);
+});
+
 test("runRequests stops after three attempts and aborts siblings only after the final failure", async () => {
     const contexts = [contextWith(["boom"]), contextWith(["sibling"])];
     const attemptStarted = Array.from({ length: 3 }, () => deferred());
@@ -506,6 +588,82 @@ for (const [name, outcome, expected] of nonRetryableOutcomes)
             expected,
         );
         assert.equal(attempts, 1);
+    });
+
+// A permanent account limit wins over transport words carried in the same provider body.
+const permanentAccountFailures = [
+    "System One API error (403): Your account was terminated due to billing",
+    "System One API error (429): insufficient_quota: fetch failed",
+    "System One API error (429): quota exceeded after socket hang up",
+] as const;
+
+for (const message of permanentAccountFailures)
+    test(`runRequests does not retry a returned "${message}"`, async () => {
+        let attempts = 0;
+        const run = runRequests(
+            [contextWith(["a"])],
+            () => {
+                attempts++;
+                return Promise.resolve(result({}, { stopReason: "error", errorMessage: message }));
+            },
+            1,
+            new AbortController().signal,
+            () => undefined,
+        );
+        const actual = await settleWithClock(run);
+        assert.equal(attempts, 1, "a permanent account limit must fail on the first attempt");
+        if (actual.ok) assert.fail("expected the account limit to fail the request");
+        const actualError = actual.error;
+        assert.ok(actualError instanceof Error);
+        const expectedMessage = `Jev error: ${message}`;
+        assert.equal(actualError.message, expectedMessage);
+    });
+
+test("runRequests does not retry a thrown quota failure that names a transport error", async () => {
+    const failure = new Error("fetch failed: insufficient_quota");
+    let attempts = 0;
+    const run = runRequests(
+        [contextWith(["a"])],
+        () => {
+            attempts++;
+            return Promise.reject(failure);
+        },
+        1,
+        new AbortController().signal,
+        () => undefined,
+    );
+    const actual = await settleWithClock(run);
+    assert.equal(attempts, 1, "the quota exclusion must apply to thrown errors too");
+    if (actual.ok) assert.fail("expected the quota failure to reject the request");
+    assert.equal(actual.error, failure);
+});
+
+// Jev retries transport failures only; an HTTP status alone must not gain retries.
+const serverStatusFailures = [
+    "System One API error (429): Too many requests",
+    "System One API error (503): Service Unavailable",
+] as const;
+
+for (const message of serverStatusFailures)
+    test(`runRequests does not retry a returned "${message}"`, async () => {
+        let attempts = 0;
+        const run = runRequests(
+            [contextWith(["a"])],
+            () => {
+                attempts++;
+                return Promise.resolve(result({}, { stopReason: "error", errorMessage: message }));
+            },
+            1,
+            new AbortController().signal,
+            () => undefined,
+        );
+        const actual = await settleWithClock(run);
+        assert.equal(attempts, 1, "an HTTP status alone is not a transport failure");
+        if (actual.ok) assert.fail("expected the server status to fail the request");
+        const actualError = actual.error;
+        assert.ok(actualError instanceof Error);
+        const expectedMessage = `Jev error: ${message}`;
+        assert.equal(actualError.message, expectedMessage);
     });
 
 test("runRequests keeps its other slots working while a request waits to retry", async () => {
