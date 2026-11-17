@@ -54,7 +54,7 @@
             "summary": "Two instances: the gate lacks Pi's non-retryable provider-limit exclusion (a 403 `Your account was terminated due to billing` gets 3 attempts while `isRetryableAssistantError` returns false), and it omits transport text Pi classifies as retryable (`Connection error.`, `getaddrinfo ENOTFOUND`, `reset before headers`, `socket connection was closed`), which still cancel after one attempt.",
             "preExisting": false,
             "status": "fixed",
-            "resolution": "Exclude permanent quota and billing bodies before matching transport failures on returned and thrown paths; cover SDK transport text without adding HTTP-only retries. Regression tests: 9 fail against 281c90a, all 33 pass after the fix on Node 22 and 24; npm run check passes with 2863 tests.",
+            "resolution": "Exclude permanent quota and billing bodies before matching transport failures on returned and thrown paths; cover SDK transport text without adding HTTP-only retries. Regression tests: 9 fail against 281c90a, all 33 pass after the fix on Node 22 and 24; npm run check passes with 2687 tests.",
             "resolvedAt": "2026-11-17T04:38:07.689Z"
         }
     ],
