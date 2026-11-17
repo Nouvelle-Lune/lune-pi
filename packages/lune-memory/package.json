@@ -24,7 +24,8 @@
         "ui",
         "README.md",
         "CHANGELOG.md",
-        "LICENSE"
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md"
     ],
     "pi": {
         "extensions": [
@@ -59,9 +60,6 @@
     },
     "peerDependenciesMeta": {
         "@earendil-works/pi-coding-agent": {
-            "optional": true
-        },
-        "typebox": {
             "optional": true
         }
     },

@@ -23,7 +23,7 @@ const SECTIONS = [
     {
         id: "models",
         label: "Models & keys",
-        lede: "API keys for the model providers. Keys stay in the local credential file.",
+        lede: "API keys for the model providers, and your own endpoints that speak the OpenAI or Anthropic protocol. Keys stay in the local credential file.",
     },
     {
         id: "projects",
@@ -55,6 +55,11 @@ const SECTIONS = [
 const CONFIG_SECTIONS = new Set(["sources", "dreaming", "storage"]);
 const HARNESS_NAMES = { pi: "Pi", claude: "Claude Code", codex: "Codex" };
 const HARNESSES = ["pi", "claude", "codex"];
+const API_NAMES = {
+    "openai-completions": "OpenAI Chat Completions",
+    "openai-responses": "OpenAI Responses",
+    "anthropic-messages": "Anthropic Messages",
+};
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const LOCATOR_NAMES = { git_common_dir: "Git repository", remote: "Remote", path: "Path" };
 const UNASSIGNED = "_unassigned";
@@ -73,6 +78,7 @@ const state = {
     draft: null,
     invalid: new Set(),
     providers: null,
+    providersError: null,
     credentials: [],
     projects: [],
     showMerged: false,
@@ -334,6 +340,7 @@ function toast(text, tone = "neutral") {
 function dialog({ title, text, fields, confirm, danger = false, submit }) {
     const box = $("dialog");
     box.replaceChildren();
+    box.className = "dialog";
     const confirmButton = h(
         "button",
         { type: "submit", class: `btn ${danger ? "danger" : "primary"}` },
@@ -359,7 +366,7 @@ function dialog({ title, text, fields, confirm, danger = false, submit }) {
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const done = await act(confirmButton, () => submit(form));
-        if (done !== false) box.close();
+        if (done === true) box.close();
     });
     box.append(form);
     box.showModal();
@@ -567,11 +574,12 @@ async function loadConfig() {
 }
 
 async function loadProviders() {
-    const [providers, credentials] = await Promise.all([
+    const [list, credentials] = await Promise.all([
         api("GET", "/api/providers"),
         api("GET", "/api/credentials"),
     ]);
-    state.providers = providers;
+    state.providers = list.providers;
+    state.providersError = list.error;
     state.credentials = credentials;
     if (state.section === "models" || state.section === "dreaming") renderView();
 }
@@ -715,6 +723,14 @@ function onEvent(name, payload) {
         if (data.credential) {
             logActivity(`Key ${data.set ? "saved" : "removed"} for ${data.credential}`, "neutral");
             quietly(loadProviders());
+        } else if (data.provider) {
+            const text = data.added
+                ? `Provider ${data.provider} added`
+                : data.removed
+                  ? `Provider ${data.provider} removed`
+                  : `Models of ${data.provider} listed (${data.models})`;
+            logActivity(text, "neutral");
+            quietly(loadProviders());
         } else {
             quietly(loadConfig());
             quietly(loadStatus());
@@ -823,7 +839,8 @@ function renderView() {
     const followLogs =
         !previousLog || previousLog.scrollHeight - previousLog.clientHeight - logTop < 32;
     const view = $("view");
-    view.replaceChildren(...[RENDERERS[section.id]()].flat());
+    // replaceChildren turns a null into the text "null".
+    view.replaceChildren(...[RENDERERS[section.id]()].flat().filter(Boolean));
     const log = $("log-content");
     if (log) {
         log.scrollTop = followLogs ? log.scrollHeight : logTop;
@@ -1088,56 +1105,249 @@ function renderSources() {
     ];
 }
 
-function modelOptions(current) {
-    const providers = state.providers ?? [];
-    const known = new Set();
-    const groups = providers
-        .filter((provider) => provider.models.length > 0)
-        .sort((a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name))
-        .map((provider) =>
+const PICKER_LIMIT = 200;
+
+/** The provider that owns a `provider/id` reference. Provider ids hold no slash. */
+function providerOfModel(ref) {
+    if (!ref) return null;
+    return (state.providers ?? []).find((provider) => ref.startsWith(`${provider.id}/`)) ?? null;
+}
+
+function contextText(tokens) {
+    if (tokens >= 1_000_000) return `${Number((tokens / 1_000_000).toFixed(1))}M`;
+    if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+    return String(tokens);
+}
+
+/** A row with a button that opens the model picker. */
+function modelControl(path, label, hint) {
+    const id = `cfg-${path}`;
+    const current = getPath(state.draft, path) ?? "";
+    const provider = providerOfModel(current);
+    const model = provider?.models.find((entry) => `${provider.id}/${entry.id}` === current);
+    let shown;
+    if (!state.providers) shown = h("span", { class: "muted" }, "Loading providers");
+    else if (!current) shown = h("span", { class: "muted" }, "None (no Dreaming)");
+    else {
+        shown = [
+            h("span", { class: "picker-name" }, model ? model.name || model.id : current),
             h(
-                "optgroup",
-                { label: provider.configured ? provider.name : `${provider.name} (no key)` },
-                provider.models.map((model) => {
-                    const value = `${provider.id}/${model.id}`;
-                    known.add(value);
-                    return h(
-                        "option",
-                        { value, selected: value === current },
-                        model.name || model.id,
-                    );
-                }),
+                "span",
+                { class: "picker-ref" },
+                model ? `${provider.name} · ${current}` : "Not among the listed models",
+            ),
+        ];
+    }
+    const button = h(
+        "button",
+        { type: "button", id, class: "input picker-button", disabled: !state.providers },
+        h("span", { class: "picker-text" }, shown),
+    );
+    button.addEventListener("click", () =>
+        pickModel(current, (ref) => {
+            setDraft(path, ref);
+            renderView();
+            $(id)?.focus({ preventScroll: true });
+        }),
+    );
+    return h(
+        "div",
+        { class: "setting" },
+        h(
+            "div",
+            { class: "setting-text" },
+            h("label", { class: "setting-label", for: id }, label),
+            hint ? h("p", { class: "setting-hint" }, hint) : null,
+        ),
+        button,
+    );
+}
+
+/**
+ * Pick a model. The providers are on the left and the models of one provider on the right. The
+ * search box filters both. Providers with a key come first. A click on a model, or Enter in the
+ * search box, picks it. `onPick` gets `provider/id`, or null for no model.
+ */
+function pickModel(current, onPick) {
+    const providers = (state.providers ?? [])
+        .filter((provider) => provider.models.length > 0)
+        .sort(
+            (a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name),
+        );
+    const view = {
+        providerId:
+            providerOfModel(current)?.id ??
+            (providers.find((provider) => provider.configured) ?? providers[0])?.id ??
+            null,
+    };
+    const box = $("dialog");
+    box.replaceChildren();
+    box.className = "dialog picker";
+
+    const pick = (ref) => {
+        box.close();
+        onPick(ref);
+    };
+    const search = h("input", {
+        type: "search",
+        class: "input",
+        placeholder: "Search models and providers",
+        "aria-label": "Search models and providers",
+        autocomplete: "off",
+        spellcheck: "false",
+    });
+    const body = h("div", { class: "picker-body" });
+
+    const modelRow = (provider, model) => {
+        const ref = `${provider.id}/${model.id}`;
+        return h(
+            "button",
+            {
+                type: "button",
+                class: "picker-model",
+                "aria-current": ref === current ? "true" : null,
+                onclick: () => pick(ref),
+            },
+            h(
+                "span",
+                { class: "picker-model-line" },
+                h("span", { class: "picker-model-name" }, model.name || model.id),
+                model.reasoning ? badge("reasoning", "accent") : null,
+            ),
+            h(
+                "span",
+                { class: "picker-model-sub" },
+                model.name && model.name !== model.id ? h("code", {}, model.id) : null,
+                model.name && model.name !== model.id && model.contextWindow ? " · " : null,
+                model.contextWindow ? `${contextText(model.contextWindow)} context` : null,
             ),
         );
-    return [
-        h("option", { value: "", selected: !current }, "None (no Dreaming)"),
-        current && !known.has(current)
-            ? h(
-                  "option",
-                  { value: current, selected: true },
-                  `${current}${state.providers ? " (not found)" : ""}`,
-              )
-            : null,
-        groups,
-    ];
+    };
+
+    const render = () => {
+        const words = search.value.toLowerCase().split(/\s+/u).filter(Boolean);
+        const entries = providers
+            .map((provider) => ({
+                provider,
+                models: provider.models.filter((model) => {
+                    const text =
+                        `${provider.name} ${provider.id} ${model.name} ${model.id}`.toLowerCase();
+                    return words.every((word) => text.includes(word));
+                }),
+            }))
+            .filter((entry) => entry.models.length > 0);
+        const active = entries.find((entry) => entry.provider.id === view.providerId) ?? entries[0];
+        const firstWithoutKey = entries.findIndex((entry) => !entry.provider.configured);
+        const shown = active ? active.models.slice(0, PICKER_LIMIT) : [];
+        body.replaceChildren(
+            h(
+                "div",
+                { class: "picker-providers", "aria-label": "Providers" },
+                entries.map((entry, index) => [
+                    index === firstWithoutKey
+                        ? h("div", { class: "picker-divider" }, "No key yet")
+                        : null,
+                    h(
+                        "button",
+                        {
+                            type: "button",
+                            class: `picker-provider${entry.provider.configured ? "" : " dim"}`,
+                            "aria-current": entry === active ? "true" : null,
+                            onclick: () => {
+                                view.providerId = entry.provider.id;
+                                render();
+                            },
+                        },
+                        h("span", {}, entry.provider.name),
+                        h("span", { class: "picker-count" }, count(entry.models.length)),
+                    ),
+                ]),
+            ),
+            h(
+                "div",
+                { class: "picker-models", "aria-label": "Models" },
+                active
+                    ? [
+                          shown.map((model) => modelRow(active.provider, model)),
+                          active.models.length > shown.length
+                              ? h(
+                                    "p",
+                                    { class: "picker-note" },
+                                    `Showing ${count(shown.length)} of ${count(active.models.length)} models. Type in the search box to narrow the list.`,
+                                )
+                              : null,
+                      ]
+                    : empty("No model matches the search."),
+            ),
+        );
+    };
+
+    search.addEventListener("input", render);
+    search.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        body.querySelector(".picker-model")?.click();
+    });
+    const root = h(
+        "div",
+        { class: "dialog-form picker-form" },
+        h("h2", {}, "Choose a model"),
+        search,
+        body,
+        h(
+            "div",
+            { class: "dialog-actions" },
+            current
+                ? h(
+                      "button",
+                      {
+                          type: "button",
+                          class: "btn ghost picker-clear",
+                          onclick: () => pick(null),
+                      },
+                      "Use no model",
+                  )
+                : null,
+            h(
+                "button",
+                { type: "button", class: "btn ghost", onclick: () => box.close() },
+                "Cancel",
+            ),
+        ),
+    );
+    // Arrow keys move between the search box and the model rows. Tab reaches the providers.
+    root.addEventListener("keydown", (event) => {
+        const down = event.key === "ArrowDown";
+        if (!down && event.key !== "ArrowUp") return;
+        const rows = [...body.querySelectorAll(".picker-model")];
+        const at = rows.indexOf(document.activeElement);
+        if (document.activeElement !== search && at < 0) return;
+        event.preventDefault();
+        if (down) rows[Math.min(at + 1, rows.length - 1)]?.focus();
+        else if (at <= 0) search.focus();
+        else rows[at - 1].focus();
+    });
+    box.append(root);
+    render();
+    box.showModal();
+    search.focus();
+    body.querySelector('.picker-model[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
 }
 
 function renderDreaming() {
     if (!state.draft) return loading();
     const model = state.draft.dreaming.model;
-    const provider = model
-        ? (state.providers ?? []).find((entry) => model.startsWith(`${entry.id}/`))
-        : null;
+    const provider = providerOfModel(model);
     return [
         card(
             "Model",
             state.providers ? null : h("span", { class: "muted small" }, "Loading providers"),
-            selectControl(
+            modelControl(
                 "dreaming.model",
                 "Dreaming model",
-                modelOptions,
                 "Sessions go to this model. Pick one whose provider has a key.",
             ),
+            providersNotice(),
             provider && !provider.configured
                 ? h(
                       "div",
@@ -1259,7 +1469,10 @@ function renderModels() {
                 provider.id.toLowerCase().includes(filter),
         )
         .sort(
-            (a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name),
+            (a, b) =>
+                Number(b.custom) - Number(a.custom) ||
+                Number(b.configured) - Number(a.configured) ||
+                a.name.localeCompare(b.name),
         );
     const others = state.providers.filter((provider) => !provider.apiKey);
 
@@ -1275,10 +1488,15 @@ function renderModels() {
         },
     });
 
+    const addButton = h("button", { type: "button", class: "btn primary" }, "Add provider");
+    addButton.addEventListener("click", addProviderDialog);
+
     return [
+        providersNotice(),
         h(
             "div",
             { class: "toolbar" },
+            addButton,
             search,
             h("span", { class: "muted small" }, `${plural(keyed.length, "provider")}`),
         ),
@@ -1353,7 +1571,7 @@ function providerRow(provider, hasStoredKey) {
         }),
     );
     const removeButton = hasStoredKey
-        ? h("button", { type: "button", class: "btn small ghost danger-text" }, "Remove")
+        ? h("button", { type: "button", class: "btn small ghost danger-text" }, "Remove key")
         : null;
     removeButton?.addEventListener("click", () =>
         dialog({
@@ -1383,7 +1601,13 @@ function providerRow(provider, hasStoredKey) {
                 provider.name,
                 " ",
                 h("code", { class: "muted" }, provider.id),
+                provider.custom
+                    ? [" ", badge(API_NAMES[provider.api] ?? "Custom", "outline")]
+                    : null,
             ),
+            provider.custom && provider.baseUrl
+                ? h("div", { class: "row-sub" }, h("code", {}, provider.baseUrl))
+                : null,
             h(
                 "div",
                 { class: "row-sub" },
@@ -1394,7 +1618,144 @@ function providerRow(provider, hasStoredKey) {
                 plural(provider.models.length, "model"),
             ),
         ),
-        h("div", { class: "row-actions" }, removeButton, setButton),
+        h(
+            "div",
+            { class: "row-actions" },
+            provider.custom ? customProviderActions(provider) : null,
+            removeButton,
+            setButton,
+        ),
+    );
+}
+
+/** Rescan and remove buttons of a provider that models.json holds. */
+function customProviderActions(provider) {
+    const scanButton = h("button", { type: "button", class: "btn small" }, "Scan models");
+    scanButton.addEventListener("click", () =>
+        act(scanButton, async () => {
+            const result = await api(
+                "POST",
+                `/api/providers/${encodeURIComponent(provider.id)}/scan`,
+            );
+            toast(`${provider.name}: ${plural(result.models, "model")} listed`, "success");
+            await loadProviders();
+        }),
+    );
+    const removeButton = h(
+        "button",
+        { type: "button", class: "btn small ghost danger-text" },
+        "Remove provider",
+    );
+    removeButton.addEventListener("click", () =>
+        dialog({
+            title: `Remove ${provider.name}?`,
+            text: "The provider leaves models.json and its stored key is deleted. Dreaming stops while one of its models is selected.",
+            confirm: "Remove provider",
+            danger: true,
+            submit: async () => {
+                await api("DELETE", `/api/providers/${encodeURIComponent(provider.id)}`);
+                toast(`${provider.name} removed`, "success");
+                await loadProviders();
+                return true;
+            },
+        }),
+    );
+    return [scanButton, removeButton];
+}
+
+function addProviderDialog() {
+    dialog({
+        title: "Add a provider",
+        text: "An endpoint that speaks one of the three protocols. lune-memory asks it for its models and keeps them in models.json, which has the format of the models.json of Pi.",
+        confirm: "Add provider",
+        fields: () => [
+            field(
+                "Provider id",
+                h("input", {
+                    name: "id",
+                    class: "input mono",
+                    required: true,
+                    placeholder: "my-gateway",
+                    pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{0,63}",
+                    autocomplete: "off",
+                    spellcheck: "false",
+                }),
+                "Model references read my-gateway/model-id. Letters, digits, dots, dashes and underscores.",
+            ),
+            field("Name", h("input", { name: "name", class: "input", placeholder: "Optional" })),
+            field(
+                "Protocol",
+                h(
+                    "select",
+                    { name: "api", class: "input select" },
+                    Object.entries(API_NAMES).map(([value, text]) => h("option", { value }, text)),
+                ),
+            ),
+            field(
+                "Base URL",
+                h("input", {
+                    name: "baseUrl",
+                    type: "url",
+                    class: "input mono",
+                    required: true,
+                    placeholder: "https://api.example.com/v1",
+                    spellcheck: "false",
+                }),
+                "With the OpenAI protocols, the URL ends in /v1. With Anthropic Messages, it is the host without /v1.",
+            ),
+            field(
+                "API key",
+                h("input", {
+                    type: "password",
+                    name: "key",
+                    class: "input mono",
+                    autocomplete: "off",
+                    spellcheck: "false",
+                }),
+                "Dreaming needs a key. Any text works for a local endpoint that ignores keys. It stays in the local credential file.",
+            ),
+            h(
+                "label",
+                { class: "check" },
+                h("input", { type: "checkbox", name: "scan", checked: true }),
+                "List the models of the endpoint after adding it",
+            ),
+        ],
+        submit: async (form) => {
+            const name = form.elements.name.value.trim();
+            const key = form.elements.key.value.trim();
+            const added = await api("POST", "/api/providers", {
+                id: form.elements.id.value.trim(),
+                ...(name ? { name } : {}),
+                api: form.elements.api.value,
+                baseUrl: form.elements.baseUrl.value.trim(),
+                ...(key ? { key } : {}),
+                scan: form.elements.scan.checked,
+            });
+            await loadProviders();
+            if (added.scanError) {
+                toast(
+                    `${added.id} was added, but listing its models failed: ${added.scanError}`,
+                    "danger",
+                );
+            } else if (added.scan) {
+                toast(`${added.id} added with ${plural(added.scan.models, "model")}`, "success");
+            } else {
+                toast(`${added.id} added`, "success");
+            }
+            return true;
+        },
+    });
+}
+
+/** The reason that models.json, or a provider of it, did not load. */
+function providersNotice() {
+    if (!state.providersError) return null;
+    return h(
+        "div",
+        { class: "notice danger" },
+        "models.json has a problem. A provider that fails to load is missing, and Dreaming does not run while the file cannot be read.",
+        h("pre", {}, state.providersError),
     );
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -68,6 +68,18 @@ test("delete removes one provider and keeps the file mode", async (t) => {
 
     assert.deepEqual(await store.list(), [{ providerId: "other", type: "api_key" }]);
     assert.equal(statSync(store.path).mode & 0o777, 0o600);
+});
+
+test("a key with a line break is rejected and nothing is stored", async (t) => {
+    const store = tempStore(t);
+
+    await assert.rejects(
+        setApiKey(store, "acme", "sk-secret-in-key\nsecond-line"),
+        /The key must be a single line/u,
+    );
+
+    assert.deepEqual(await store.list(), []);
+    assert.equal(existsSync(store.path), false);
 });
 
 test("a missing file reads as empty", async (t) => {
