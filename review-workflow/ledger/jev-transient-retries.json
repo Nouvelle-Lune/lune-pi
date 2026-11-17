@@ -1,0 +1,62 @@
+{
+    "schemaVersion": 1,
+    "change": "jev-transient-retries",
+    "createdAt": "2026-11-17T03:28:36.642Z",
+    "intent": "Retry transient Jev classifier transport failures at most twice with cancellable 500 ms and 1 s backoff, preserve configured concurrency, and cancel compaction after terminal errors or exhausted retries.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "e781eda221f6ae33c3846ecc0c1a5c4d2aecc6a1",
+    "headRev": "281c90a4d58b443fad3b5c7fe0fbe5b3209df49e",
+    "files": [
+        "packages/pi-compaction/CHANGELOG.md",
+        "packages/pi-compaction/README.md",
+        "packages/pi-compaction/src/options.ts",
+        "packages/pi-compaction/src/tool-review/classification.ts",
+        "packages/pi-compaction/src/tool-review/review.ts",
+        "packages/pi-compaction/test/tool-review/classification.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-17T03:28:36.787Z",
+            "scope": "full",
+            "base": "e781eda221f6ae33c3846ecc0c1a5c4d2aecc6a1",
+            "head": "281c90a4d58b443fad3b5c7fe0fbe5b3209df49e",
+            "status": "ingested",
+            "findings": 1,
+            "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-11-17T04:38:12.925Z",
+            "scope": "diff-after-previous-round",
+            "base": "281c90a4d58b443fad3b5c7fe0fbe5b3209df49e",
+            "head": "cfd31a1db480c0bbfa0a4f8ff4bd5e4409e8462a",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [
+        {
+            "id": "F1-1",
+            "key": "packages/pi-compaction/src/tool-review/classification.ts:66:missing-guard",
+            "round": 1,
+            "severity": "important",
+            "class": "missing-guard",
+            "file": "packages/pi-compaction/src/tool-review/classification.ts",
+            "line": 66,
+            "summary": "Two instances: the gate lacks Pi's non-retryable provider-limit exclusion (a 403 `Your account was terminated due to billing` gets 3 attempts while `isRetryableAssistantError` returns false), and it omits transport text Pi classifies as retryable (`Connection error.`, `getaddrinfo ENOTFOUND`, `reset before headers`, `socket connection was closed`), which still cancel after one attempt.",
+            "preExisting": false,
+            "status": "fixed",
+            "resolution": "Exclude permanent quota and billing bodies before matching transport failures on returned and thrown paths; cover SDK transport text without adding HTTP-only retries. Regression tests: 9 fail against 281c90a, all 33 pass after the fix on Node 22 and 24; npm run check passes with 2863 tests.",
+            "resolvedAt": "2026-11-17T04:38:07.689Z"
+        }
+    ],
+    "convergedAt": "2026-11-17T04:41:05.118Z"
+}

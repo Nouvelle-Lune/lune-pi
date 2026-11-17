@@ -140,6 +140,7 @@ export async function reviewToolHistory(
         (request, requestSignal) =>
             ctx.modelRegistry.classify(classifier, request, {
                 signal: requestSignal,
+                // The worker owns bounded transport retries, including normalized error results.
                 maxRetries: 0,
             }),
         concurrency,
