@@ -17,7 +17,7 @@
         "packages/pi-compaction/src/tool-review/review.ts",
         "packages/pi-compaction/test/tool-review/classification.test.ts"
     ],
-    "state": "ready",
+    "state": "converged",
     "rounds": [
         {
             "round": 1,
@@ -28,6 +28,17 @@
             "status": "ingested",
             "findings": 1,
             "newFindings": 1,
+            "duplicates": 0
+        },
+        {
+            "round": 2,
+            "at": "2026-11-17T04:38:12.925Z",
+            "scope": "diff-after-previous-round",
+            "base": "281c90a4d58b443fad3b5c7fe0fbe5b3209df49e",
+            "head": "cfd31a1db480c0bbfa0a4f8ff4bd5e4409e8462a",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
             "duplicates": 0
         }
     ],
@@ -46,5 +57,6 @@
             "resolution": "Exclude permanent quota and billing bodies before matching transport failures on returned and thrown paths; cover SDK transport text without adding HTTP-only retries. Regression tests: 9 fail against 281c90a, all 33 pass after the fix on Node 22 and 24; npm run check passes with 2863 tests.",
             "resolvedAt": "2026-11-17T04:38:07.689Z"
         }
-    ]
+    ],
+    "convergedAt": "2026-11-17T04:41:05.118Z"
 }
