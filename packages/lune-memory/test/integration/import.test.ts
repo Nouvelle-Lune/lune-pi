@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
+import { ADAPTERS } from "../../src/adapters/index.ts";
 import { MEMORY_CONTEXT_TAG } from "../../src/core/types.ts";
 import { getSession, listEvents } from "../../src/store/rows.ts";
 import {
@@ -208,14 +209,82 @@ describe("import", () => {
         assert.equal(summary.scanned, 0);
     });
 
-    it("records a file with an unknown format as an error and does not stop the scan", () => {
+    it("imports a file on the next scan after its first parse failed, with the same bytes and stat", (t) => {
         env = createIngestEnv({ now: NOW });
-        writeText(join(env.roots.pi, "cwd-a", "bad.jsonl"), jsonl([{ type: "message", id: "x" }]));
+        piFile(env, "s1.jsonl", "s1", ["a", "b"], { mtime: 1_000_000 });
+        t.mock.method(ADAPTERS.pi, "parse", () => {
+            throw new Error("transient parser failure");
+        });
+        const failed = env.importer.importAll();
+        assert.equal(failed.errors, 1);
+        assert.match(failed.problems[0]?.error ?? "", /transient parser failure/u);
+        assert.equal(getSession(env.store, "pi", "s1"), null);
+
+        t.mock.restoreAll();
+        const recovered = env.importer.importAll();
+        assert.equal(recovered.errors, 0);
+        assert.equal(recovered.imported, 1);
+        assert.equal(getSession(env.store, "pi", "s1")?.revision, 1);
+        assert.deepEqual(
+            listEvents(env.store, "pi", "s1").map((e) => e.text),
+            ["a", "b"],
+        );
+    });
+
+    it("keeps a session's events when an update fails and imports them all after the same file recovers", (t) => {
+        env = createIngestEnv({ now: NOW });
+        piFile(env, "s1.jsonl", "s1", ["a", "b"], { mtime: 1_000_000 });
+        env.importer.importAll();
+        const before = listEvents(env.store, "pi", "s1").map((e) => [e.key, e.text]);
+
+        piFile(env, "s1.jsonl", "s1", ["a", "b", "c"], { mtime: 2_000_000 });
+        t.mock.method(ADAPTERS.pi, "parse", () => {
+            throw new Error("transient parser failure");
+        });
+        const failed = env.importer.importAll();
+        assert.equal(failed.errors, 1);
+        assert.match(failed.problems[0]?.error ?? "", /transient parser failure/u);
+        const failedSession = getSession(env.store, "pi", "s1");
+        assert.equal(failedSession?.status, "error");
+        assert.match(failedSession?.lastError ?? "", /transient parser failure/u);
+        assert.deepEqual(
+            listEvents(env.store, "pi", "s1").map((e) => [e.key, e.text]),
+            before,
+        );
+
+        t.mock.restoreAll();
+        const recovered = env.importer.importAll();
+        assert.equal(recovered.errors, 0);
+        assert.equal(recovered.imported, 1);
+        const session = getSession(env.store, "pi", "s1");
+        assert.equal(session?.status, "ok");
+        assert.equal(session?.lastError, null);
+        assert.equal(session?.revision, 2);
+        assert.deepEqual(
+            listEvents(env.store, "pi", "s1").map((e) => e.text),
+            ["a", "b", "c"],
+        );
+    });
+
+    it("keeps reporting an unchanged malformed file as an error on every scan", () => {
+        env = createIngestEnv({ now: NOW });
+        const bad = join(env.roots.pi, "cwd-a", "bad.jsonl");
+        writeText(bad, jsonl([{ type: "message", id: "x" }]), 1_000_000);
         piFile(env, "good.jsonl", "good", ["ok"]);
-        const summary = env.importer.importAll();
-        assert.equal(summary.errors, 1);
-        assert.equal(summary.imported, 1);
-        assert.match(summary.problems[0]?.error ?? "", /Unknown format/u);
+        const first = env.importer.importAll();
+        assert.equal(first.errors, 1);
+        assert.equal(first.imported, 1);
+        assert.match(first.problems[0]?.error ?? "", /Unknown format/u);
+
+        const second = env.importer.importAll();
+        assert.equal(second.errors, 1);
+        assert.match(second.problems[0]?.error ?? "", /Unknown format/u);
+
+        // Same bytes with a new mtime: only the content fingerprint matches the failed record.
+        writeText(bad, jsonl([{ type: "message", id: "x" }]), 2_000_000);
+        const third = env.importer.importAll();
+        assert.equal(third.errors, 1);
+        assert.match(third.problems[0]?.error ?? "", /Unknown format/u);
     });
 
     describe("a text block with an unknown shape in a changed file", () => {

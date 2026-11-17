@@ -1,0 +1,33 @@
+{
+    "schemaVersion": 1,
+    "change": "lune-memory-import-retry",
+    "createdAt": "2026-11-16T17:40:46.415Z",
+    "intent": "Retry files whose last import failed on each scan, bypassing both unchanged-file caches, preserving visible failures and existing forgotten-file handling.",
+    "tier": "standard",
+    "tierReasons": [],
+    "roundCap": 2,
+    "minIndependentReviews": 1,
+    "baseRev": "68594112e115007b16a3f58839371def06348edb",
+    "headRev": "296ca834e24f1d81c4546ab93ae9e00a108e3b3c",
+    "files": [
+        "packages/lune-memory/CHANGELOG.md",
+        "packages/lune-memory/src/ingest/importer.ts",
+        "packages/lune-memory/test/integration/import.test.ts"
+    ],
+    "state": "converged",
+    "rounds": [
+        {
+            "round": 1,
+            "at": "2026-11-16T17:40:46.519Z",
+            "scope": "full",
+            "base": "68594112e115007b16a3f58839371def06348edb",
+            "head": "296ca834e24f1d81c4546ab93ae9e00a108e3b3c",
+            "status": "ingested",
+            "findings": 0,
+            "newFindings": 0,
+            "duplicates": 0
+        }
+    ],
+    "findings": [],
+    "convergedAt": "2026-11-16T17:42:31.901Z"
+}

@@ -181,7 +181,7 @@ export class Importer {
         return summary;
     }
 
-    /** Import one session file. A file with the same size and mtime as before is not read. */
+    /** Import one session file. Failed imports are retried even when their source is unchanged. */
     importFile(ref: SessionFileRef): {
         outcome: FileOutcome;
         session?: ImportedSession;
@@ -190,8 +190,10 @@ export class Importer {
         const known = this.store.get("SELECT * FROM source_files WHERE path = ?", ref.path);
         // A forgotten file stays forgotten, also when it changes later.
         if (known && text(known, "status") === "forgotten") return { outcome: "skipped" };
+        const retry = known !== undefined && text(known, "status") === "error";
         if (
             known &&
+            !retry &&
             Number(known.size) === ref.size &&
             Number(known.mtime) === ref.mtimeMs &&
             text(known, "status") !== "pending"
@@ -207,7 +209,7 @@ export class Importer {
             return { outcome: "error", error: message };
         }
         const fileHash = sha256(raw);
-        if (known && textOrNull(known, "fingerprint") === fileHash) {
+        if (known && !retry && textOrNull(known, "fingerprint") === fileHash) {
             this.recordFile(
                 ref,
                 fileHash,
