@@ -28,7 +28,15 @@ import {
 import type { L1Result } from "./memory/l1.ts";
 import type { ForgetResult, RevertResult } from "./memory/revert.ts";
 import type { SearchResult } from "./memory/search.ts";
-import type { MemoryLocation, MemoryService, MemoryStatus, ProviderInfo } from "./service.ts";
+import type {
+    MemoryLocation,
+    MemoryService,
+    MemoryStatus,
+    ProviderAdded,
+    ProviderInput,
+    ProviderList,
+    ProviderScan,
+} from "./service.ts";
 import type { RunRow } from "./store/rows.ts";
 
 export interface CliIo {
@@ -51,6 +59,8 @@ const BOOLEAN_FLAGS = new Set([
     "install-hook",
     "remove-hook",
     "disable",
+    "key",
+    "no-scan",
     "help",
     "version",
 ]);
@@ -66,6 +76,8 @@ const VALUE_FLAGS = new Set([
     "since",
     "until",
     "context",
+    "api",
+    "url",
 ]);
 
 const IMPORT_TIMEOUT_MS = 10 * 60_000;
@@ -73,6 +85,7 @@ const DREAM_TIMEOUT_MS = 30 * 60_000;
 const HOOK_TIMEOUT_MS = 20_000;
 const STDIN_TIMEOUT_MS = 5_000;
 const STOP_WAIT_MS = 10_000;
+const SCAN_TIMEOUT_MS = 120_000;
 
 const USAGE = `lune-memory: shared memory for coding agents
 
@@ -108,6 +121,14 @@ Config
   credential list
   credential set <provider>          Reads the key from stdin
   credential remove <provider>
+
+Providers
+  provider list
+  provider add <id> --api <openai-completions|openai-responses|anthropic-messages>
+               --url <base url> [--name name] [--key] [--no-scan]
+                                     --key reads the API key from stdin
+  provider scan <id>                 List the models of the endpoint again
+  provider remove <id>
 
 Daemon and integrations
   daemon [run | start | stop | status]
@@ -851,7 +872,7 @@ async function configCommand(ctx: Context): Promise<number> {
 async function credentialCommand(ctx: Context): Promise<number> {
     const [action = "list", provider] = ctx.args.positional;
     if (action === "list") {
-        const providers = await admin<ProviderInfo[]>(
+        const { providers } = await admin<ProviderList>(
             ctx,
             "GET",
             "/api/providers",
@@ -879,6 +900,84 @@ async function credentialCommand(ctx: Context): Promise<number> {
         s.setCredential(provider, key),
     );
     ctx.out(action === "set" ? `Saved the key for ${provider}` : `Removed the key for ${provider}`);
+    return 0;
+}
+
+async function providerCommand(ctx: Context): Promise<number> {
+    const [action = "list", id] = ctx.args.positional;
+    if (action === "list") {
+        const { providers, error } = await admin<ProviderList>(
+            ctx,
+            "GET",
+            "/api/providers",
+            undefined,
+            (s) => s.providers(),
+        );
+        const custom = providers.filter((provider) => provider.custom);
+        if (error) ctx.err(`models.json: ${error}`);
+        if (ctx.args.has("json")) json(ctx, custom);
+        else if (custom.length === 0) ctx.out("No custom providers");
+        else {
+            for (const provider of custom) {
+                const state = provider.configured ? "key set" : "no key";
+                ctx.out(
+                    `${provider.id}: ${provider.api ?? "protocol per model"} ${provider.baseUrl ?? "URL per model"}, ` +
+                        `${provider.models.length} models, ${state}`,
+                );
+            }
+        }
+        return 0;
+    }
+    if (action !== "add" && action !== "scan" && action !== "remove") {
+        throw new UsageError(`Unknown provider action: ${action}`);
+    }
+    if (!id) throw new UsageError("Missing provider");
+    const path = `/api/providers/${encodeURIComponent(id)}`;
+    if (action === "remove") {
+        await admin(ctx, "DELETE", path, undefined, (s) => s.removeProvider(id));
+        ctx.out(`Removed ${id}`);
+        return 0;
+    }
+    if (action === "scan") {
+        const scan = await admin<ProviderScan>(
+            ctx,
+            "POST",
+            `${path}/scan`,
+            undefined,
+            (s) => s.scanProvider(id),
+            SCAN_TIMEOUT_MS,
+        );
+        ctx.out(`${id}: ${scan.models} models`);
+        return 0;
+    }
+    const api = ctx.args.value("api");
+    const url = ctx.args.value("url");
+    if (!api || !url) throw new UsageError("provider add needs --api and --url");
+    const key = ctx.args.has("key") ? await readSecret(ctx.io, `API key for ${id}: `) : "";
+    if (ctx.args.has("key") && !key) throw new UsageError("The key is empty");
+    const name = ctx.args.value("name");
+    const input: ProviderInput = {
+        id,
+        api,
+        baseUrl: url,
+        ...(name ? { name } : {}),
+        ...(key ? { key } : {}),
+        scan: !ctx.args.has("no-scan"),
+    };
+    const added = await admin<ProviderAdded>(
+        ctx,
+        "POST",
+        "/api/providers",
+        input,
+        (s) => s.addProvider(input),
+        SCAN_TIMEOUT_MS,
+    );
+    ctx.out(`Added ${added.id}`);
+    if (added.scan) ctx.out(`${added.scan.models} models found`);
+    if (added.scanError) {
+        ctx.err(`The scan failed: ${added.scanError}`);
+        return 1;
+    }
     return 0;
 }
 
@@ -993,6 +1092,7 @@ const COMMANDS: Record<string, Handler> = {
     split: splitCommand,
     config: configCommand,
     credential: credentialCommand,
+    provider: providerCommand,
     daemon: daemonCommand,
     mcp: mcpCommand,
 };

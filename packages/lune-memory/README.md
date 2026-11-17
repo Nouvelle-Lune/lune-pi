@@ -14,7 +14,8 @@ agent can search all earlier sessions through MCP.
 ## Quick start
 
 Requires Node.js **22.19.0 or newer** and an API key for a model that
-[pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai) supports.
+[pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai) supports, or for an endpoint of your
+own that speaks the OpenAI or Anthropic protocol.
 
 ```bash
 npm install -g @lune_99/lune-memory
@@ -97,8 +98,11 @@ fills in the session and folder.
 `lune-memory settings` starts the daemon if necessary and opens a local page. On the page you can:
 
 - turn import on or off for each harness and change its session folder
-- select the Dreaming model, its thinking level and the pass limits
+- select the Dreaming model, its thinking level and the pass limits; a picker with search and one
+  list of models for each provider replaces a long drop-down
 - add or remove provider API keys (the page never shows a stored key)
+- add your own provider that speaks the OpenAI Chat Completions, OpenAI Responses or Anthropic
+  Messages protocol, and let lune-memory list its models
 - start a pass, read the run history and revert a run
 - rename, merge, split and register projects
 

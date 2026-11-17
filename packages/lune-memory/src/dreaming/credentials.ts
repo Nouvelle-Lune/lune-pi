@@ -8,6 +8,7 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import { writeFileAtomic } from "../core/util.ts";
+import { validateApiKey } from "./http-headers.ts";
 
 const FILE_MODE = 0o600;
 
@@ -108,13 +109,20 @@ export class FileCredentialStore implements CredentialStore {
     }
 }
 
+/** Validate before persisting a key or its provider; transport errors can echo invalid values. */
+export function normalizeApiKey(key: string): string {
+    const value = key.trim();
+    validateApiKey(value);
+    return value;
+}
+
 /** Store an API key for a provider. An empty key removes the credential. */
 export async function setApiKey(
     store: CredentialStore,
     providerId: string,
     key: string,
 ): Promise<void> {
-    const value = key.trim();
+    const value = normalizeApiKey(key);
     if (!value) {
         await store.delete(providerId);
         return;

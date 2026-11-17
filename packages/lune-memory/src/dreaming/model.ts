@@ -7,11 +7,10 @@ import {
     type Models,
     type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 
 import { parseModelRef, type DreamingConfig } from "../core/config.ts";
 import type { MemoryPaths } from "../core/paths.ts";
-import { FileCredentialStore } from "./credentials.ts";
+import { loadModelRegistry } from "./providers/registry.ts";
 
 /** Token and cost totals of the model calls of one run. */
 export type Usage = Record<string, number>;
@@ -82,11 +81,23 @@ export function createDreamingModel(
     if (!config.model) throw new Error("No Dreaming model configured");
     const parsed = parseModelRef(config.model);
     if (!parsed) throw new Error(`Dreaming model must be provider/id: ${config.model}`);
-    const models =
-        options.models ??
-        builtinModels({ credentials: new FileCredentialStore(paths.credentials) });
+    const registry = options.models
+        ? { models: options.models, error: undefined, fileFailed: false }
+        : loadModelRegistry(paths);
+    // Without the settings of a file that failed to load, a provider of pi-ai would send the
+    // sessions to its default endpoint instead of the gateway that the file names.
+    if (registry.fileFailed) {
+        throw new Error(
+            `models.json did not load, so Dreaming does not call ${config.model}:\n${registry.error}`,
+        );
+    }
+    const models = registry.models;
     const model = models.getModel(parsed.provider, parsed.id);
-    if (!model) throw new Error(`Unknown Dreaming model: ${config.model}`);
+    if (!model) {
+        // A provider of models.json that fails to load is missing, so the cause belongs in the message.
+        const cause = registry.error ? `\n${registry.error}` : "";
+        throw new Error(`Unknown Dreaming model: ${config.model}${cause}`);
+    }
     const reasoning = reasoningFor(model, config.thinking);
     const ref = config.model;
     return {

@@ -58,5 +58,9 @@ export type {
     MemoryLocation,
     MemoryService,
     MemoryStatus,
+    ProviderAdded,
     ProviderInfo,
+    ProviderInput,
+    ProviderList,
+    ProviderScan,
 } from "./service.ts";

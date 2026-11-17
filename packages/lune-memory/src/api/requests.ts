@@ -9,7 +9,7 @@ import {
 } from "../core/types.ts";
 import type { NoteInput } from "../memory/notes.ts";
 import type { SearchOptions } from "../memory/search.ts";
-import type { DreamRequest } from "../service.ts";
+import type { DreamRequest, ProviderInput } from "../service.ts";
 
 /** An invalid request. The daemon answers with the status. */
 export class RequestError extends Error {
@@ -239,6 +239,21 @@ export function parseDream(body: Body): Omit<DreamRequest, "signal"> {
         force: optBool(body, "force") ?? false,
         ...(projectId !== undefined ? { projectId } : {}),
         ...(sessions ? { sessions } : {}),
+    };
+}
+
+/** The service checks the protocol, the id and the URL. */
+export function parseProviderAdd(body: Body): ProviderInput {
+    const name = optString(body, "name");
+    const key = optString(body, "key");
+    const scan = optBool(body, "scan");
+    return {
+        id: reqString(body, "id"),
+        api: reqString(body, "api"),
+        baseUrl: reqString(body, "baseUrl"),
+        ...(name ? { name } : {}),
+        ...(key ? { key } : {}),
+        ...(scan !== undefined ? { scan } : {}),
     };
 }
 

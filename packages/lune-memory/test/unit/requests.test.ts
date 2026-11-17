@@ -10,6 +10,7 @@ import {
     parseL1,
     parseNoteUpdate,
     parseNoteWrite,
+    parseProviderAdd,
     parseSearch,
     parseWriter,
     reqHarness,
@@ -169,5 +170,42 @@ describe("errorStatus", () => {
         assert.equal(errorStatus(new Error("Unknown project: p")), 500);
         assert.equal(errorStatus(new TypeError("boom")), 500);
         assert.equal(errorStatus("string"), 500);
+    });
+});
+
+describe("parseProviderAdd", () => {
+    const minimal = { id: "acme", api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1" };
+
+    it("requires an id, a protocol and a base URL", () => {
+        rejects(() => parseProviderAdd({}), /id must be a non-empty string/u);
+        rejects(() => parseProviderAdd({ id: "acme" }), /api must be a non-empty string/u);
+        rejects(
+            () => parseProviderAdd({ id: "acme", api: "openai-completions" }),
+            /baseUrl must be a non-empty string/u,
+        );
+        rejects(
+            () => parseProviderAdd({ id: "acme", api: "openai-completions", baseUrl: " " }),
+            /baseUrl must be a non-empty string/u,
+        );
+    });
+
+    it("keeps an optional name, key and scan, including scan: false", () => {
+        assert.deepEqual(parseProviderAdd(minimal), minimal);
+        assert.deepEqual(parseProviderAdd({ ...minimal, name: "Acme", key: "k", scan: false }), {
+            ...minimal,
+            name: "Acme",
+            key: "k",
+            scan: false,
+        });
+        assert.deepEqual(
+            parseProviderAdd({ ...minimal, name: null, key: null, scan: null }),
+            minimal,
+        );
+    });
+
+    it("rejects the optional fields with a wrong type", () => {
+        rejects(() => parseProviderAdd({ ...minimal, name: 3 }), /name must be a string/u);
+        rejects(() => parseProviderAdd({ ...minimal, key: true }), /key must be a string/u);
+        rejects(() => parseProviderAdd({ ...minimal, scan: "yes" }), /scan must be true or false/u);
     });
 });

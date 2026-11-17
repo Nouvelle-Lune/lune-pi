@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { openTestDaemon, TEST_TOKEN, type Json, type TestDaemon } from "../harness/daemon.ts";
+import { startEndpoint } from "../harness/endpoint.ts";
 
 let daemon: TestDaemon;
 
@@ -396,5 +397,113 @@ describe("credentials", () => {
             key: "test-key-not-real",
         });
         assert.equal(response.status, 404);
+    });
+});
+
+describe("custom providers", () => {
+    const KEY = "test-key-not-real";
+
+    /** The harness only sends GET, POST and PUT, and these routes need DELETE. */
+    async function del(url: string): Promise<{ status: number; body: Json; text: string }> {
+        const response = await daemon.app.inject({
+            method: "DELETE",
+            url,
+            headers: { host: "127.0.0.1", authorization: `Bearer ${TEST_TOKEN}` },
+        });
+        return {
+            status: response.statusCode,
+            body: JSON.parse(response.body),
+            text: response.body,
+        };
+    }
+
+    it("adds a provider with a scan, lists it, scans it again and deletes it", async (t) => {
+        const endpoint = await startEndpoint((request) =>
+            request.url === "/v1/models"
+                ? { json: { data: [{ id: "acme-1" }, { id: "acme-2" }] } }
+                : { status: 404, json: { error: `unexpected ${request.url}` } },
+        );
+        t.after(() => endpoint.close());
+        const baseUrl = `${endpoint.url}/v1`;
+
+        const added = await daemon.api("POST", "/api/providers", {
+            id: "acme",
+            api: "openai-completions",
+            baseUrl,
+            name: "Acme",
+            key: KEY,
+        });
+        assert.equal(added.status, 201);
+        assert.deepEqual(added.body, {
+            id: "acme",
+            scan: { id: "acme", models: 2 },
+            scanError: null,
+        });
+
+        const scanned = await daemon.api("POST", "/api/providers/acme/scan");
+        assert.equal(scanned.status, 200);
+        assert.deepEqual(scanned.body, { id: "acme", models: 2 });
+
+        const list = await daemon.api("GET", "/api/providers");
+        assert.equal(list.status, 200);
+        assert.deepEqual(Object.keys(list.body).sort(), ["error", "providers"]);
+        assert.equal(list.body.error, null);
+        const provider = list.body.providers.find((entry: Json) => entry.id === "acme");
+        assert.ok(provider);
+        assert.deepEqual(
+            {
+                custom: provider.custom,
+                api: provider.api,
+                baseUrl: provider.baseUrl,
+                configured: provider.configured,
+            },
+            { custom: true, api: "openai-completions", baseUrl, configured: true },
+        );
+        assert.deepEqual(
+            provider.models.map((model: Json) => model.id),
+            ["acme-1", "acme-2"],
+        );
+        assert.ok(!list.text.includes(KEY));
+        assert.ok(list.body.providers.some((entry: Json) => entry.custom === false));
+
+        const removed = await del("/api/providers/acme");
+        assert.equal(removed.status, 200);
+        assert.deepEqual(removed.body, { ok: true });
+        const after = await daemon.api("GET", "/api/providers");
+        assert.equal(
+            after.body.providers.some((entry: Json) => entry.id === "acme"),
+            false,
+        );
+    });
+
+    it("answers 400 for an invalid body and 404 for an unknown provider", async () => {
+        const invalidApi = await daemon.api("POST", "/api/providers", {
+            id: "acme",
+            api: "grpc",
+            baseUrl: "http://127.0.0.1:1/v1",
+        });
+        assert.equal(invalidApi.status, 400);
+        assert.match(invalidApi.body.error, /api must be one of/u);
+
+        const missingField = await daemon.api("POST", "/api/providers", { id: "acme" });
+        assert.equal(missingField.status, 400);
+        assert.match(missingField.body.error, /api must be a non-empty string/u);
+
+        const scan = await daemon.api("POST", "/api/providers/nope/scan");
+        assert.equal(scan.status, 404);
+        assert.match(scan.body.error, /Unknown custom provider/u);
+
+        const removed = await del("/api/providers/nope");
+        assert.equal(removed.status, 404);
+    });
+
+    it("needs the token for the provider routes", async () => {
+        const response = await daemon.app.inject({
+            method: "POST",
+            url: "/api/providers",
+            headers: { host: "127.0.0.1", "content-type": "application/json" },
+            payload: JSON.stringify({ id: "acme" }),
+        });
+        assert.equal(response.statusCode, 401);
     });
 });

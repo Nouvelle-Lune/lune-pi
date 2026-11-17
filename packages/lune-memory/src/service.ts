@@ -1,5 +1,5 @@
 import type { Models } from "@earendil-works/pi-ai";
-import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 
 import {
     loadConfig,
@@ -24,8 +24,19 @@ import {
     type Project,
 } from "./core/types.ts";
 import { errorMessage } from "./core/util.ts";
-import { FileCredentialStore, setApiKey } from "./dreaming/credentials.ts";
+import { FileCredentialStore, normalizeApiKey, setApiKey } from "./dreaming/credentials.ts";
 import { runDreamingPass, type DreamEvent, type PassSummary } from "./dreaming/index.ts";
+import { CUSTOM_APIS, isCustomApi } from "./dreaming/providers/apis.ts";
+import {
+    isProviderId,
+    modelsFileSignature,
+    normalizeBaseUrl,
+    providerEntry,
+    readModelsDocument,
+    writeModelsDocument,
+} from "./dreaming/providers/models-json.ts";
+import { loadModelRegistry, type ModelRegistry } from "./dreaming/providers/registry.ts";
+import { scanModels } from "./dreaming/providers/scan.ts";
 import { Importer, type ImportSummary } from "./ingest/importer.ts";
 import { relocateTranscripts } from "./ingest/transcripts.ts";
 import { assembleL1, type L1Result } from "./memory/l1.ts";
@@ -107,7 +118,42 @@ export interface ProviderInfo {
     configured: boolean;
     /** Where the credential comes from, for example an environment variable. */
     source: string | null;
-    models: Array<{ id: string; name: string; reasoning: boolean }>;
+    /** The user added the provider to models.json. It is no provider of pi-ai. */
+    custom: boolean;
+    /** Protocol and base URL that models.json sets for the provider. Null when it sets none. */
+    api: string | null;
+    baseUrl: string | null;
+    models: Array<{ id: string; name: string; reasoning: boolean; contextWindow: number }>;
+}
+
+export interface ProviderList {
+    providers: ProviderInfo[];
+    /** Why models.json, or a provider of it, did not load. Null when all loaded. */
+    error: string | null;
+}
+
+export interface ProviderInput {
+    id: string;
+    name?: string;
+    /** Protocol: openai-completions, openai-responses or anthropic-messages. */
+    api: string;
+    baseUrl: string;
+    /** API key for the credential file. */
+    key?: string;
+    /** List the models of the endpoint after adding the provider. Default true. */
+    scan?: boolean;
+}
+
+export interface ProviderScan {
+    id: string;
+    models: number;
+}
+
+export interface ProviderAdded {
+    id: string;
+    scan: ProviderScan | null;
+    /** The provider exists, but listing its models failed. Fix the cause and scan again. */
+    scanError: string | null;
 }
 
 export interface MemoryStatus {
@@ -149,7 +195,8 @@ export class MemoryService {
     readonly resolver: ProjectResolver;
     private config: MemoryConfig;
     private importer: Importer;
-    private registry: Models | null;
+    private readonly injected: Models | null;
+    private cached: { signature: string; registry: ModelRegistry } | null = null;
     private readonly now: () => number;
     private readonly listeners = new Set<ServiceListener>();
     private lastPass: PassSummary | null = null;
@@ -159,7 +206,7 @@ export class MemoryService {
         this.paths = paths;
         this.store = store;
         this.now = options.now ?? Date.now;
-        this.registry = options.models ?? null;
+        this.injected = options.models ?? null;
         this.config = loadConfig(paths.config);
         this.resolver = new ProjectResolver(store, { now: this.now });
         this.importer = new Importer(store, paths, this.config, this.resolver, { now: this.now });
@@ -355,7 +402,7 @@ export class MemoryService {
             ...(request.sessions ? { sessions: request.sessions } : {}),
             ...(request.signal ? { signal: request.signal } : {}),
             now: this.now(),
-            models: this.models(),
+            ...(this.injected ? { models: this.injected } : {}),
             onEvent: (event: DreamEvent) => this.emit("dream", { ...event }),
         });
         if (summary.status !== "busy") this.lastPass = summary;
@@ -538,12 +585,21 @@ export class MemoryService {
     // -----------------------------------------------------------------------------------------
     // Models and credentials
 
-    /** Model registry of pi-ai with the credential file of lune-memory. */
+    /**
+     * The model registry: the one that tests give, else the providers of pi-ai and of models.json
+     * with the credential file of lune-memory. A write to models.json builds the registry again.
+     */
+    private registry(): ModelRegistry {
+        if (this.injected) return { models: this.injected, error: undefined, fileFailed: false };
+        const signature = modelsFileSignature(this.paths.models);
+        if (this.cached?.signature !== signature) {
+            this.cached = { signature, registry: loadModelRegistry(this.paths) };
+        }
+        return this.cached.registry;
+    }
+
     models(): Models {
-        this.registry ??= builtinModels({
-            credentials: new FileCredentialStore(this.paths.credentials),
-        });
-        return this.registry;
+        return this.registry().models;
     }
 
     /** Providers that have a stored credential. Keys never leave the store. */
@@ -562,9 +618,16 @@ export class MemoryService {
         this.emit("config", { credential: providerId, set: key.trim().length > 0 });
     }
 
-    /** Providers and chat models of pi-ai, with their auth state. */
-    async providers(): Promise<ProviderInfo[]> {
-        const models = this.models();
+    /** Providers and chat models of pi-ai and models.json, with their auth state. */
+    async providers(): Promise<ProviderList> {
+        const { models, error } = this.registry();
+        const builtin = new Set<string>(getBuiltinProviders());
+        let document: ReturnType<typeof readModelsDocument> | null = null;
+        try {
+            document = readModelsDocument(this.paths.models);
+        } catch {
+            // The registry reports a file that does not parse. The list shows no protocol for it.
+        }
         const result: ProviderInfo[] = [];
         for (const provider of models.getProviders()) {
             let check: { source?: string } | undefined;
@@ -573,19 +636,119 @@ export class MemoryService {
             } catch {
                 check = undefined;
             }
+            const entry = document ? providerEntry(document, provider.id) : undefined;
             result.push({
                 id: provider.id,
                 name: provider.name,
                 apiKey: Boolean(provider.auth.apiKey),
                 configured: check !== undefined,
                 source: check?.source ?? null,
+                custom: !builtin.has(provider.id),
+                api: typeof entry?.api === "string" ? entry.api : null,
+                baseUrl: typeof entry?.baseUrl === "string" ? entry.baseUrl : null,
                 models: models.getModels(provider.id).map((model) => ({
                     id: model.id,
                     name: model.name,
                     reasoning: Boolean(model.reasoning),
+                    contextWindow: model.contextWindow,
                 })),
             });
         }
-        return result;
+        return { providers: result, error: error ?? null };
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Custom providers
+
+    /** Add a custom provider to models.json and, unless `scan` is false, list its models. */
+    async addProvider(input: ProviderInput): Promise<ProviderAdded> {
+        const id = input.id.trim();
+        if (!isProviderId(id)) {
+            throw new MemoryOperationError(
+                "The provider id has letters, digits, dots, dashes and underscores, and starts with a letter or digit",
+            );
+        }
+        if ((getBuiltinProviders() as string[]).includes(id)) {
+            throw new MemoryOperationError(`${id} is a provider of pi-ai`);
+        }
+        if (!isCustomApi(input.api)) {
+            throw new MemoryOperationError(`api must be one of ${CUSTOM_APIS.join(", ")}`);
+        }
+        const baseUrl = normalizeBaseUrl(input.baseUrl);
+        const key = normalizeApiKey(input.key ?? "");
+        const document = readModelsDocument(this.paths.models);
+        if (providerEntry(document, id)) {
+            throw new MemoryOperationError(`Provider ${id} exists already`);
+        }
+        const name = input.name?.trim();
+        document.providers[id] = { ...(name ? { name } : {}), baseUrl, api: input.api };
+        writeModelsDocument(this.paths.models, document);
+        if (key) await setApiKey(new FileCredentialStore(this.paths.credentials), id, key);
+        this.emit("config", { provider: id, added: true });
+
+        let scan: ProviderScan | null = null;
+        let scanError: string | null = null;
+        if (input.scan ?? true) {
+            try {
+                scan = await this.scanProvider(id);
+            } catch (error) {
+                scanError = errorMessage(error) || "unknown error";
+            }
+        }
+        return { id, scan, scanError };
+    }
+
+    /** Remove a custom provider and its stored key. Providers of pi-ai stay. */
+    async removeProvider(providerId: string): Promise<void> {
+        const checked = readModelsDocument(this.paths.models);
+        if (!providerEntry(checked, providerId)) {
+            throw new MemoryOperationError(`Unknown custom provider: ${providerId}`);
+        }
+        if ((getBuiltinProviders() as string[]).includes(providerId)) {
+            throw new MemoryOperationError(
+                `${providerId} is a provider of pi-ai. Edit its entry in models.json instead`,
+            );
+        }
+        // The key goes first: once the provider is gone, setCredential rejects its id, so a key
+        // left behind could not be cleared.
+        await setApiKey(new FileCredentialStore(this.paths.credentials), providerId, "");
+        // Read again: a call that ran while the key was cleared can have changed the file.
+        const document = readModelsDocument(this.paths.models);
+        delete document.providers[providerId];
+        writeModelsDocument(this.paths.models, document);
+        this.emit("config", { provider: providerId, removed: true });
+    }
+
+    /**
+     * Ask the endpoint of a custom provider for its models and write them to its entry in
+     * models.json. The new list replaces the old one. Changes to single models belong in
+     * `modelOverrides`, which a scan keeps.
+     */
+    async scanProvider(providerId: string, signal?: AbortSignal): Promise<ProviderScan> {
+        const before = providerEntry(readModelsDocument(this.paths.models), providerId);
+        if (!before) throw new MemoryOperationError(`Unknown custom provider: ${providerId}`);
+        if (!isCustomApi(before.api) || typeof before.baseUrl !== "string") {
+            throw new MemoryOperationError(
+                `${providerId} needs a base URL and one of these protocols to scan: ${CUSTOM_APIS.join(", ")}`,
+            );
+        }
+        const baseUrl = normalizeBaseUrl(before.baseUrl);
+        const auth = await this.models().getAuth(providerId);
+        const found = await scanModels({
+            api: before.api,
+            baseUrl,
+            apiKey: auth?.auth.apiKey,
+            headers: auth?.auth.headers,
+            signal,
+        });
+        if (found.length === 0) throw new MemoryOperationError(`${baseUrl} lists no models`);
+        // Read again: the scan took a while, and the file can have changed meanwhile.
+        const document = readModelsDocument(this.paths.models);
+        const entry = providerEntry(document, providerId);
+        if (!entry) throw new MemoryOperationError(`Unknown custom provider: ${providerId}`);
+        entry.models = found;
+        writeModelsDocument(this.paths.models, document);
+        this.emit("config", { provider: providerId, models: found.length });
+        return { id: providerId, models: found.length };
     }
 }

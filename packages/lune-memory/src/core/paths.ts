@@ -12,6 +12,8 @@ export interface MemoryPaths {
     config: string;
     /** Model credentials of lune-memory. Mode 0600. */
     credentials: string;
+    /** Custom providers and their models, in the format of the models.json of Pi. */
+    models: string;
     /** Port and token of the running daemon. Mode 0600. */
     daemon: string;
     lock: string;
@@ -29,6 +31,7 @@ export function memoryPaths(home: string): MemoryPaths {
         db: join(home, "memory.db"),
         config: join(home, "config.json"),
         credentials: join(home, "credentials.json"),
+        models: join(home, "models.json"),
         daemon: join(home, "daemon.json"),
         lock: join(home, "daemon.lock"),
         views: join(home, "views"),

@@ -12,6 +12,7 @@ command accepts `--home <dir>` too.
 | `memory.db`                               | SQLite database in WAL mode, the source of truth               |
 | `config.json`                             | Settings, mode 0600                                            |
 | `credentials.json`                        | Provider API keys, mode 0600                                   |
+| `models.json`                             | Custom providers and their models, in the format of Pi         |
 | `daemon.json`                             | Address, token and process id of the running daemon, mode 0600 |
 | `daemon.lock`                             | Lock that keeps one daemon for each memory folder              |
 | `logs/daemon.log`                         | Daemon log, rotated at 5 MB                                    |
@@ -76,12 +77,73 @@ A `~` at the start of a harness root expands to the home folder. A change to `im
 ### Models and keys
 
 Dreaming calls models through [pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai). The
-model is a pi-ai provider and model id, for example `anthropic/claude-sonnet-4-5`. The settings
-page lists the providers and models that pi-ai knows.
+model is a provider and model id, for example `anthropic/claude-sonnet-4-5`. The id of a model
+can hold slashes, so `magpie/codex/gpt-6.1-sol` is the model `codex/gpt-6.1-sol` of the provider
+`magpie`. The settings page lists the providers and models that pi-ai knows, and those of
+`models.json`. Its model picker has a search box and one list of models for each provider.
 
 A key in `credentials.json` has priority over the environment variable of the provider, for example
 `ANTHROPIC_API_KEY`. `lune-memory credential list` and `GET /api/credentials` show only the
 provider and the key type, never the key.
+
+### Custom providers
+
+An endpoint of your own is a custom provider. It speaks one of three protocols, and pi-ai sends the
+requests, so lune-memory has no client of its own:
+
+| `api`                | Protocol                | Base URL               | Model list                 |
+| -------------------- | ----------------------- | ---------------------- | -------------------------- |
+| `openai-completions` | OpenAI Chat Completions | Ends in `/v1`          | `GET <base URL>/models`    |
+| `openai-responses`   | OpenAI Responses        | Ends in `/v1`          | `GET <base URL>/models`    |
+| `anthropic-messages` | Anthropic Messages      | The host without `/v1` | `GET <base URL>/v1/models` |
+
+Add one on the settings page (**Models & keys**, **Add provider**), with `lune-memory provider add`,
+or with `POST /api/providers`. The provider id has letters, digits, dots, dashes and underscores,
+and starts with a letter or digit. It must differ from every provider of pi-ai. The base URL is
+HTTP or HTTPS with no user name, password, query string or fragment, and a trailing slash is
+removed. The key goes to `credentials.json`, never to `models.json`, and it must be one line.
+Adding a provider lists its models unless you turn that off. A failed listing keeps the provider:
+fix the cause and run `provider scan`. A scan that cannot finish all pages leaves the existing
+model list in place.
+
+`models.json` uses the Pi format for these three protocols, including provider headers,
+compatibility settings and model overrides. It accepts `//` comments and trailing commas. A write by lune-memory keeps
+every field that it does not manage, but drops the comments. A symlink stays a symlink, so
+`models.json` can point to the file of Pi. A file that does not parse or validate loads no
+provider of its own and applies none of its settings to the providers of pi-ai. The settings page
+and `provider list` show why, and Dreaming does not run until the file is fixed, so no session
+goes to a default endpoint instead of the gateway that the file names. A single provider entry that
+is invalid is left out and reported, and the others still load.
+
+```json
+{
+    "providers": {
+        "magpie": {
+            "name": "Magpie",
+            "baseUrl": "http://127.0.0.1:3425/v1",
+            "api": "openai-completions",
+            "models": [{ "id": "auto/auto", "name": "Auto", "contextWindow": 200000 }]
+        }
+    }
+}
+```
+
+A scan replaces the `models` of the provider with the list of the endpoint. It reads the names, the
+context window, the output limit, the image input, the price and the reasoning levels as the
+endpoint states them. A model that lists `/v1/responses` as its only native endpoint gets the
+OpenAI Responses protocol. Switching between OpenAI and Anthropic also sets the model's base URL
+to match the SDK's `/v1` handling and keeps any gateway path prefix. A model that does not output
+text, such as an embedding model, is left out. Settings that a scan does not set, such as `compat`, belong to `modelOverrides`, which a
+scan keeps. The scan sends the key of the provider as `Authorization: Bearer`, or as `x-api-key`
+with Anthropic Messages. Neither a scan nor a model call follows a redirect, because the request
+holds the key and, for a model call, the session text. A scan reports the new address without
+credentials or its query string; a model call reports the redirect status. Set the base URL to
+the final address before trying again.
+
+As in Pi, `apiKey` and `headers` take a literal, a `$ENV_VAR` template or a `!command`. Resolved
+keys and headers are checked before a request; errors omit their values and shell commands.
+A provider with `oauth` is not supported. `provider list` marks a missing provider-level protocol
+or URL as defined per model.
 
 ## Command line
 
@@ -89,37 +151,41 @@ provider and the key type, never the key.
 lune-memory <command> [options]
 ```
 
-| Command                                                                                                                                      | Purpose                                                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `setup`                                                                                                                                      | Show the state of each harness                                          |
-| `setup <harness> [--root dir] [--disable]`                                                                                                   | Turn import of one harness on or off and print the next steps           |
-| `setup <claude\|codex> --install-hook`                                                                                                       | Add the SessionStart hook; not for `pi`                                 |
-| `setup <claude\|codex> --remove-hook`                                                                                                        | Remove the SessionStart hook; not for `pi`                              |
-| `settings [--print]`                                                                                                                         | Open the settings page; `--print` only prints the address               |
-| `l1 [--harness h] [--session id] [--cwd dir]`                                                                                                | Print the session summary for a folder                                  |
-| `search <query...> [--project id \| --all] [--harness h] [--session id] [--since time] [--until time] [--limit n] [--context n] [--cwd dir]` | Search transcripts                                                      |
-| `location [--cwd dir]`                                                                                                                       | Print the project of a folder and its view paths                        |
-| `import [harness...]`                                                                                                                        | Import new sessions now                                                 |
-| `dream [--force] [--project id\|_unassigned] [harness:id...]`                                                                                | Run a Dreaming pass now                                                 |
-| `status`                                                                                                                                     | Show the daemon, the import, the Dreaming and the view state            |
-| `runs [--limit n]`                                                                                                                           | List the latest passes                                                  |
-| `sessions [--limit n] [--project id\|_unassigned]`                                                                                           | List imported sessions                                                  |
-| `revert <run> [--reprocess]`                                                                                                                 | Undo a pass; `--reprocess` marks its sessions unprocessed               |
-| `forget <harness> <id>`, `forget <harness:id>`                                                                                               | Delete a session and the memory that only it supports                   |
-| `regenerate`                                                                                                                                 | Write a new Markdown generation                                         |
-| `projects [--merged]`                                                                                                                        | List projects; `--merged` includes merged ones                          |
-| `register <path> [--name name]`                                                                                                              | Make a folder outside Git a project                                     |
-| `rename <project> <name...>`                                                                                                                 | Rename a project                                                        |
-| `merge <source> <target>`                                                                                                                    | Move one project into another                                           |
-| `split <git_common_dir\|remote\|path> <value> [--name name]`                                                                                 | Move one locator and its sessions to a project of its own               |
-| `config get [key.path]`                                                                                                                      | Print the configuration or one value                                    |
-| `config set <key.path> <value>`                                                                                                              | Change one value; the value is JSON or text                             |
-| `credential list`                                                                                                                            | List the stored keys without their values                               |
-| `credential set <provider>`                                                                                                                  | Store a key that you give on stdin                                      |
-| `credential remove <provider>`                                                                                                               | Remove a stored key                                                     |
-| `daemon [run\|start\|stop\|status]`                                                                                                          | Run the daemon in front, start it in the background, stop it or show it |
-| `mcp [--harness h] [--session id] [--cwd dir]`                                                                                               | Run the MCP server over stdio                                           |
-| `hook --harness <claude\|codex>`                                                                                                             | SessionStart hook; reads the hook input on stdin                        |
+| Command                                                                                                                                      | Purpose                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `setup`                                                                                                                                      | Show the state of each harness                                           |
+| `setup <harness> [--root dir] [--disable]`                                                                                                   | Turn import of one harness on or off and print the next steps            |
+| `setup <claude\|codex> --install-hook`                                                                                                       | Add the SessionStart hook; not for `pi`                                  |
+| `setup <claude\|codex> --remove-hook`                                                                                                        | Remove the SessionStart hook; not for `pi`                               |
+| `settings [--print]`                                                                                                                         | Open the settings page; `--print` only prints the address                |
+| `l1 [--harness h] [--session id] [--cwd dir]`                                                                                                | Print the session summary for a folder                                   |
+| `search <query...> [--project id \| --all] [--harness h] [--session id] [--since time] [--until time] [--limit n] [--context n] [--cwd dir]` | Search transcripts                                                       |
+| `location [--cwd dir]`                                                                                                                       | Print the project of a folder and its view paths                         |
+| `import [harness...]`                                                                                                                        | Import new sessions now                                                  |
+| `dream [--force] [--project id\|_unassigned] [harness:id...]`                                                                                | Run a Dreaming pass now                                                  |
+| `status`                                                                                                                                     | Show the daemon, the import, the Dreaming and the view state             |
+| `runs [--limit n]`                                                                                                                           | List the latest passes                                                   |
+| `sessions [--limit n] [--project id\|_unassigned]`                                                                                           | List imported sessions                                                   |
+| `revert <run> [--reprocess]`                                                                                                                 | Undo a pass; `--reprocess` marks its sessions unprocessed                |
+| `forget <harness> <id>`, `forget <harness:id>`                                                                                               | Delete a session and the memory that only it supports                    |
+| `regenerate`                                                                                                                                 | Write a new Markdown generation                                          |
+| `projects [--merged]`                                                                                                                        | List projects; `--merged` includes merged ones                           |
+| `register <path> [--name name]`                                                                                                              | Make a folder outside Git a project                                      |
+| `rename <project> <name...>`                                                                                                                 | Rename a project                                                         |
+| `merge <source> <target>`                                                                                                                    | Move one project into another                                            |
+| `split <git_common_dir\|remote\|path> <value> [--name name]`                                                                                 | Move one locator and its sessions to a project of its own                |
+| `config get [key.path]`                                                                                                                      | Print the configuration or one value                                     |
+| `config set <key.path> <value>`                                                                                                              | Change one value; the value is JSON or text                              |
+| `credential list`                                                                                                                            | List the stored keys without their values                                |
+| `credential set <provider>`                                                                                                                  | Store a key that you give on stdin                                       |
+| `credential remove <provider>`                                                                                                               | Remove a stored key                                                      |
+| `provider list`                                                                                                                              | List the custom providers, their protocol and URL, and their model count |
+| `provider add <id> --api <protocol> --url <base URL> [--name name] [--key] [--no-scan]`                                                      | Add a custom provider; `--key` reads the key from stdin                  |
+| `provider scan <id>`                                                                                                                         | List the models of a custom provider again                               |
+| `provider remove <id>`                                                                                                                       | Remove a custom provider and its stored key                              |
+| `daemon [run\|start\|stop\|status]`                                                                                                          | Run the daemon in front, start it in the background, stop it or show it  |
+| `mcp [--harness h] [--session id] [--cwd dir]`                                                                                               | Run the MCP server over stdio                                            |
+| `hook --harness <claude\|codex>`                                                                                                             | SessionStart hook; reads the hook input on stdin                         |
 
 `--home <dir>` selects the memory folder. It can come before the command name, as in the hook and
 MCP commands that `setup` writes. `--json` prints JSON. `--help` and `--version` work with every
@@ -416,33 +482,36 @@ token of 32 bytes in base64url. Only the settings page files (`/`, `/ui/app.js` 
 Errors have the body `{ "error": "<message>" }`. The settings page gets the token from the
 address fragment, so the token does not go to the server log or the `Referer` header.
 
-| Method and path                      | Purpose                                                        |
-| ------------------------------------ | -------------------------------------------------------------- |
-| `GET /api/health`                    | `{ ok, version, pid, busy }`; `busy` is true while a pass runs |
-| `POST /api/l1`                       | Session summary for `harness`, `sessionId`, `cwd`              |
-| `POST /api/notes`                    | Write a note                                                   |
-| `PUT /api/notes/:id`                 | Update a note                                                  |
-| `POST /api/notes/:id/retract`        | Retract a note                                                 |
-| `POST /api/search`                   | Search transcripts                                             |
-| `POST /api/location`                 | Project and view paths of a folder                             |
-| `POST /api/import`                   | Import now                                                     |
-| `POST /api/dream`                    | Run a pass; `wait: false` returns 202 at once                  |
-| `POST /api/regenerate`               | Write a new Markdown generation                                |
-| `POST /api/runs/:id/revert`          | Revert a pass                                                  |
-| `POST /api/sessions/forget`          | Forget a session                                               |
-| `GET /api/status`                    | Daemon, import, Dreaming and view state                        |
-| `GET /api/runs`                      | Latest passes                                                  |
-| `GET /api/projects`                  | Projects and their locators                                    |
-| `GET /api/sessions`                  | Imported sessions                                              |
-| `GET /api/config`, `PUT /api/config` | Read or replace the whole configuration                        |
-| `GET /api/credentials`               | Stored providers and key types                                 |
-| `PUT /api/credentials/:provider`     | Store a key; an empty key removes it                           |
-| `GET /api/providers`                 | Providers and models of pi-ai                                  |
-| `POST /api/projects`                 | Register a folder                                              |
-| `POST /api/projects/merge`           | Merge two projects                                             |
-| `POST /api/projects/split`           | Split a locator off                                            |
-| `POST /api/projects/:id/rename`      | Rename a project                                               |
-| `GET /api/events`                    | Server-sent events                                             |
+| Method and path                      | Purpose                                                                                                              |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`                    | `{ ok, version, pid, busy }`; `busy` is true while a pass runs                                                       |
+| `POST /api/l1`                       | Session summary for `harness`, `sessionId`, `cwd`                                                                    |
+| `POST /api/notes`                    | Write a note                                                                                                         |
+| `PUT /api/notes/:id`                 | Update a note                                                                                                        |
+| `POST /api/notes/:id/retract`        | Retract a note                                                                                                       |
+| `POST /api/search`                   | Search transcripts                                                                                                   |
+| `POST /api/location`                 | Project and view paths of a folder                                                                                   |
+| `POST /api/import`                   | Import now                                                                                                           |
+| `POST /api/dream`                    | Run a pass; `wait: false` returns 202 at once                                                                        |
+| `POST /api/regenerate`               | Write a new Markdown generation                                                                                      |
+| `POST /api/runs/:id/revert`          | Revert a pass                                                                                                        |
+| `POST /api/sessions/forget`          | Forget a session                                                                                                     |
+| `GET /api/status`                    | Daemon, import, Dreaming and view state                                                                              |
+| `GET /api/runs`                      | Latest passes                                                                                                        |
+| `GET /api/projects`                  | Projects and their locators                                                                                          |
+| `GET /api/sessions`                  | Imported sessions                                                                                                    |
+| `GET /api/config`, `PUT /api/config` | Read or replace the whole configuration                                                                              |
+| `GET /api/credentials`               | Stored providers and key types                                                                                       |
+| `PUT /api/credentials/:provider`     | Store a key; an empty key removes it                                                                                 |
+| `GET /api/providers`                 | `{ providers, error }`: providers and models of pi-ai and `models.json`; `error` says why `models.json` did not load |
+| `POST /api/providers`                | Add a custom provider; 201 with `{ id, scan, scanError }`                                                            |
+| `DELETE /api/providers/:id`          | Remove a custom provider and its stored key                                                                          |
+| `POST /api/providers/:id/scan`       | List the models of a custom provider again                                                                           |
+| `POST /api/projects`                 | Register a folder                                                                                                    |
+| `POST /api/projects/merge`           | Merge two projects                                                                                                   |
+| `POST /api/projects/split`           | Split a locator off                                                                                                  |
+| `POST /api/projects/:id/rename`      | Rename a project                                                                                                     |
+| `GET /api/events`                    | Server-sent events                                                                                                   |
 
 `GET /api/events` sends `ready` with the version first. Then it sends `import`, `dream`, `index`
 and `config` events, and a ping comment every 25 seconds.

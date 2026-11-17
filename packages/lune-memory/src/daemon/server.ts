@@ -13,6 +13,7 @@ import {
     parseL1,
     parseNoteUpdate,
     parseNoteWrite,
+    parseProviderAdd,
     parseSearch,
     parseWriter,
     reqHarness,
@@ -294,6 +295,20 @@ export function createApp(service: MemoryService, options: AppOptions): FastifyI
     });
 
     app.get("/api/providers", async () => service.providers());
+
+    app.post("/api/providers", async (request, reply) => {
+        const added = await service.addProvider(parseProviderAdd(bodyOf(request)));
+        return reply.code(201).send(added);
+    });
+
+    app.delete("/api/providers/:id", async (request) => {
+        await service.removeProvider(paramOf(request, "id"));
+        return { ok: true };
+    });
+
+    app.post("/api/providers/:id/scan", async (request) =>
+        service.scanProvider(paramOf(request, "id")),
+    );
 
     // Projects ------------------------------------------------------------------------------
 

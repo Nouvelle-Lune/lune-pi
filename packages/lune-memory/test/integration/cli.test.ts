@@ -10,6 +10,7 @@ import { runCli, sandbox, type CliRun, type TempSandbox } from "../harness/cli.t
 import { Store } from "../../src/store/db.ts";
 import { putItem } from "../../src/store/rows.ts";
 import { createMemoryEnv, createRepo, makeItem } from "../harness/memory.ts";
+import { startEndpoint } from "../harness/endpoint.ts";
 
 function run(box: TempSandbox, argv: string[], stdin?: string): Promise<CliRun> {
     return runCli(argv, {
@@ -534,5 +535,154 @@ describe("other commands", () => {
 
         assert.equal(actual.code, 0, actual.stderr);
         assert.match(actual.stdout, /^Generation /u);
+    });
+});
+
+describe("provider", () => {
+    const KEY = "test-key-not-real";
+
+    function modelsEndpoint(models: string[]) {
+        return startEndpoint((request) =>
+            request.url === "/v1/models"
+                ? { json: { data: models.map((id) => ({ id })) } }
+                : { status: 404, json: { error: `unexpected ${request.url}` } },
+        );
+    }
+
+    it("adds a provider with a key from stdin and no scan, and lists it", async (t) => {
+        const endpoint = await modelsEndpoint([]);
+        t.after(() => endpoint.close());
+        const box = sandbox(t);
+        const baseUrl = `${endpoint.url}/v1`;
+
+        const added = await run(
+            box,
+            [
+                "provider",
+                "add",
+                "acme",
+                "--api",
+                "openai-completions",
+                "--url",
+                `${baseUrl}/`,
+                "--name",
+                "Acme",
+                "--key",
+                "--no-scan",
+            ],
+            `${KEY}\n`,
+        );
+        assert.equal(added.code, 0, added.stderr);
+        assert.equal(added.stdout, "Added acme\n");
+        assert.deepEqual(endpoint.requests, []);
+
+        const modelsText = readFileSync(box.paths.models, "utf8");
+        assert.ok(!modelsText.includes(KEY), "the key stays out of models.json");
+        assert.deepEqual(JSON.parse(modelsText).providers.acme, {
+            name: "Acme",
+            baseUrl,
+            api: "openai-completions",
+        });
+        assert.ok(readFileSync(box.paths.credentials, "utf8").includes(KEY));
+
+        const text = await run(box, ["provider", "list"]);
+        assert.equal(text.code, 0, text.stderr);
+        assert.equal(text.stdout, `acme: openai-completions ${baseUrl}, 0 models, key set\n`);
+
+        const asJson = await run(box, ["provider", "list", "--json"]);
+        assert.equal(asJson.code, 0, asJson.stderr);
+        const parsed = parse(asJson.stdout);
+        assert.equal(parsed.length, 1);
+        assert.equal(parsed[0].id, "acme");
+        assert.equal(parsed[0].custom, true);
+        for (const output of [added, text, asJson]) {
+            assert.ok(!output.stdout.includes(KEY) && !output.stderr.includes(KEY));
+        }
+    });
+
+    it("scans a provider and removes it with its key", async (t) => {
+        const endpoint = await modelsEndpoint(["acme-1", "acme-2"]);
+        t.after(() => endpoint.close());
+        const box = sandbox(t);
+        const baseUrl = `${endpoint.url}/v1`;
+        const add = await run(
+            box,
+            [
+                "provider",
+                "add",
+                "acme",
+                "--api",
+                "openai-completions",
+                "--url",
+                baseUrl,
+                "--key",
+                "--no-scan",
+            ],
+            `${KEY}\n`,
+        );
+        assert.equal(add.code, 0, add.stderr);
+
+        const scanned = await run(box, ["provider", "scan", "acme"]);
+        assert.equal(scanned.code, 0, scanned.stderr);
+        assert.equal(scanned.stdout, "acme: 2 models\n");
+        const models = JSON.parse(readFileSync(box.paths.models, "utf8"));
+        assert.deepEqual(
+            models.providers.acme.models.map((model: { id: string }) => model.id),
+            ["acme-1", "acme-2"],
+        );
+
+        const listed = await run(box, ["provider", "list"]);
+        assert.equal(listed.stdout, `acme: openai-completions ${baseUrl}, 2 models, key set\n`);
+
+        const removed = await run(box, ["provider", "remove", "acme"]);
+        assert.equal(removed.code, 0, removed.stderr);
+        assert.equal(removed.stdout, "Removed acme\n");
+        assert.ok(!readFileSync(box.paths.credentials, "utf8").includes(KEY));
+        const empty = await run(box, ["provider", "list"]);
+        assert.equal(empty.stdout, "No custom providers\n");
+    });
+
+    it("rejects an add with an unknown protocol, a missing URL or an empty key", async (t) => {
+        const box = sandbox(t);
+
+        const badProtocol = await run(box, [
+            "provider",
+            "add",
+            "acme",
+            "--api",
+            "grpc",
+            "--url",
+            "http://127.0.0.1:1/v1",
+            "--no-scan",
+        ]);
+        assert.equal(badProtocol.code, 1);
+        assert.match(badProtocol.stderr, /^Error: api must be one of/u);
+
+        const missingUrl = await run(box, [
+            "provider",
+            "add",
+            "acme",
+            "--api",
+            "openai-completions",
+        ]);
+        assert.equal(missingUrl.code, 2);
+        assert.match(missingUrl.stderr, /provider add needs --api and --url/u);
+
+        const emptyKey = await run(
+            box,
+            [
+                "provider",
+                "add",
+                "acme",
+                "--api",
+                "openai-completions",
+                "--url",
+                "http://127.0.0.1:1/v1",
+                "--key",
+            ],
+            "\n",
+        );
+        assert.equal(emptyKey.code, 2);
+        assert.match(emptyKey.stderr, /The key is empty/u);
     });
 });
